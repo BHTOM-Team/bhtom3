@@ -14,16 +14,18 @@ import logging.config
 import os
 import tempfile
 
+from dotenv import dotenv_values
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+secret = dotenv_values(os.path.join(BASE_DIR, 'env/.bhtom.env'))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'rq_w1=^d4lw(#1k5-rm^((9f-*o+5&amp;1%1&amp;d66b4_k5+c1p4ur4'
+SECRET_KEY = secret.get("SECRET_KEY", '')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -61,6 +63,7 @@ INSTALLED_APPS = [
     'tom_observations',
     'tom_dataproducts',
     'custom_code',
+    'tom_swift',
 ]
 
 SITE_ID = 1
@@ -233,6 +236,10 @@ FACILITIES = {
             },
         },
     },
+    'SWIFT': {
+            'SWIFT_USERNAME': secret.get("SWIFT_USERNAME"),
+            'SWIFT_SHARED_SECRET': secret.get("SWIFT_SHARED_SECRET"),
+        },
 }
 
 # Define the valid data product types for your TOM.
@@ -274,6 +281,7 @@ TOM_FACILITY_CLASSES = [
     'tom_observations.facilities.lco.LCOFacility',
     'tom_observations.facilities.gemini.GEMFacility',
     'tom_observations.facilities.soar.SOARFacility',
+    'tom_swift.swift.SwiftFacility',
 ]
 
 TOM_ALERT_CLASSES = [
