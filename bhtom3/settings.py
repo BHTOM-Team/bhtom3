@@ -197,7 +197,7 @@ CACHES = {
 TARGET_TYPE = 'SIDEREAL'
 
 # Set to the full path of a custom target model to extend the BaseTarget Model with custom fields.
-# TARGET_MODEL_CLASS = 'custom_code.models.UserDefinedTarget'
+TARGET_MODEL_CLASS = 'custom_code.models.BhtomTarget'
 
 # Define MATCH_MANAGERS here. This is a dictionary that contains a dotted module path to the desired match manager
 # for a given model.
@@ -240,12 +240,30 @@ FACILITIES = {
 # second being the display name.
 # Be careful when removing items, as previously valid types will no
 # longer be valid, and may cause issues unless the offending records are modified.
+
 DATA_PRODUCT_TYPES = {
-    'photometry': ('photometry', 'Photometry'),
+    'photometry': ('photometry', ' Photometry - SExtractor format'),
+    'photometry_csv': ('photometry_csv', 'Photometry - CSV'),
     'fits_file': ('fits_file', 'FITS File'),
     'spectroscopy': ('spectroscopy', 'Spectroscopy'),
-    'image_file': ('image_file', 'Image File')
+    # 'image_file': ('image_file', 'Image File')
 }
+CLASSIFICATION_TYPES = [
+    ("Unknown", "Unknown"), ('Be-star outburst', 'Be-star outburst'),
+    ('AGN', "Active Galactic Nucleus(AGN)"), ("BL Lac", "BL Lac"),
+    ("CV", "Cataclysmic Variable(CV)"), ("CEPH", "Cepheid Variable(CEPH)"),
+    ("EB", "Eclipsing Binary(EB)"),
+    ("Galaxy", "Galaxy"), ("LPV", "Long Period Variable(LPV)"),
+    ("LBV", "Luminous Blue Variable(LBV)"),
+    ("M-dwarf flare", "M-dwarf flare"), ("Microlensing Event", "Microlensing Event"), ("Nova", "Nova"),
+    ("Peculiar Supernova", "Peculiar Supernova"),
+    ("QSO", "Quasar(QSO)"), ("RCrB", "R CrB Variable"), ("RR Lyrae Variable", "RR Lyrae Variable"),
+    ("SSO", "Solar System Object(SSO)"),
+    ("Star", "Star"), ("SN", "Supernova(SN)"), ("Supernova imposter", "Supernova imposter"),
+    ("Symbiotic star", "Symbiotic star"),
+    ("TDE", "Tidal Disruption Event(TDE)"), ("Variable star-other", "Variable star-other"),
+    ("XRB", "X-Ray Binary(XRB)"),
+    ("YSO", "Young Stellar Object(YSO)")]
 
 DATA_PROCESSORS = {
     'photometry': 'tom_dataproducts.processors.photometry_processor.PhotometryProcessor',
