@@ -240,6 +240,14 @@ FACILITIES = {
             'SWIFT_USERNAME': secret.get("SWIFT_USERNAME"),
             'SWIFT_SHARED_SECRET': secret.get("SWIFT_SHARED_SECRET"),
         },
+    'LT': {
+           'proposalIDs': (('ProposalID', 'Display Name'), ('ProposalID', 'Display Name')),
+           'username': '',
+           'password': '',
+           'LT_HOST': '',
+           'LT_PORT': '',
+           'DEBUG': False,
+    },
 }
 
 # Define the valid data product types for your TOM.
@@ -282,6 +290,7 @@ TOM_FACILITY_CLASSES = [
     'tom_observations.facilities.gemini.GEMFacility',
     'tom_observations.facilities.soar.SOARFacility',
     'tom_swift.swift.SwiftFacility',
+    'tom_lt.lt.LTFacility',
 ]
 
 TOM_ALERT_CLASSES = [
