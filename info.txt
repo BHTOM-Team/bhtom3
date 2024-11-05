@@ -1,0 +1,4 @@
+#
+#after restart of the terminal:
+source env/bin/activate
+python manage.py runserver
