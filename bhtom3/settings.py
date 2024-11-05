@@ -241,14 +241,14 @@ FACILITIES = {
             'SWIFT_SHARED_SECRET': secret.get("SWIFT_SHARED_SECRET"),
         },
     'LT': {
-           'proposalIDs': (('ProposalID', 'Display Name'), ('ProposalID', 'Display Name')),
-           'username': '',
-           'password': '',
-           'LT_HOST': '',
-           'LT_PORT': '',
+           'proposalIDs': ((secret.get("LT_PROPOSAL_ID"), secret.get("LT_PROPOSAL_TITLE")), ),
+           'username': secret.get("LT_PROPOSAL_USER"),
+           'password': secret.get("LT_PROPOSAL_PASS"),
+           'LT_HOST': '161.72.57.3',
+           'LT_PORT': '8080',
            'DEBUG': False,
     },
-}
+    }
 
 # Define the valid data product types for your TOM.
 # This is a dictionary of tuples to be used as ChoiceField options, with the first element being the type and the
