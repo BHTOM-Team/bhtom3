@@ -256,6 +256,11 @@ FACILITIES = {
            'LT_PORT': '8080',
            'DEBUG': False,
     },
+    'REM': {
+           'proposalIDs': ((50823, "ORP-PI:Mariusz Gromadzki"),(50712,"CNTAC-PI:Rene Mendez") ),
+           'email': "wyrzykow@gmail.com",
+    },
+
     }
 
 # Define the valid data product types for your TOM.
@@ -382,7 +387,7 @@ REST_FRAMEWORK = {
     ],
     'TEST_REQUEST_DEFAULT_FORMAT': 'json',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
-    'PAGE_SIZE': 100
+    'PAGE_SIZE': 1000
 }
 
 # Default Plotly theme setting, can set to any valid theme:
@@ -393,3 +398,13 @@ try:
     from local_settings import * # noqa
 except ImportError:
     pass
+
+TOMEMAIL: str  = secret.get('TOMEMAIL')
+TOMEMAILPASSWORD: str = secret.get('TOMEMAILPASSWORD')
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = secret.get('EMAIL_HOST')
+EMAIL_PORT = secret.get('EMAIL_PORT')
+EMAIL_USE_TLS = secret.get('EMAIL_USE_TLS', True)
+EMAIL_HOST_USER = TOMEMAIL
+EMAIL_HOST_PASSWORD = TOMEMAILPASSWORD

@@ -8,32 +8,39 @@ from tom_observations.cadence import CadenceForm
 from tom_targets.models import Target
 
 from custom_code.models import BhtomTarget
-
+from django.core.mail import send_mail
+from django.conf import settings
 
 SUCCESSFUL_OBSERVING_STATES = ['COMPLETED']
 FAILED_OBSERVING_STATES = ['WINDOW_EXPIRED', 'CANCELED', 'FAILURE_LIMIT_REACHED', 'NOT_ATTEMPTED']
 TERMINAL_OBSERVING_STATES = SUCCESSFUL_OBSERVING_STATES + FAILED_OBSERVING_STATES
 
 valid_instruments = ['ROS2']
-valid_filters = [['griz+JHK','griz+JHK'],['griz+J','griz+J'],['griz+H','griz+H'],['griz+Ks','griz+Ks']] #griz are always used in REM + infrared filter
+valid_filters = [['griz+H','griz+H'],['griz+J','griz+J'],['griz+Ks','griz+Ks'],['griz+z','griz+z']] #griz are always used in REM + infrared filter
 #z_IRCam, J_IRCam, H_IRCam, K_IRCam,
-        # H2_IRCam, JH_IRCam, JKI_RCam, HK_IRCam, JHK_IRCam, KH2_IRCam
-#exposure_times = {}
-#mag_init = 99.
+        # H2_IRCam, JH_IRCam, JK_IRCam, HK_IRCam, JHK_IRCam, KH2_IRCam
+# z -is the other half of the z band, H2 was an experiment, don't use. 
+#infrared filters are behind the filter wheel, only one at a time can be used. 
+
+rem_proposals = settings.FACILITIES.get('REM', {}).get('proposalIDs', [])
+proposal_choices = [(str(proposal_id), description) for proposal_id, description in rem_proposals]
 
 class REMPhotometricSequenceForm(BaseRoboticObservationForm):
 #    name = forms.CharField()
-    start = forms.CharField(widget=forms.TextInput(attrs={'type': 'date'}))
-    end = forms.CharField(required=False, widget=forms.TextInput(attrs={'type': 'date'}))
-    #ADD PROPOSAL ID/PI
+
+    proposal_id = forms.ChoiceField(label="Proposal ID", choices=proposal_choices)
+
+    start = forms.CharField(label="Start date [UT]",widget=forms.TextInput(attrs={'type': 'date'}))
+    end = forms.CharField(label="End date [UT]",required=True, widget=forms.TextInput(attrs={'type': 'date'}))
+
 #    observation_id = forms.CharField(required=False)
 #    observation_params = forms.CharField(required=False, widget=forms.Textarea(attrs={'type': 'json'}))
 
-    exposure_time = forms.FloatField(label="Exposure time Opt [s]",initial=100,help_text="in sec per optical exposure") # in sec
+    exposure_time = forms.IntegerField(label="Exposure time Opt [s]",initial=60,help_text="in sec per optical exposure") # in sec
     exposure_count = forms.IntegerField(initial=1, help_text="number of optical exposures per visit") # number of exposures per visit
 
-    exposure_time_ir = forms.FloatField(label="Exposure time IR [s]",initial=20,help_text="in sec per IR exposure") # in sec
-    exposure_count_ir = forms.FloatField(label="Number of NDIT in IR",initial=5,help_text="number of dithers in IR per exposure") 
+    exposure_time_ir = forms.IntegerField(label="Exposure time IR [s]",initial=10,help_text="in sec per IR exposure") # in sec
+    exposure_count_ir = forms.IntegerField(label="Number of NDIT in IR",initial=5,help_text="number of dithers in IR per exposure") 
    
     cadence = forms.FloatField(initial=1,help_text="days until next visit")  # in days to next visit
     filter = forms.ChoiceField(required=True, label='Filters', choices=valid_filters)
@@ -64,9 +71,9 @@ class REMPhotometricSequenceForm(BaseRoboticObservationForm):
 
         instrument = "ROS2"
         for filter_option, _ in valid_filters:
-            self.exposure_times[filter_option] = self.exposure_time_calculator(
+            self.exposure_times[filter_option] = int(self.exposure_time_calculator(
                 mag=self.mag_init, filter_name=filter_option, instrument=instrument
-            )
+            )) #it has to be int - REM's requirement
         
         # Set initial exposure time based on the first filter choice
         first_filter = self.fields['filter'].initial or valid_filters[0][0]
@@ -88,6 +95,7 @@ class REMPhotometricSequenceForm(BaseRoboticObservationForm):
         mag = self.mag_init
         return Div(
 #            Div('name'),
+            Div('proposal_id'),
             Div(
                 Div('start', css_class='col'),
                 Div('end', css_class='col'),
@@ -102,7 +110,9 @@ class REMPhotometricSequenceForm(BaseRoboticObservationForm):
             Div('cadence'),
         )
     
-    #     #TODO: add S/N parameter (default = 100?)
+    #   http://www.rem.inaf.it/?p=etc
+    # 60s for V=15mag gives S/N=100 in optical
+    #
     def exposure_time_calculator(self, mag, filter_name, instrument):
         if instrument not in valid_instruments:
             return -1
@@ -113,14 +123,15 @@ class REMPhotometricSequenceForm(BaseRoboticObservationForm):
 
         # Define a base exposure time for each filter
         filter_base_exposure_times = {
-            'griz+J': 100,   # Example base exposure time for griz+J filter
-            'griz+H': 120,   # Example base exposure time for griz+H filter
-            'griz+Ks': 140   # Example base exposure time for griz+Ks filter
+            'griz+J': 60,   # Example base exposure time for griz+J filter
+            'griz+H': 60,   # Example base exposure time for griz+H filter
+            'griz+Ks': 60,   # Example base exposure time for griz+Ks filter
+            'griz+JHK': 60,
         }
 
         # Get the base exposure time for the selected filter
-        base_exposure_time = filter_base_exposure_times.get(filter_name, 100)  # Default to 100 if not found
-        adjusted_exposure_time = base_exposure_time * (10**((mag-14)/2.5))
+        base_exposure_time = filter_base_exposure_times.get(filter_name, 60)  # Default to 60s
+        adjusted_exposure_time = base_exposure_time * (10**((mag-15)/2.5))
         return adjusted_exposure_time
 
 
@@ -157,6 +168,9 @@ class REM(BaseRoboticObservationFacility):
         return TERMINAL_OBSERVING_STATES
 
     def validate_observation(self, observation_payload):
+        #TODO: check if the target is visible in this time window requested.
+#            visibility_result, min_airmass = check_visibility(row['name'], row['ra'], row['dec'], observer, start_time, airmass_limit=airmass_limit)
+
         pass
 
     def submit_observation(self, observation_payload):
@@ -172,134 +186,145 @@ class REM(BaseRoboticObservationFacility):
         dec = target.dec
 
         template = """
-        [STARTREMOB]
-        # Target data
-
-        [TARGET]
-
-        # no spaces are allowed in name
-        TargetName: {target_name}
-
-        # RA degrees.dddd, J2000
-        RA: {ra}
-
-        # DEC degrees.dddd, J2000
-        DEC: {dec}
-
-        # Equinox year.dd (this parameter is optional, else is 2000.0)
-        Equinox: 2000.0
-
-        # Optical camera data
-        [ROSS]
-
-        # 1 if optical data are desidered, else 0
-        OptFlag: 1
-
-        # seconds, total requested time must be less than 1 hour
-        Exptime: {exptime}
-
-        # Camera focus (optional)
-        OptFocus: 0
-
-        # CCD sensitivity (optional)
-        # Sensitivity options:
-        # CCDslowsens, CCDslowhigh, CCDfastsens, CCDfasthigh, CCDultrasens, CCDultrahigh
-        OptSensitivity: CCDslowsens
-
-        # number of exposures
-        OptNInt: {expcount}
-
-
-        # Infrared camera data
-
-        [REMIR]
-
-        # 1 if infrared data are desidered, else 0
-        IRFlag: 1
-
-        # detector integration time, seconds
-        DIT: {exptime_ir}
-
-        # filter
-        IRFilter: {ir_filter}
-
-        # number of exposure DITx5 long
-        IRNInt: {expcount_ir}
-
-        # Available filter are: z_IRCam, J_IRCam, H_IRCam, K_IRCam,
-        # H2_IRCam, JH_IRCam, JKI_RCam, HK_IRCam, JHK_IRCam, KH2_IRCam
-
-
-        # PI data
-
-        [PI]
-
-        # PI name, no spaces are allowed
-        PIName: Mariusz Gromadzki
-
-        # PI institute, no spaces are allowed
-        PIInst: Warsaw
-
-        # PI e-mail
-        PIEmail: mgromadzki@astrouw.edu.pl
+[STARTREMOB]
 
 
 
-        # Observation data and access permission
+# Target data
+[TARGET]
 
-        [DATA]
+# Category
+TargetCategory: NotClassifiedSource
+# Available categories:
+# SCHGRB (#Scheduled GRB), Star, AGN, LMXRB (# LMXRB), HMXRB (# HMXRB),
+# FlaringStar, OpenCluster, GlobularCluster, Planetary Nebula,
+# Supernova Remnant, NotClassifiedSource, Galaxy, SoftGamma-RayRepeater
+# SolarSystemObject, ActiveSupernova (# Supernova still active), Nebula
 
-        # your proposal Id
-        PropId: 14004
+# no spaces are allowed in name
+TargetName: {target_name}
 
-        # Password for OBS activation
-        PassWd: Obs4All
+# RA degrees.dddd, J2000
+RA: {ra}
 
-        # Minimum airmass (this item is optional)
-        MinAirmass: 0.0
+# DEC degrees.dddd, J2000
+DEC: {dec}
 
-        # Maximum airmass (this item is optional)
-        MaxAirmass: 2.0
+# Equinox year.dd (this parameter is optional, else is 2000.0)
+Equinox: 2000.0
 
-        # Minimum Julian Date (this item is optional, 0 means no constraints)
-        MinJD: {start_jd}
+# Optical camera data
+[ROSS]
 
-        # Maximum Julian Date (this item is optional, 0 means no constraints)
-        MaxJD: {end_jd}
+# 1 if optical data are desidered, else 0
+OptFlag: 1
 
-        # Strict starting Julian Date (this item is optional, 0 means no constraints)
-        StrictJD: 0.
+# seconds, total requested time must be less than 1 hour
+Exptime: {exptime}
 
-        # Maximum Moon fraction (this item is optional)
-        MaxMoonFraction: 1.0
+# Camera focus (optional)
+OptFocus: 0
 
-        # Periodical target? (this item is optional, 0 means no periodicity)
-        PeriodicalTarget: 1
+# CCD sensitivity (optional)
+# Sensitivity options:
+# CCDslowsens, CCDslowhigh, CCDfastsens, CCDfasthigh, CCDultrasens, CCDultrahigh
+OptSensitivity: CCDslowsens
 
-        # Period (this item is optional, days)
-        Period: {cadence}
-
-        # Priority (this item is optional, 0 is the maximum priority, then 1, 2, etc.)
-        Priority: 1
-
+# number of exposures
+OptNInt: {expcount}
 
 
-        # Jitter data (optional)
+# Infrared camera data
 
-        [JITTER]
+[REMIR]
 
-        # Number of jittered OBs to create
-        JitteredOBs: 5
+# 1 if infrared data are desidered, else 0
+IRFlag: 1
 
-        # Min jittering radius (arcmin)
-        MinJitteringRadius: 0.1
+# detector integration time, seconds
+DIT: {exptime_ir}
 
-        # Max jittering radius (arcmin)
-        MaxJitteringRadius: 2.0
+# filter
+IRFilter: {ir_filter}
 
-        [ENDREMOB]
+# number of exposure DITx5 long
+IRNInt: {expcount_ir}
+
+# Available filter are: z_IRCam, J_IRCam, H_IRCam, K_IRCam,
+# H2_IRCam, JH_IRCam, JK_IRCam, HK_IRCam, JHK_IRCam, KH2_IRCam
+
+
+# PI data
+
+[PI]
+
+# PI name, no spaces are allowed
+PIName: BHTOM
+
+# PI institute, no spaces are allowed
+PIInst: Warsaw
+
+# PI e-mail
+PIEmail: {email}
+
+
+
+# Observation data and access permission
+
+[DATA]
+
+# your proposal Id
+PropId: {proposal_id}
+
+# Password for OBS activation
+PassWd: REMObsPwd
+
+# Minimum airmass (this item is optional)
+MinAirmass: 0.0
+
+# Maximum airmass (this item is optional)
+MaxAirmass: 2.5
+
+# Minimum Julian Date (this item is optional, 0 means no constraints)
+MinJD: {start_jd}
+
+# Maximum Julian Date (this item is optional, 0 means no constraints)
+MaxJD: {end_jd}
+
+# Strict starting Julian Date (this item is optional, 0 means no constraints)
+StrictJD: 0.
+
+# Maximum Moon fraction (this item is optional)
+MaxMoonFraction: 1.0
+
+# Periodical target? (this item is optional, 0 means no periodicity)
+PeriodicalTarget: 1
+
+# Period (this item is optional, days)
+Period: {cadence}
+
+# Priority (this item is optional, 0 is the maximum priority, then 1, 2, etc.)
+Priority: 1
+
+
+
+# Jitter data (optional)
+# LW: NO JITTER
+#[JITTER]
+
+# Number of jittered OBs to create 
+#JitteredOBs: 0 
+
+# Min jittering radius (arcmin)
+#MinJitteringRadius: 0.1
+
+# Max jittering radius (arcmin)
+#MaxJitteringRadius: 2.0
+
+[ENDREMOB]
         """
 
+        email = settings.FACILITIES.get('REM', {}).get('email', ['wyrzykow@gmail.com'])
         # Get start and end dates from observation_payload
         start_date_str = observation_payload['params']['start']
         end_date_str = observation_payload['params']['end']
@@ -322,6 +347,8 @@ class REM(BaseRoboticObservationFacility):
             target_name=target_name,
             ra=ra,
             dec=dec,
+            proposal_id = observation_payload['params']['proposal_id'],
+            email=email,
             cadence = observation_payload['params']['cadence'],
             exptime = observation_payload['params']['exposure_time'],
             exptime_ir = observation_payload['params']['exposure_time_ir'],
@@ -334,8 +361,11 @@ class REM(BaseRoboticObservationFacility):
         )
 
         # Now, the filled_template contains the complete formatted text
-        print(filled_template)
+        # print(filled_template)
 
+        recipient_email = ["remobs@www.rem.inaf.it","wyrzykow@gmail.com"]
+        # Send the email
+        self.send_template_email(filled_template, recipient_email)
         return []
 
 
@@ -350,4 +380,22 @@ class REM(BaseRoboticObservationFacility):
         # Calculate Julian Date
         julian_date = dt.toordinal() + 1721424.5 + (dt.hour + dt.minute / 60 + dt.second / 3600) / 24
         return julian_date
+ 
+    #recipients can be a single string or a list of strings
+    def send_template_email(self,filled_template, recipients):
+        if isinstance(recipients, str):
+            recipients = [recipients]  # Convert single email to list
 
+        subject = "REM_OBS" #don't change!
+        message = filled_template  # The filled template string
+        from_email = settings.EMAIL_HOST_USER  # From email address
+        recipient_list = recipients
+
+        # Send the email
+        send_mail(
+            subject,
+            message,
+            from_email,
+            recipient_list,
+            fail_silently=False,  # Set to True in production to avoid raising errors
+        )
