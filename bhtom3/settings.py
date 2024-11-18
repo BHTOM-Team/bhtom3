@@ -303,8 +303,9 @@ TOM_FACILITY_CLASSES = [
     'tom_observations.facilities.gemini.GEMFacility',
     'tom_observations.facilities.soar.SOARFacility',
     'tom_swift.swift.SwiftFacility',
-    'tom_lt.lt.LTFacility',
+#    'tom_lt.lt.LTFacility',
     'bhtom3.bhtom_observations.facilities.rem.REM',    
+    'bhtom3.bhtom_observations.facilities.lt.LTFacility',    
 ]
 
 TOM_ALERT_CLASSES = [
