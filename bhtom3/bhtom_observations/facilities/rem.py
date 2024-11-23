@@ -11,6 +11,8 @@ from custom_code.models import BhtomTarget
 from django.core.mail import send_mail
 from django.conf import settings
 
+import random
+
 SUCCESSFUL_OBSERVING_STATES = ['COMPLETED']
 FAILED_OBSERVING_STATES = ['WINDOW_EXPIRED', 'CANCELED', 'FAILURE_LIMIT_REACHED', 'NOT_ATTEMPTED']
 TERMINAL_OBSERVING_STATES = SUCCESSFUL_OBSERVING_STATES + FAILED_OBSERVING_STATES
@@ -366,7 +368,8 @@ Priority: 2
         recipient_email = ["remobs@www.rem.inaf.it","wyrzykow@gmail.com"]
         # Send the email
         self.send_template_email(filled_template, recipient_email)
-        return []
+        obs_id = random.randint(10000, 99999)
+        return [obs_id]
 
 
 
