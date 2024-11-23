@@ -708,7 +708,7 @@ def calculate_exposure_time(instrum, binn, filt, snr, mag, seeing, spinstrum=Non
         if exposure_time > 10800 or (starphotons * exposure_time / numberofpixels) > 10000:
             exposure_time = -1
 
-        return exposure_time
+        return exposure_time*1.1 #Zielinski factor
 
     # Spectroscopy calculation
     elif spinstrum and spslit and sparm and spmag and spsnr:
