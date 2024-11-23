@@ -260,6 +260,10 @@ FACILITIES = {
            'proposalIDs': ((50823, "ORP-PI:Mariusz Gromadzki"),(50712,"CNTAC-PI:Rene Mendez") ),
            'email': "wyrzykow@gmail.com",
     },
+    'SUHORA': {
+           'proposalIDs': ((9999, "BHTOM-Lukasz Wyrzykowski"),), #coma is needed after first proposal!
+           'email': "wyrzykow@gmail.com",
+    },
 
     }
 
@@ -304,8 +308,9 @@ TOM_FACILITY_CLASSES = [
     'tom_observations.facilities.soar.SOARFacility',
     'tom_swift.swift.SwiftFacility',
 #    'tom_lt.lt.LTFacility',
-    'bhtom3.bhtom_observations.facilities.rem.REM',    
     'bhtom3.bhtom_observations.facilities.lt.LTFacility',    
+    'bhtom3.bhtom_observations.facilities.rem.REM',    
+    'bhtom3.bhtom_observations.facilities.suhora.SUHORA',    
 ]
 
 TOM_ALERT_CLASSES = [
