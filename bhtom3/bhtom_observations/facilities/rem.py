@@ -38,10 +38,10 @@ class REMPhotometricSequenceForm(BaseRoboticObservationForm):
 #    observation_id = forms.CharField(required=False)
 #    observation_params = forms.CharField(required=False, widget=forms.Textarea(attrs={'type': 'json'}))
 
-    exposure_time = forms.IntegerField(label="Exposure time Opt [s]",initial=60,help_text="in sec per optical exposure") # in sec
+    exposure_time = forms.FloatField(label="Exposure time Opt [s]",initial=60,help_text="in sec per optical exposure, max 3600s (1h)") # in sec
     exposure_count = forms.IntegerField(initial=1, help_text="number of optical exposures per visit") # number of exposures per visit
 
-    exposure_time_ir = forms.IntegerField(label="Exposure time IR [s]",initial=10,help_text="in sec per IR exposure") # in sec
+    exposure_time_ir = forms.FloatField(label="Exposure time IR [s]",initial=10,help_text="in sec per IR exposure") # in sec
     exposure_count_ir = forms.IntegerField(label="Number of NDIT in IR",initial=5,help_text="number of dithers in IR per exposure") 
    
     cadence = forms.FloatField(initial=1,help_text="days until next visit")  # in days to next visit
