@@ -221,7 +221,7 @@ MATCH_MANAGERS = {}
 FACILITIES = {
     'LCO': {
         'portal_url': 'https://observe.lco.global',
-        'api_key': '',
+        'api_key': secret.get('LCO_API_KEY', ''),
     },
     'GEM': {
         'portal_url': {
