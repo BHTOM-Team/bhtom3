@@ -264,6 +264,10 @@ FACILITIES = {
            'proposalIDs': ((9999, "BHTOM-Lukasz Wyrzykowski"),), #coma is needed after first proposal!
            'email': "wyrzykow@gmail.com",
     },
+    'BOLECINA': {
+           'proposalIDs': ((999, "BHTOM-Lukasz Wyrzykowski"),), #coma is needed after first proposal!
+           'email': "wyrzykow@gmail.com",
+    },
 
     }
 
@@ -311,6 +315,7 @@ TOM_FACILITY_CLASSES = [
     'bhtom3.bhtom_observations.facilities.lt.LTFacility',    
     'bhtom3.bhtom_observations.facilities.rem.REM',    
     'bhtom3.bhtom_observations.facilities.suhora.SUHORA',    
+    'bhtom3.bhtom_observations.facilities.bolecina.BOLECINA',    
 ]
 
 TOM_ALERT_CLASSES = [

@@ -17,14 +17,14 @@ SUCCESSFUL_OBSERVING_STATES = ['COMPLETED']
 FAILED_OBSERVING_STATES = ['WINDOW_EXPIRED', 'CANCELED', 'FAILURE_LIMIT_REACHED', 'NOT_ATTEMPTED']
 TERMINAL_OBSERVING_STATES = SUCCESSFUL_OBSERVING_STATES + FAILED_OBSERVING_STATES
 
-valid_instruments = ['Suhora']
-valid_filters = [['U','U'],['B','B'],['V','V'],['I','I']] 
+valid_instruments = ['SOAB_ZWO-ASI294MC-Pro']
+valid_filters = [['B','B'],['R','R'],['I','I']] 
 
-suhora_proposals = settings.FACILITIES.get('SUHORA', {}).get('proposalIDs', [])
+bolecina_proposals = settings.FACILITIES.get('BOLECINA', {}).get('proposalIDs', [])
 
-proposal_choices = [(str(proposal_id), description) for proposal_id, description in suhora_proposals]
+proposal_choices = [(str(proposal_id), description) for proposal_id, description in bolecina_proposals]
 
-class SUHORAPhotometricSequenceForm(BaseRoboticObservationForm):
+class BOLECINAPhotometricSequenceForm(BaseRoboticObservationForm):
 #    name = forms.CharField()
 
     proposal_id = forms.ChoiceField(label="Proposal ID", choices=proposal_choices)
@@ -57,7 +57,7 @@ class SUHORAPhotometricSequenceForm(BaseRoboticObservationForm):
         super().__init__(*args, **kwargs)
 
         target = Target.objects.get(id=self.initial.get('target_id'))
-        # initial_data.setdefault('name', f'BHTOM_SUHORA_{target.name}')
+        # initial_data.setdefault('name', f'BHTOM_BOLECINA_{target.name}')
         # kwargs['initial'] = initial_data
 
         # Precompute exposure time for each filter option
@@ -65,11 +65,11 @@ class SUHORAPhotometricSequenceForm(BaseRoboticObservationForm):
 
         self.exposure_times = {}
 
-        instrument = "SUHORA60_APOGEE"
+        instrument = "SOAB_ZWO-ASI294MC-Pro"
         for filter_option, _ in valid_filters:
             self.exposure_times[filter_option] = int(self.exposure_time_calculator(
                 mag=self.mag_init, filter_name=filter_option, instrument=instrument
-            )) #it has to be int - SUHORA's requirement
+            )) #it has to be int - BOLECINA's requirement
         
         # Set initial exposure time based on the first filter choice
         first_filter = self.fields['filter'].initial or valid_filters[0][0]
@@ -131,18 +131,18 @@ class SUHORAPhotometricSequenceForm(BaseRoboticObservationForm):
         return adjusted_exposure_time
 
 
-class SUHORA(BaseRoboticObservationFacility):
-    name = 'SUHORA'
+class BOLECINA(BaseRoboticObservationFacility):
+    name = 'BOLECINA'
     SITES = {
-        'SUHORA': {
-            'sitecode': 'SUHORA',
-            'latitude': 49.5692,
-            'longitude': 20.067293,
-            'elevation': 1000.
+        'BOLECINA': {
+            'sitecode': 'BOLECINA',
+            'latitude': 49.81982694,
+            'longitude': 19.37052083,
+            'elevation': 398.
         }
     }
     observation_forms = {
-        'PHOTOMETRIC_SEQUENCE': SUHORAPhotometricSequenceForm,
+        'PHOTOMETRIC_SEQUENCE': BOLECINAPhotometricSequenceForm,
     }
 
     def data_products(self, observation_id, product_id=None):
@@ -176,13 +176,13 @@ class SUHORA(BaseRoboticObservationFacility):
         target = BhtomTarget.objects.get(id=target_id)
 
         # Extract target details
-        # removing spaces in target name (SUHORA requirement)
+        # removing spaces in target name (BOLECINA requirement)
         target_name = target.name.replace(" ", "_")  # or use .replace(" ", "")
         ra = target.ra
         dec = target.dec
 
         template = """
-[STARTSUHORAOB]
+[STARTBOLECINAOB]
 
 
 
@@ -210,7 +210,7 @@ DEC: {dec}
 Equinox: 2000.0
 
 # Optical camera data
-[SUHORA60_APOGEE]
+[SOAB_ZWO-ASI294MC-Pro]
 
 # 1 if optical data are desidered, else 0
 OptFlag: 1
@@ -253,7 +253,7 @@ PIEmail: {email}
 PropId: {proposal_id}
 
 # Password for OBS activation
-PassWd: SuhoraPassword
+PassWd: BolecinaPassword
 
 # Minimum airmass (this item is optional)
 MinAirmass: 0.0
@@ -282,10 +282,10 @@ Period: {cadence}
 # Priority (this item is optional, 0 is the maximum priority, then 1, 2, etc.)
 Priority: 2
 
-[ENDSUHORAOB]
+[ENDBOLECINAOB]
         """
 
-        email = settings.FACILITIES.get('SUHORA', {}).get('email', ['wyrzykow@gmail.com'])
+        email = settings.FACILITIES.get('BOLECINA', {}).get('email', ['wyrzykow@gmail.com'])
         # Get start and end dates from observation_payload
         start_date_str = observation_payload['params']['start']
         end_date_str = observation_payload['params']['end']
@@ -313,7 +313,7 @@ Priority: 2
         # Now, the filled_template contains the complete formatted text
         # print(filled_template)
 
-        recipient_email = ["michal.siwak@gmail.com","wyrzykow@gmail.com"]
+        recipient_email = ["kurowski.sebastian@gmail.com","wyrzykow@gmail.com"]
         # Send the email
         self.send_template_email(filled_template, recipient_email)
         obs_id = random.randint(1000, 9999)
@@ -337,7 +337,7 @@ Priority: 2
         if isinstance(recipients, str):
             recipients = [recipients]  # Convert single email to list
 
-        subject = "SUHORA_OBS" #don't change!
+        subject = "BOLECINA_OBS" #don't change!
         message = filled_template  # The filled template string
         from_email = settings.EMAIL_HOST_USER  # From email address
         recipient_list = recipients
