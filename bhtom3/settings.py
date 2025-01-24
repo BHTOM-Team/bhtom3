@@ -329,14 +329,15 @@ TOM_ALERT_CLASSES = [
 
 BROKERS = {
     'TNS': {
-        'api_key': '',
-        'bot_id': '',
-        'bot_name': '',
+        # BHTOM_Bot TNS API
+        'api_key': secret.get('TNS_API_KEY', ''),
+        'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}'
     },
     'Lasair': {
         'api_key': '',
     }
 }
+
 
 TOM_HARVESTER_CLASSES = [
     'tom_catalogs.harvesters.simbad.SimbadHarvester',
@@ -347,7 +348,9 @@ TOM_HARVESTER_CLASSES = [
 
 HARVESTERS = {
     'TNS': {
-        'api_key': ''
+        # BHTOM_Bot TNS API
+        'api_key': secret.get('TNS_API_KEY', ''),
+        'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}'
     }
 }
 
