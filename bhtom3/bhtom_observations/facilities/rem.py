@@ -279,7 +279,7 @@ PIEmail: {email}
 PropId: {proposal_id}
 
 # Password for OBS activation
-PassWd: REMObsPwd
+PassWd: BHTOM22
 
 # Minimum airmass (this item is optional)
 MinAirmass: 0.0
