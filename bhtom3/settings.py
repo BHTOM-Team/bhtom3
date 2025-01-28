@@ -353,7 +353,9 @@ HARVESTERS = {
     'TNS': {
         # BHTOM_Bot TNS API
         'api_key': secret.get('TNS_API_KEY', ''),
-        'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}'
+        'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}',
+        'bot_id':99624,
+        'bot_name':"BHTOM_Bot"
     }
 }
 
