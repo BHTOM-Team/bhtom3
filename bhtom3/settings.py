@@ -331,7 +331,9 @@ BROKERS = {
     'TNS': {
         # BHTOM_Bot TNS API
         'api_key': secret.get('TNS_API_KEY', ''),
-        'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}'
+        'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}',
+        'bot_id':99624,
+        'bot_name':"BHTOM_Bot"
     },
     'Lasair': {
         'api_key': '',
@@ -340,6 +342,7 @@ BROKERS = {
 
 
 TOM_HARVESTER_CLASSES = [
+    'custom_code.bhtom_catalogs.harvesters.gaia_alerts.GaiaAlertsHarvester',
     'tom_catalogs.harvesters.simbad.SimbadHarvester',
     'tom_catalogs.harvesters.ned.NEDHarvester',
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
