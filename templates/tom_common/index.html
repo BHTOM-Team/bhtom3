@@ -1,0 +1,60 @@
+{% extends 'tom_common/base.html' %}
+{% load static targets_extras observation_extras dataproduct_extras tom_common_extras %}
+{% block title %}Home{% endblock %}
+{% block content %}
+    <div class="row">
+        <div class="col-lg-9">
+            <h2 class="text-center">Black Hole TOM 3.0001</h2>
+            <p class="text-center"><img
+                    src="{% static 'tom_common/img/logo-color.png' %}"
+                    class="img-fluid mx-auto"></p>
+            <p class="text-center"></p>
+            <div>
+                <div id="react">
+                    <!-- Contents get replaced by mounted React.Component -->
+                    <i class="fa fa-lg fa-spinner fa-spin"></i><br><br>
+                    <i class="pending"></i><br><br>
+                </div>
+            </div>
+            <p><a href="https://github.com/BHTOM-Team/bhtom2/blob/bhtom2-dev/Documentation/bhtom-service/README.md">BHTOM2 Documentation</a></p>
+        </div>
+        <div class="col-lg-3">
+            <div class="card text-white bg-dark">
+                <div class="card-header">
+                    Latest Comments
+                </div>
+                {% recent_comments %}
+            </div>
+            <br/>
+            <div class="card text-white bg-dark">
+                <div class="card-header">
+                    Latest Targets
+                </div>
+                {% recent_targets %}
+            </div>
+        </div>
+    </div>
+
+    <h6>
+    <i>        "I have one request, which is this, that the observations shall be made known each year. Observations buried in a desk are no observations. Should they be entrusted to me for reduction, or even for publication, I will undertake it with joy and thanks, and will also answer all questions with care and with the greatest pleasure.”
+    </i>   
+    <br>
+    <p style="text-align:right;">
+    Friedrich Wilhelm August Argelander, 1844 <br>
+        “An Appeal to the Friends of Astronomy” in Schumacher's Astronomical Year Book<br>
+        translated by Annie Jump Cannon, Popular Astronomy, 1912
+    </p>       
+        </h6>
+    <hr>
+    <h5>
+        <img src="{% static 'eu-flag-normal-reproduction-low-resolution.jpg' %}" alt="EU Flag" style="width: 30px; vertical-align: middle;">
+        BHTOM is based on the open-source <a href="https://lco.global/tomtoolkit/">TOM Toolkit by LCO</a> and has been developed with funding from the OPTICON-RadioNet Pilot (ORP) of the European Union's Horizon 2020 research and innovation programme under grant agreement No <a href="https://cordis.europa.eu/project/id/101004719">101004719</a> (2021-2025).
+        This project has received funding from ACME, the European Union's Horizon Europe Research and Innovation programme under grant agreement No <a href="https://cordis.europa.eu/project/id/101131928">101131928</a>. (2024-2028)    
+    </h5>
+<!--- from https://cosmoquest.org/x/365daysofastronomy/2010/01/24/january-24th-friedrich-wilhelm-august-argelander/-->        
+    <script>
+        {#window.props = {{props|json}};  // make sure to escape your props to prevent XSS! See here for the source for the json filter: https://gist.github.com/pirate/c18bfe4fd96008ffa0aef25001a2e88f#}
+        window.react_mount = document.getElementById('react');
+    </script>
+
+{% endblock %}

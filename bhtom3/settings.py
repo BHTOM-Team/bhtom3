@@ -14,22 +14,32 @@ import logging.config
 import os
 import tempfile
 
+from dotenv import dotenv_values
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+secret = dotenv_values(os.path.join(BASE_DIR, 'env/.bhtom.env'))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'rq_w1=^d4lw(#1k5-rm^((9f-*o+5&amp;1%1&amp;d66b4_k5+c1p4ur4'
+SECRET_KEY = secret.get("SECRET_KEY", '')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
+ALLOWED_HOSTS = ['visata.astrouw.edu.pl', 'localhost', '127.0.0.1', '*']
+CORS_REPLACE_HTTPS_REFERER      = False
+HOST_SCHEME                     = "http://"
+SECURE_PROXY_SSL_HEADER         = None
+SECURE_SSL_REDIRECT             = False
+SESSION_COOKIE_SECURE           = False
+CSRF_COOKIE_SECURE              = False
+SECURE_HSTS_SECONDS             = None
+SECURE_HSTS_INCLUDE_SUBDOMAINS  = False
+SECURE_FRAME_DENY               = False
 
 # Application definition
 
@@ -61,6 +71,7 @@ INSTALLED_APPS = [
     'tom_observations',
     'tom_dataproducts',
     'custom_code',
+    'tom_swift',
 ]
 
 SITE_ID = 1
@@ -197,7 +208,7 @@ CACHES = {
 TARGET_TYPE = 'SIDEREAL'
 
 # Set to the full path of a custom target model to extend the BaseTarget Model with custom fields.
-# TARGET_MODEL_CLASS = 'custom_code.models.UserDefinedTarget'
+TARGET_MODEL_CLASS = 'custom_code.models.BhtomTarget'
 
 # Define MATCH_MANAGERS here. This is a dictionary that contains a dotted module path to the desired match manager
 # for a given model.
@@ -210,7 +221,7 @@ MATCH_MANAGERS = {}
 FACILITIES = {
     'LCO': {
         'portal_url': 'https://observe.lco.global',
-        'api_key': '',
+        'api_key': secret.get('LCO_API_KEY', ''),
     },
     'GEM': {
         'portal_url': {
@@ -233,19 +244,62 @@ FACILITIES = {
             },
         },
     },
-}
+    'SWIFT': {
+            'SWIFT_USERNAME': secret.get("SWIFT_USERNAME"),
+            'SWIFT_SHARED_SECRET': secret.get("SWIFT_SHARED_SECRET"),
+        },
+    'LT': {
+           'proposalIDs': ((secret.get("LT_PROPOSAL_ID"), secret.get("LT_PROPOSAL_TITLE")), ),
+           'username': secret.get("LT_PROPOSAL_USER"),
+           'password': secret.get("LT_PROPOSAL_PASS"),
+           'LT_HOST': '161.72.57.3',
+           'LT_PORT': '8080',
+           'DEBUG': False,
+    },
+    'REM': {
+           'proposalIDs': ((50823, "ORP-PI:Mariusz Gromadzki"),(50712,"CNTAC-PI:Rene Mendez") ),
+           'email': "wyrzykow@gmail.com",
+    },
+    'SUHORA': {
+           'proposalIDs': ((9999, "BHTOM-Lukasz Wyrzykowski"),), #coma is needed after first proposal!
+           'email': "wyrzykow@gmail.com",
+    },
+    'BOLECINA': {
+           'proposalIDs': ((999, "BHTOM-Lukasz Wyrzykowski"),), #coma is needed after first proposal!
+           'email': "wyrzykow@gmail.com",
+    },
+
+    }
 
 # Define the valid data product types for your TOM.
 # This is a dictionary of tuples to be used as ChoiceField options, with the first element being the type and the
 # second being the display name.
 # Be careful when removing items, as previously valid types will no
 # longer be valid, and may cause issues unless the offending records are modified.
+
 DATA_PRODUCT_TYPES = {
-    'photometry': ('photometry', 'Photometry'),
+    'photometry': ('photometry', ' Photometry - SExtractor format'),
+    'photometry_csv': ('photometry_csv', 'Photometry - CSV'),
     'fits_file': ('fits_file', 'FITS File'),
     'spectroscopy': ('spectroscopy', 'Spectroscopy'),
-    'image_file': ('image_file', 'Image File')
+    # 'image_file': ('image_file', 'Image File')
 }
+CLASSIFICATION_TYPES = [
+    ("Unknown", "Unknown"), ('Be-star outburst', 'Be-star outburst'),
+    ('AGN', "Active Galactic Nucleus(AGN)"), ("BL Lac", "BL Lac"),
+    ("CV", "Cataclysmic Variable(CV)"), ("CEPH", "Cepheid Variable(CEPH)"),
+    ("EB", "Eclipsing Binary(EB)"),
+    ("Galaxy", "Galaxy"), ("LPV", "Long Period Variable(LPV)"),
+    ("LBV", "Luminous Blue Variable(LBV)"),
+    ("M-dwarf flare", "M-dwarf flare"), ("Microlensing Event", "Microlensing Event"), ("Nova", "Nova"),
+    ("Peculiar Supernova", "Peculiar Supernova"),
+    ("QSO", "Quasar(QSO)"), ("RCrB", "R CrB Variable"), ("RR Lyrae Variable", "RR Lyrae Variable"),
+    ("SSO", "Solar System Object(SSO)"),
+    ("Star", "Star"), ("SN", "Supernova(SN)"), ("Supernova imposter", "Supernova imposter"),
+    ("Symbiotic star", "Symbiotic star"),
+    ("TDE", "Tidal Disruption Event(TDE)"), ("Variable star-other", "Variable star-other"),
+    ("XRB", "X-Ray Binary(XRB)"),
+    ("YSO", "Young Stellar Object(YSO)")]
 
 DATA_PROCESSORS = {
     'photometry': 'tom_dataproducts.processors.photometry_processor.PhotometryProcessor',
@@ -256,6 +310,12 @@ TOM_FACILITY_CLASSES = [
     'tom_observations.facilities.lco.LCOFacility',
     'tom_observations.facilities.gemini.GEMFacility',
     'tom_observations.facilities.soar.SOARFacility',
+    'tom_swift.swift.SwiftFacility',
+#    'tom_lt.lt.LTFacility',
+    'bhtom3.bhtom_observations.facilities.lt.LTFacility',    
+    'bhtom3.bhtom_observations.facilities.rem.REM',    
+    'bhtom3.bhtom_observations.facilities.suhora.SUHORA',    
+    'bhtom3.bhtom_observations.facilities.bolecina.BOLECINA',    
 ]
 
 TOM_ALERT_CLASSES = [
@@ -269,16 +329,20 @@ TOM_ALERT_CLASSES = [
 
 BROKERS = {
     'TNS': {
-        'api_key': '',
-        'bot_id': '',
-        'bot_name': '',
+        # BHTOM_Bot TNS API
+        'api_key': secret.get('TNS_API_KEY', ''),
+        'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}',
+        'bot_id':99624,
+        'bot_name':"BHTOM_Bot"
     },
     'Lasair': {
         'api_key': '',
     }
 }
 
+
 TOM_HARVESTER_CLASSES = [
+#    'custom_code.bhtom_catalogs.harvesters.gaia_alerts.GaiaAlertsHarvester',
     'tom_catalogs.harvesters.simbad.SimbadHarvester',
     'tom_catalogs.harvesters.ned.NEDHarvester',
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
@@ -287,7 +351,11 @@ TOM_HARVESTER_CLASSES = [
 
 HARVESTERS = {
     'TNS': {
-        'api_key': ''
+        # BHTOM_Bot TNS API
+        'api_key': secret.get('TNS_API_KEY', ''),
+        'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}',
+        'bot_id':99624,
+        'bot_name':"BHTOM_Bot"
     }
 }
 
@@ -338,7 +406,7 @@ REST_FRAMEWORK = {
     ],
     'TEST_REQUEST_DEFAULT_FORMAT': 'json',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
-    'PAGE_SIZE': 100
+    'PAGE_SIZE': 1000
 }
 
 # Default Plotly theme setting, can set to any valid theme:
@@ -349,3 +417,13 @@ try:
     from local_settings import * # noqa
 except ImportError:
     pass
+
+TOMEMAIL: str  = secret.get('TOMEMAIL')
+TOMEMAILPASSWORD: str = secret.get('TOMEMAILPASSWORD')
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = secret.get('EMAIL_HOST')
+EMAIL_PORT = secret.get('EMAIL_PORT')
+EMAIL_USE_TLS = secret.get('EMAIL_USE_TLS', True)
+EMAIL_HOST_USER = TOMEMAIL
+EMAIL_HOST_PASSWORD = TOMEMAILPASSWORD

@@ -1,32 +1,171 @@
-/*!
- * Adapted from Bootstrap v4.6.2 (https://getbootstrap.com/)
- * Set defaults for custom css
- */
-:root {
-    --primary: #007bff;
-    --secondary: #6c757d;
-    --success: #28a745;
-    --info: #17a2b8;
-    --warning: #ffc107;
-    --danger: #dc3545;
-    --light: #f8f9fa;
-    --dark: #343a40;
+body {
+    padding-top: 5rem;
+    background-color: #080404;
 }
 
-body {
-    font-size: 1rem;
-    font-weight: 400;
-    line-height: 1.5;
-    color: #212529;
-    background-color: #fff;
+.content {
+  padding: 3rem 1.5rem;
+}
+
+.navbar-brand > img {
+  max-height: 25px;
+}
+
+.input-group-text {
+  font-family: monospace;
+}
+
+.nav-item {
+  cursor: pointer;
+}
+
+#login-buttons > li {
+  margin: 0 2px 0 2px;
+}
+
+.btn-primary {
+    background-color: #f7586f;
+    border-color: #f7586f;
+}
+
+.btn-outline-primary {
+    color: #f7586f;
+    border-color: #f7586f;
 }
 
 a {
-    color: #007bff;
-    background-color: transparent;
+    color: #f7586f;
 }
 
-a:hover {
-    color: #0056b3;
-    text-decoration: underline;
+h1, h2, h3, h4, h5, h6, p, li, label, dt, dd, th, td {
+    color: #d7d6d6;
 }
+
+.red {
+  background-Color: red;
+}
+.orange {
+  background-Color: orange;
+}
+.green {
+  background-Color: green;
+}
+
+.dataTables_length select {
+  color: #f7586f;
+}
+.pagination {
+  background-color: #000; /* Black background color */
+  display: flex;
+  padding: 10px; /* Adjust padding as needed */
+}
+
+.page-item {
+  margin: 0 5px; /* Adjust margin as needed */
+}
+
+.page-link {
+  color: #fff; /* Text color */
+  background-color: transparent;
+  border: 1px solid #fff; /* Border color */
+  border-radius: 5px; /* Rounded edges */
+  padding: 5px 10px; /* Adjust padding as needed */
+  transition: background-color 0.3s, color 0.3s; /* Smooth hover transition */
+}
+
+
+.page-item.active .page-link {
+  background-color:  #f7586f; /* You can set a gray background if desired */
+  border: 1px solid #f7586f; /* Gray border for the selected page */
+}
+
+
+.page-link:hover {
+  background-color: #fff; /* Background color on hover */
+  color: #000; /* Text color on hover */
+}
+#DataTables_Table_0_info {
+  color: #fff !important;
+}/* Custom CSS for SingleTableMixin pagination */
+/* Style for the DataTables pagination with existing classes */
+#DataTables_Table_0_paginate {
+  display: flex !important;
+  justify-content: center !important;
+  background-color: #000 !important;
+  padding: 10px !important;
+  color: #fff !important;
+}
+#DataTables_Table_0_info {
+  color: #fff !important;
+}
+div.dataTables_paginate {
+  float: right !important;
+  text-align: right !important;
+  padding-top: 0.25em !important;
+}
+.paginate_button {
+  background-color: transparent !important;
+  border: 1px solid #fff !important;
+  border-radius: 5px !important;
+  min-width: 0.5em !important; /* Decreased min-width for smaller buttons */
+  padding: 0.25em 0.5em !important; /* Decreased padding for smaller buttons */
+  cursor: pointer !important;
+  margin: 0 5px !important;
+  text-indent: 0 !important;
+  text-decoration: none !important;
+  font-weight: bold !important;
+  font-size: 16px !important;
+  color: #fff !important;
+}
+.paginate_button.current {
+  color: #fff !important;
+  background-color:  #f7586f !important;
+  border: 1px solid  #f7586f !important;
+}
+.paginate_button.current:hover {
+  color: #fff !important;
+  background-color:  #f7586f !important;
+  border: 1px solid #f7586f !important;
+}
+#DataTables_Table_0{
+  color: #fff !important;
+  margin-right: 5px !important;
+}
+#DataTables_Table_0_previous {
+  color: #fff !important;
+  content: "<<" !important;
+  margin-right: 5px !important;
+}
+#DataTables_Table_0_next {
+  color: #fff !important;
+}
+
+.dataTables_filter input {
+  color: white !important;
+}
+
+.line-separator {
+  width: 100%;
+  height: 1px;
+  background-color: #ccc;
+  margin: 10px 0;
+}
+
+.custom-label {
+  color: white;
+}
+
+.white-border {
+  border: 5px solid white;
+}
+
+.test-bar {
+            background-color: red;
+            color: white;
+            text-align: center;
+            font-weight: bold;
+            position: fixed;
+            left: 0;
+            width: 100%;
+            z-index: 1000;
+        }

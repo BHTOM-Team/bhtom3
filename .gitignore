@@ -175,3 +175,5 @@ bhtom2/.DS_Store
 *.env
 
 /data
+custom_code/migrations/
+info.txt
