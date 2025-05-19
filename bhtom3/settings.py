@@ -257,7 +257,7 @@ FACILITIES = {
            'DEBUG': False,
     },
     'REM': {
-           'proposalIDs': ((50823, "ORP-PI:Mariusz Gromadzki"),(50712,"CNTAC-PI:Rene Mendez") ),
+           'proposalIDs': ((51902, "DDT,PI:Pawel Zielinski") ),
            'email': "wyrzykow@gmail.com",
     },
     'SUHORA': {
@@ -266,6 +266,10 @@ FACILITIES = {
     },
     'BOLECINA': {
            'proposalIDs': ((999, "BHTOM-Lukasz Wyrzykowski"),), #coma is needed after first proposal!
+           'email': "wyrzykow@gmail.com",
+    },
+    'LESEDI': {
+           'proposalIDs': ((99, "BHTOM-Lukasz Wyrzykowski"),), #coma is needed after first proposal!
            'email': "wyrzykow@gmail.com",
     },
 
@@ -315,7 +319,9 @@ TOM_FACILITY_CLASSES = [
     'bhtom3.bhtom_observations.facilities.lt.LTFacility',    
     'bhtom3.bhtom_observations.facilities.rem.REM',    
     'bhtom3.bhtom_observations.facilities.suhora.SUHORA',    
-    'bhtom3.bhtom_observations.facilities.bolecina.BOLECINA',    
+    'bhtom3.bhtom_observations.facilities.bolecina.BOLECINA',
+    'bhtom3.bhtom_observations.facilities.lesedi.LESEDI',    
+
 ]
 
 TOM_ALERT_CLASSES = [
