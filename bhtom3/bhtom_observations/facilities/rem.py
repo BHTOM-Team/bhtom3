@@ -365,7 +365,7 @@ Priority: 2
         # Now, the filled_template contains the complete formatted text
         # print(filled_template)
 
-        recipient_email = ["remobs@www.rem.inaf.it","wyrzykow@gmail.com"]
+        recipient_email = ["remobs@www.rem.inaf.it","wyrzykow@gmail.com", "pzielinski@umk.pl"]
         # Send the email
         self.send_template_email(filled_template, recipient_email)
         obs_id = random.randint(10000, 99999)

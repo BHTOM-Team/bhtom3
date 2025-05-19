@@ -258,7 +258,7 @@ FACILITIES = {
     },
     'REM': {
            'proposalIDs': ((51902, "DDT,PI:Pawel Zielinski") ),
-           'email': "wyrzykow@gmail.com",
+           'email': "pzielinski@umk.pl",
     },
     'SUHORA': {
            'proposalIDs': ((9999, "BHTOM-Lukasz Wyrzykowski"),), #coma is needed after first proposal!
