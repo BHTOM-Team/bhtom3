@@ -47,6 +47,8 @@ class REMPhotometricSequenceForm(BaseRoboticObservationForm):
     cadence = forms.FloatField(initial=1,help_text="days until next visit")  # in days to next visit
     filter = forms.ChoiceField(required=True, label='Filters', choices=valid_filters)
 
+    useremail = forms.CharField(required=False, label='email', help_text = "Email of the observer to receive confirmation (optional)")
+
     mag_init=99.
     exposure_times = {}
 
@@ -110,6 +112,7 @@ class REMPhotometricSequenceForm(BaseRoboticObservationForm):
             Div('exposure_time_ir'),
             Div('exposure_count_ir'),
             Div('cadence'),
+            Div('useremail'),
         )
     
     #   http://www.rem.inaf.it/?p=etc
@@ -356,6 +359,7 @@ Priority: 2
             exptime_ir = observation_payload['params']['exposure_time_ir'],
             expcount = observation_payload['params']['exposure_count'],
             expcount_ir = observation_payload['params']['exposure_count_ir'],
+            useremail = observation_payload['params']['email'],
             start_jd=start_jd,
             end_jd=end_jd,
             ir_filter=filter_ir
@@ -365,7 +369,7 @@ Priority: 2
         # Now, the filled_template contains the complete formatted text
         # print(filled_template)
 
-        recipient_email = ["remobs@www.rem.inaf.it","wyrzykow@gmail.com", "pzielinski@umk.pl"]
+        recipient_email = ["remobs@www.rem.inaf.it","wyrzykow@gmail.com", "pzielinski@umk.pl", filled_template.useremail]
         # Send the email
         self.send_template_email(filled_template, recipient_email)
         obs_id = random.randint(10000, 99999)
