@@ -348,6 +348,8 @@ Priority: 2
             filter_ir = "JHK_IRCam"  # default value
 
         # Format the template
+        user_email = observation_payload['params'].get('email', "")
+
         filled_template = template.format(
             target_name=target_name,
             ra=ra,
@@ -359,7 +361,7 @@ Priority: 2
             exptime_ir = observation_payload['params']['exposure_time_ir'],
             expcount = observation_payload['params']['exposure_count'],
             expcount_ir = observation_payload['params']['exposure_count_ir'],
-            useremail = observation_payload['params']['email'],
+            useremail=user_email,
             start_jd=start_jd,
             end_jd=end_jd,
             ir_filter=filter_ir
@@ -369,7 +371,7 @@ Priority: 2
         # Now, the filled_template contains the complete formatted text
         # print(filled_template)
 
-        recipient_email = ["remobs@www.rem.inaf.it","wyrzykow@gmail.com", "pzielinski@umk.pl", filled_template.useremail]
+        recipient_email = ["remobs@www.rem.inaf.it","wyrzykow@gmail.com", "pzielinski@umk.pl", user_email]
         # Send the email
         self.send_template_email(filled_template, recipient_email)
         obs_id = random.randint(10000, 99999)
