@@ -18,7 +18,7 @@ FAILED_OBSERVING_STATES = ['WINDOW_EXPIRED', 'CANCELED', 'FAILURE_LIMIT_REACHED'
 TERMINAL_OBSERVING_STATES = SUCCESSFUL_OBSERVING_STATES + FAILED_OBSERVING_STATES
 
 valid_instruments = ['ROS2']
-valid_filters = [['griz+H','griz+H'],['griz+J','griz+J'],['griz+Ks','griz+Ks'],['griz+z','griz+z']] #griz are always used in REM + infrared filter
+valid_filters = [['griz+H','griz+H'],['griz+J','griz+J'],['griz+K','griz+K'],['griz+z','griz+z']] #griz are always used in REM + infrared filter
 #z_IRCam, J_IRCam, H_IRCam, K_IRCam,
         # H2_IRCam, JH_IRCam, JK_IRCam, HK_IRCam, JHK_IRCam, KH2_IRCam
 # z -is the other half of the z band, H2 was an experiment, don't use. 
@@ -130,7 +130,7 @@ class REMPhotometricSequenceForm(BaseRoboticObservationForm):
         filter_base_exposure_times = {
             'griz+J': 60,   # Example base exposure time for griz+J filter
             'griz+H': 60,   # Example base exposure time for griz+H filter
-            'griz+Ks': 60,   # Example base exposure time for griz+Ks filter
+            'griz+K': 60,   # Example base exposure time for griz+K filter
             'griz+JHK': 60,
         }
 
