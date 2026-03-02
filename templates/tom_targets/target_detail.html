@@ -3,6 +3,38 @@
 {% block title %}Target {{ object.name }}{% endblock %}
 {% block additional_css %}
 <link rel="stylesheet" href="{% static 'tom_targets/css/main.css' %}">
+<style>
+  /* Target detail should use full viewport width without side margins */
+  main.container {
+    max-width: 100% !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  main.container > .content {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .target-detail-page .row {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .target-detail-page .col-md-4,
+  .target-detail-page .col-md-8 {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  /* Long target names (e.g. Gaia source ids) should fit better */
+  .target-detail-page #target-info > h3 {
+    font-size: 1.55rem;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+</style>
 {% endblock %}
 {% block content %}
 <script>
@@ -32,6 +64,7 @@
     }
   });
 </script>
+<div class="target-detail-page">
 <div class="row">
   <div class="col-md-4">
     <div id="target-info">
@@ -127,5 +160,6 @@
         {% endif %}
     </div>
   </div>
+</div>
 </div>
 {% endblock %}
