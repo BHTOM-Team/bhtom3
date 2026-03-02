@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'tom_targets',
     'tom_alerts',
     'tom_catalogs',
+    'tom_dataservices',
     'tom_observations',
     'tom_dataproducts',
     'custom_code',
@@ -366,18 +367,6 @@ HARVESTERS = {
         'bot_id':99624,
         'bot_name':"BHTOM_Bot"
     }
-}
-
-SINGLE_TARGET_DATA_SERVICES = {
-    'GAIA_DR3_PHOTOMETRY': {
-        'class': 'custom_code.single_target_data_service.gaia_dr3_photometry.GaiaDR3PhotometryService',
-        'service_type': 'Catalog Search',
-    },
-    'LSST_PHOTOMETRY': {
-        'class': 'custom_code.single_target_data_service.lsst_photometry.LSSTPhotometryService',
-        'service_type': 'Catalog Search',
-        'url': 'https://api.lsst.fink-portal.org',
-    },
 }
 
 # Define extra target fields here. Types can be any of "number", "string", "boolean" or "datetime"
