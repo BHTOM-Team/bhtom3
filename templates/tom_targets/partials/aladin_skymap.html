@@ -1,0 +1,169 @@
+<!-- embedding Aladin Lite example code found at: https://aladin.cds.unistra.fr/AladinLite/doc/  -->
+<style>
+  /* Keep Aladin UI text readable on dark TOM themes. */
+  #aladin-lite-div {
+    color: #e8e8e8;
+  }
+
+  #aladin-lite-div .aladin-popup-container,
+  #aladin-lite-div .aladin-popup {
+    background: rgba(18, 18, 18, 0.96) !important;
+    border: 1px solid #5c5c5c !important;
+    color: #e8e8e8 !important;
+  }
+
+  #aladin-lite-div .aladin-popupTitle,
+  #aladin-lite-div .aladin-popupText,
+  #aladin-lite-div .aladin-location,
+  #aladin-lite-div .aladin-fov,
+  #aladin-lite-div .aladin-reticleColor {
+    color: #f0f0f0 !important;
+  }
+
+  #aladin-lite-div button,
+  #aladin-lite-div select,
+  #aladin-lite-div input {
+    background: #1c1c1c !important;
+    border: 1px solid #6a6a6a !important;
+    color: #f0f0f0 !important;
+  }
+</style>
+<div id="aladin-lite-div" style="width:auto; height:700px; margin:auto; margin-top: 20px;" ></div>
+
+<script type="text/javascript">
+(async function loadAladin() {
+    const scriptKey = "cachedAladinJS";
+
+    if (sessionStorage.getItem(scriptKey)) {
+        // Load script from sessionStorage
+        const scriptContent = sessionStorage.getItem(scriptKey);
+        const script = document.createElement("script");
+        script.type = "text/javascript";
+        script.text = scriptContent;
+        document.head.appendChild(script);
+        console.log("Loaded aladin.js from sessionStorage");
+    } else {
+        // Fetch and cache the script
+        console.log("Fetching aladin.js ...");
+        const response = await fetch("https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js");
+        const scriptText = await response.text();
+        sessionStorage.setItem(scriptKey, scriptText);
+
+        // Inject script into the document
+        const script = document.createElement("script");
+        script.type = "text/javascript";
+        script.text = scriptText;
+        document.head.appendChild(script);
+        console.log("Fetched aladin.js and saved to sessionStorage");
+    }
+
+    // Initialize Aladin after script loads
+
+    A.init.then(() => {
+        window.aladin = A.aladin("#aladin-lite-div", {
+            survey: "CDS/P/Mellinger/color",
+            fov: 360,
+            projection: "MOL",
+            showReticle: false,
+            showCooGrid: true,
+            showCooGridControl: true,
+        });
+
+        aladin.setCooGrid({ color: 'grey', labelSize: 5 });
+
+        // Create a single catalog for all targets (instead of one per target).
+        // Stored on window so that updateAladinTargets() can replace its
+        // contents without rebuilding the viewer.
+        window.aladinTargetCatalog = A.catalog({
+            name: 'Targets', color: 'blue', sourceSize: 16
+        });
+        aladin.addCatalog(window.aladinTargetCatalog);
+
+        // Global function to update target markers on the existing viewer.
+        //
+        // NOTE: This pattern (Out-of-Band (OOB) data update instead of
+        // OOB DOM replacement) can be generalized for any HTMX table that
+        // needs to "side-load" updates to a companion widget.
+        // The key ingredients are:
+        //   1. A global JS update function registered on page load
+        //   2. An OOB <script> block in the partial that calls it with new data
+        window.updateAladinTargets = function(targets) {
+            if (!window.aladinTargetCatalog) return;
+            window.aladinTargetCatalog.removeAll();
+            for (var i = 0; i < targets.length; i++) {
+                var t = targets[i];
+                var popup = 'RA: ' + t.ra + '<br>Dec: ' + t.dec;
+                window.aladinTargetCatalog.addSources([
+                    A.marker(t.ra, t.dec, {popupTitle: t.name, popupDesc: popup})
+                ]);
+            }
+        };
+
+        // Initial target load from server-rendered context
+        updateAladinTargets({{ targets|safe }});
+
+        // extract Moon information from the context
+        const moonRaDeg = {{ moon_ra|safe }};
+        const moonDecDeg = {{ moon_dec|safe }};
+        const moonIllumination = {{ moon_illumination|safe }}.toFixed(3);
+        const moonGreyscale = 255 * moonIllumination;
+
+        // get a unicode representation of the Moon based on illumination fraction
+        var unicodeMoon;
+        if (moonIllumination <= 0.125 ) {
+            unicodeMoon = "\uD83C\uDF11";
+        } else if (moonIllumination <= 0.375) {
+            unicodeMoon = "\uD83C\uDF12";
+        } else if (moonIllumination <= 0.625) {
+            unicodeMoon = "\uD83C\uDF13";
+        } else if (moonIllumination <= 0.875) {
+            unicodeMoon = "\uD83C\uDF14";
+        } else if (moonIllumination <= 1.0) {
+            unicodeMoon = "\uD83C\uDF15";
+        }
+
+        // Create a text based symbol for the moon centered on the source coordinates
+        var drawMoon = function(source, canvasCtx) {
+            canvasCtx.globalAlpha = 1;
+            canvasCtx.font = '25px Arial';
+            canvasCtx.fillStyle = '#eee';
+            canvasCtx.textBaseline = 'middle';
+            canvasCtx.textAlign = 'center';
+            canvasCtx.fillText(unicodeMoon, source.x, source.y);
+        };
+
+        // create a catalog for the moon
+        const moonImage = A.catalog({shape: drawMoon, color: 'gray', name: 'Moon'});
+
+        const popupMoonDescription = `Illumination: ${moonIllumination} <br> RA: ${moonRaDeg.toFixed(4)} <br> Dec: ${moonDecDeg.toFixed(4)}`;
+
+        moonImage.addSources([A.marker(moonRaDeg, moonDecDeg,
+            {popupTitle: 'Moon (Geocentric)',
+            popupDesc: popupMoonDescription,
+            })]);
+
+        aladin.addCatalog(moonImage);
+
+        // now add the sun in its own catalog
+        const sunCatalog = A.catalog({
+            name: 'Sun',
+            shape: 'circle',
+            color: 'yellow',
+            sourceSize: 30}); // fontSize from Moon canvas plus 5 to match sizes
+
+        const sunRaDeg = {{ sun_ra|safe }};
+        const sunDecDeg = {{ sun_dec|safe }};
+
+        const popupSunDescription = `RA: ${sunRaDeg.toFixed(4)} <br> Dec: ${sunDecDeg.toFixed(4)}`;
+
+        sunCatalog.addSources([A.marker(sunRaDeg, sunDecDeg,
+            {popupTitle: 'Sun (Geocentric)',
+            popupDesc: popupSunDescription,
+            })]);
+
+        aladin.addCatalog(sunCatalog);
+
+    }); // closes A.init.then(() { ...
+
+})();
+</script>

@@ -41,6 +41,72 @@ h1, h2, h3, h4, h5, h6, p, li, label, dt, dd, th, td {
     color: #d7d6d6;
 }
 
+input,
+select,
+textarea,
+.form-control,
+.custom-select {
+  background-color: #141414;
+  color: #e6e6e6;
+  border-color: #5f5f5f;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #a8a8a8;
+}
+
+.form-control:focus,
+.custom-select:focus {
+  background-color: #141414;
+  color: #ffffff;
+  border-color: #f7586f;
+  box-shadow: 0 0 0 0.2rem rgba(247, 88, 111, 0.25);
+}
+
+.input-group-text {
+  color: #e6e6e6;
+  background-color: #1d1d1d;
+  border-color: #5f5f5f;
+}
+
+/* Target list table dark theme */
+.table {
+  color: #d7d6d6 !important;
+  background-color: transparent !important;
+}
+
+.table thead th {
+  color: #d7d6d6 !important;
+  border-top: 1px solid #f0f0f0 !important;
+  border-bottom: 2px solid #f0f0f0 !important;
+}
+
+.table td,
+.table th {
+  border-top: 1px solid #f0f0f0 !important;
+}
+
+.table tbody tr {
+  background-color: transparent !important;
+}
+
+.table-hover tbody tr:hover {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.table a {
+  color: #ff5f7a !important;
+}
+
+.target-count {
+  color: #d7d6d6 !important;
+  font-size: 1.25rem;
+  font-weight: 400;
+  vertical-align: middle;
+}
+
 .red {
   background-Color: red;
 }
@@ -65,24 +131,41 @@ h1, h2, h3, h4, h5, h6, p, li, label, dt, dd, th, td {
 }
 
 .page-link {
-  color: #fff; /* Text color */
-  background-color: transparent;
-  border: 1px solid #fff; /* Border color */
+  color: #ffd9e0 !important;
+  background-color: rgba(255, 95, 122, 0.14) !important;
+  border: 1px solid #ff8ea0 !important;
   border-radius: 5px; /* Rounded edges */
-  padding: 5px 10px; /* Adjust padding as needed */
+  padding: 3px 8px; /* Smaller page number buttons */
+  font-size: 0.8rem;
+  line-height: 1.1;
   transition: background-color 0.3s, color 0.3s; /* Smooth hover transition */
 }
 
 
 .page-item.active .page-link {
-  background-color:  #f7586f; /* You can set a gray background if desired */
-  border: 1px solid #f7586f; /* Gray border for the selected page */
+  color: #fff !important;
+  background-color: #ff5f7a !important;
+  border: 1px solid #ff5f7a !important;
+}
+
+.page-item.disabled .page-link {
+  color: #ffc7d2 !important;
+  background-color: rgba(255, 95, 122, 0.22) !important;
+  border-color: #ff9fb0 !important;
+  opacity: 1 !important;
 }
 
 
 .page-link:hover {
-  background-color: #fff; /* Background color on hover */
-  color: #000; /* Text color on hover */
+  background-color: #ff86a0 !important;
+  border-color: #ff86a0 !important;
+  color: #1a1a1a !important;
+}
+
+.pagination + span,
+.pagination + small,
+.pagination + p {
+  color: #cfd2d6 !important;
 }
 #DataTables_Table_0_info {
   color: #fff !important;
@@ -113,8 +196,9 @@ div.dataTables_paginate {
   margin: 0 5px !important;
   text-indent: 0 !important;
   text-decoration: none !important;
-  font-weight: bold !important;
-  font-size: 16px !important;
+  font-weight: 500 !important;
+  font-size: 0.8rem !important;
+  line-height: 1.1 !important;
   color: #fff !important;
 }
 .paginate_button.current {
