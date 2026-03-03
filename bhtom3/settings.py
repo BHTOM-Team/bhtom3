@@ -395,12 +395,16 @@ TARGET_PERMISSIONS_ONLY = True
 OPEN_URLS = []
 
 HOOKS = {
-    'target_post_save': 'tom_common.hooks.target_post_save',
+    'target_post_save': 'custom_code.hooks.target_post_save',
     'observation_change_state': 'tom_common.hooks.observation_change_state',
     'data_product_post_upload': 'tom_dataproducts.hooks.data_product_post_upload',
     'data_product_post_save': 'tom_dataproducts.hooks.data_product_post_save',
     'multiple_data_products_post_save': 'tom_dataproducts.hooks.multiple_data_products_post_save',
 }
+
+# If True, newly-created targets will trigger asynchronous Gaia/LSST DataService
+# queries in the background via the custom target_post_save hook.
+AUTO_QUERY_DATA_SERVICES_ON_TARGET_CREATE = True
 
 AUTO_THUMBNAILS = False
 
