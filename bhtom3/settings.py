@@ -72,6 +72,8 @@ INSTALLED_APPS = [
     'tom_dataservices',
     'tom_observations',
     'tom_dataproducts',
+    'django_tasks',
+    'django_tasks.backends.database',
     'custom_code',
     'tom_swift',
 ]
@@ -421,6 +423,12 @@ REST_FRAMEWORK = {
     'TEST_REQUEST_DEFAULT_FORMAT': 'json',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
     'PAGE_SIZE': 1000
+}
+
+TASKS = {
+    "default": {
+        "BACKEND": "django_tasks.backends.database.DatabaseBackend"
+    }
 }
 
 # Default Plotly theme setting, can set to any valid theme:

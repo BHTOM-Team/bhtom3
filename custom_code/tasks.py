@@ -1,8 +1,8 @@
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
 
 from django.db import close_old_connections
+from django_tasks import task
 
 from tom_dataservices.dataservices import get_data_service_classes
 from tom_targets.models import Target
@@ -10,14 +10,14 @@ from tom_targets.models import Target
 
 logger = logging.getLogger(__name__)
 
-_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix='dataservices')
 _DEFAULT_SERVICE_NAMES = ('Gaia DR3 DataService', 'LSST DataService')
 
 
 def enqueue_target_dataservices_update(target_id):
-    _EXECUTOR.submit(update_target_dataservices_for_target, target_id)
+    update_target_dataservices_for_target.enqueue(target_id)
 
 
+@task
 def update_target_dataservices_for_target(target_id):
     close_old_connections()
     try:
