@@ -1,5 +1,6 @@
 import math
 import re
+import logging
 
 from astropy.time import Time
 from astroquery.gaia import Gaia
@@ -10,6 +11,8 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import GaiaDR3QueryForm
+
+logger = logging.getLogger(__name__)
 
 
 def _to_float(value):
@@ -42,8 +45,8 @@ def _mag_error(flux_over_error):
 
 
 class GaiaDR3DataService(DataService):
-    name = 'Gaia DR3 DataService'
-    verbose_name = 'Gaia DR3 Data Service'
+    name = 'GaiaDR3'
+    verbose_name = 'GaiaDR3'
     info_url = 'https://gea.esac.esa.int/archive/'
     service_notes = 'Query Gaia DR3 by source_id or cone search, with optional epoch photometry.'
 
@@ -98,18 +101,23 @@ class GaiaDR3DataService(DataService):
         phot_rows = []
         if source_row and query_parameters.get('include_photometry', True):
             source_id = source_row.get('SOURCE_ID', source_row.get('source_id'))
-            datalink = Gaia.load_data(
-                ids=[str(source_id)],
-                data_release='Gaia DR3',
-                retrieval_type='EPOCH_PHOTOMETRY',
-                data_structure='INDIVIDUAL',
-                verbose=False,
-                output_file=None,
-                format='votable',
-            )
-            keys = sorted(datalink.keys())
-            if keys:
-                phot_rows = datalink[keys[0]][0].to_table().to_pandas().to_dict(orient='records')
+            try:
+                datalink = Gaia.load_data(
+                    ids=[str(source_id)],
+                    data_release='Gaia DR3',
+                    retrieval_type='EPOCH_PHOTOMETRY',
+                    data_structure='INDIVIDUAL',
+                    verbose=False,
+                    output_file=None,
+                    format='votable',
+                )
+                keys = sorted(datalink.keys())
+                if keys:
+                    phot_rows = datalink[keys[0]][0].to_table().to_pandas().to_dict(orient='records')
+            except Exception as exc:
+                # Gaia's auxiliary data server is occasionally unavailable.
+                # Keep the query usable by returning source metadata without photometry.
+                logger.warning('Gaia DR3 epoch photometry unavailable for source %s: %s', source_id, exc)
 
         self.query_results = {'source': source_row, 'photometry_rows': phot_rows}
         return self.query_results

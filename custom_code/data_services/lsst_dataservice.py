@@ -55,8 +55,8 @@ def _parse_rows(response_json):
 
 
 class LSSTDataService(DataService):
-    name = 'LSST DataService'
-    verbose_name = 'LSST Data Service'
+    name = 'LSST'
+    verbose_name = 'LSST'
     info_url = 'https://api.fink-portal.org'
     service_notes = 'Query LSST (Fink) by diaObjectId or cone search, with optional photometry.'
 

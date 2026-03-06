@@ -10,7 +10,7 @@ from tom_targets.models import Target
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_SERVICE_NAMES = ('Gaia DR3 DataService', 'LSST DataService')
+_DEFAULT_SERVICE_NAMES = ('GaiaDR3', 'LSST')
 
 
 def enqueue_target_dataservices_update(target_id):
@@ -43,12 +43,12 @@ def _run_service_for_target(target, service_name, service_class):
         'dec': target.dec,
         'include_photometry': True,
     }
-    if service_name == 'Gaia DR3 DataService':
+    if service_name == 'GaiaDR3':
         query_parameters['radius_arcsec'] = 1.0
         source_id = _extract_id_from_names(target.names, r'(?i)gaia\s*dr3[_\s-]*(\d+)')
         if source_id:
             query_parameters['source_id'] = source_id
-    elif service_name == 'LSST DataService':
+    elif service_name == 'LSST':
         query_parameters['radius_arcsec'] = 5.0
         dia_object_id = _extract_id_from_names(target.names, r'(?i)lsst[_\s-]*(\d+)')
         if dia_object_id:
