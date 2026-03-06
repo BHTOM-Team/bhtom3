@@ -44,6 +44,26 @@ def _mag_error(flux_over_error):
     return 1.0 / (float(flux_over_error) * 2.5 / math.log(10.0))
 
 
+def _build_box_prefilter(ra_deg, dec_deg, radius_deg):
+    cos_dec = abs(math.cos(math.radians(dec_deg)))
+    # Prevent exploding RA span near the poles.
+    cos_dec = max(cos_dec, 1e-6)
+    ra_half_width = min(180.0, radius_deg / cos_dec)
+    dec_min = max(-90.0, dec_deg - radius_deg)
+    dec_max = min(90.0, dec_deg + radius_deg)
+
+    ra_min = (ra_deg - ra_half_width) % 360.0
+    ra_max = (ra_deg + ra_half_width) % 360.0
+    if ra_half_width >= 180.0:
+        ra_clause = '1 = 1'
+    elif ra_min <= ra_max:
+        ra_clause = f'ra BETWEEN {ra_min} AND {ra_max}'
+    else:
+        ra_clause = f'(ra >= {ra_min} OR ra <= {ra_max})'
+
+    return f'({ra_clause}) AND dec BETWEEN {dec_min} AND {dec_max}'
+
+
 class GaiaDR3DataService(DataService):
     name = 'GaiaDR3'
     verbose_name = 'GaiaDR3'
@@ -86,12 +106,16 @@ class GaiaDR3DataService(DataService):
                 source_row = _row_to_dict(result[0])
 
         if source_row is None and ra is not None and dec is not None:
+            ra_deg = float(ra)
+            dec_deg = float(dec)
             radius_deg = radius_arcsec / 3600.0
+            box_prefilter = _build_box_prefilter(ra_deg, dec_deg, radius_deg)
             query = (
                 'SELECT TOP 1 source_id, ra, dec, pmra, pmdec, parallax, '
-                f'       DISTANCE(POINT({float(ra)}, {float(dec)}), POINT(ra, dec)) AS dist '
+                f'       DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) AS dist '
                 'FROM gaiadr3.gaia_source '
-                f'WHERE 1 = CONTAINS(POINT({float(ra)}, {float(dec)}), CIRCLE(ra, dec, {radius_deg})) '
+                f'WHERE {box_prefilter} '
+                f'  AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) <= {radius_deg} '
                 'ORDER BY dist ASC'
             )
             result = Gaia.launch_job(query).get_results()

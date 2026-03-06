@@ -31,6 +31,25 @@ def _to_float(value):
         return None
 
 
+def _build_box_prefilter(ra_deg, dec_deg, radius_deg):
+    cos_dec = abs(math.cos(math.radians(dec_deg)))
+    cos_dec = max(cos_dec, 1e-6)
+    ra_half_width = min(180.0, radius_deg / cos_dec)
+    dec_min = max(-90.0, dec_deg - radius_deg)
+    dec_max = min(90.0, dec_deg + radius_deg)
+
+    ra_min = (ra_deg - ra_half_width) % 360.0
+    ra_max = (ra_deg + ra_half_width) % 360.0
+    if ra_half_width >= 180.0:
+        ra_clause = '1 = 1'
+    elif ra_min <= ra_max:
+        ra_clause = f'ra BETWEEN {ra_min} AND {ra_max}'
+    else:
+        ra_clause = f'(ra >= {ra_min} OR ra <= {ra_max})'
+
+    return f'({ra_clause}) AND dec BETWEEN {dec_min} AND {dec_max}'
+
+
 def search_term_in_gaia(term):
     term_str = str(term).strip()
     if not term_str.isdigit():
@@ -56,12 +75,22 @@ def search_term_in_gaia(term):
 
 def cone_search(coordinates, radius):
     try:
-        result = Gaia.query_object_async(coordinate=coordinates, radius=radius)
+        ra_deg = float(coordinates.ra.deg)
+        dec_deg = float(coordinates.dec.deg)
+        radius_deg = float(radius.deg)
+        box_prefilter = _build_box_prefilter(ra_deg, dec_deg, radius_deg)
+        query = (
+            'SELECT TOP 1 source_id, ra, dec, parallax, pmra, pmdec, '
+            f'       DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) AS dist '
+            'FROM gaiadr3.gaia_source '
+            f'WHERE {box_prefilter} '
+            f'  AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) <= {radius_deg} '
+            'ORDER BY dist ASC'
+        )
+        result = Gaia.launch_job(query).get_results()
         if len(result) == 0:
             return {}
-        # Gaia query_object_async returns `dist` column; we keep nearest match.
-        sorted_result = result[result['dist'].argsort()]
-        return _row_to_dict(sorted_result[0])
+        return _row_to_dict(result[0])
     except Exception as exc:
         logger.error('Error when running Gaia DR3 cone search: %s', exc)
         return {}
