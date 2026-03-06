@@ -5,9 +5,6 @@ from django.db import transaction
 
 from tom_common.hooks import target_post_save as default_target_post_save
 
-from custom_code.tasks import enqueue_target_dataservices_update
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +26,7 @@ def target_post_save(target, created):
 
 def _enqueue_safely(target_id):
     try:
+        from custom_code.tasks import enqueue_target_dataservices_update
         enqueue_target_dataservices_update(target_id)
     except Exception as exc:
         logger.warning('Could not enqueue data service update for target %s: %s', target_id, exc)
