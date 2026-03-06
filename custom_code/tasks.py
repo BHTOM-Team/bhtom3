@@ -1,16 +1,49 @@
 import logging
 import re
 
+from django.apps import apps
 from django.db import close_old_connections
+from django.utils.module_loading import import_string
 from django_tasks import task
 
-from tom_dataservices.dataservices import get_data_service_classes
 from tom_targets.models import Target
 
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SERVICE_NAMES = ('GaiaDR3', 'LSST')
+
+
+def _get_data_service_classes():
+    """
+    Compatibility wrapper for TOM Toolkit versions with different
+    tom_dataservices API surfaces.
+    """
+    try:
+        from tom_dataservices.dataservices import get_data_service_classes
+        return get_data_service_classes()
+    except Exception:
+        pass
+
+    try:
+        from tom_dataservices.dataservices import get_data_services
+        return get_data_services()
+    except Exception:
+        pass
+
+    data_service_choices = {}
+    for app in apps.get_app_configs():
+        try:
+            data_services = app.data_services()
+        except Exception:
+            continue
+        for data_service in data_services or []:
+            try:
+                clazz = import_string(data_service['class'])
+                data_service_choices[clazz.name] = clazz
+            except Exception:
+                continue
+    return data_service_choices
 
 
 def enqueue_target_dataservices_update(target_id):
@@ -26,7 +59,7 @@ def update_target_dataservices_for_target(target_id):
         logger.warning('Target %s not found for data service update.', target_id)
         return
 
-    service_classes = get_data_service_classes()
+    service_classes = _get_data_service_classes()
     for service_name in _DEFAULT_SERVICE_NAMES:
         clazz = service_classes.get(service_name)
         if clazz is None:
