@@ -7,6 +7,7 @@ class CustomCodeConfig(AppConfig):
 
     def data_services(self):
         return [
+            {'class': f'{self.name}.data_services.gaia_alerts_dataservice.GaiaAlertsDataService'},
             {'class': f'{self.name}.data_services.gaia_dr3_dataservice.GaiaDR3DataService'},
             {'class': f'{self.name}.data_services.lsst_dataservice.LSSTDataService'},
         ]
