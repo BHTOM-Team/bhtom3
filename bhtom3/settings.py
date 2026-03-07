@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/2.1/ref/settings/
 """
 import logging.config
 import os
+import pkgutil
+import ast
 import tempfile
 
 from dotenv import dotenv_values
@@ -337,6 +339,40 @@ TOM_ALERT_CLASSES = [
     #  'tom_alerts.brokers.fink.FinkBroker',
 ]
 
+
+def _discover_custom_harvesters():
+    discovered = []
+    package_name = 'custom_code.bhtom_catalogs.harvesters'
+    package_path = os.path.join(BASE_DIR, 'custom_code', 'bhtom_catalogs', 'harvesters')
+    if not os.path.isdir(package_path):
+        return discovered
+
+    for _, mod_short, _ in pkgutil.iter_modules([package_path]):
+        if mod_short.startswith('_'):
+            continue
+        module_name = f'{package_name}.{mod_short}'
+        file_path = os.path.join(package_path, f'{mod_short}.py')
+        if not os.path.isfile(file_path):
+            continue
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                tree = ast.parse(f.read(), filename=file_path)
+        except Exception:
+            continue
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            base_names = []
+            for base in node.bases:
+                if isinstance(base, ast.Name):
+                    base_names.append(base.id)
+                elif isinstance(base, ast.Attribute):
+                    base_names.append(base.attr)
+            if 'AbstractHarvester' in base_names:
+                discovered.append(f'{module_name}.{node.name}')
+    return discovered
+
+
 BROKERS = {
     'TNS': {
         # BHTOM_Bot TNS API
@@ -350,16 +386,21 @@ BROKERS = {
     }
 }
 
-
-TOM_HARVESTER_CLASSES = [
-    'custom_code.bhtom_catalogs.harvesters.gaia_dr3.GaiaDR3Harvester',
-    'custom_code.bhtom_catalogs.harvesters.lsst.LSSTHarvester',
-    'custom_code.bhtom_catalogs.harvesters.gaia_alerts.GaiaAlertsHarvester',
+_BASE_HARVESTER_CLASSES = [
     'tom_catalogs.harvesters.simbad.SimbadHarvester',
     'tom_catalogs.harvesters.ned.NEDHarvester',
     'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
     'tom_catalogs.harvesters.tns.TNSHarvester',
 ]
+_CORE_CUSTOM_HARVESTER_CLASSES = [
+    'custom_code.bhtom_catalogs.harvesters.gaia_dr3.GaiaDR3Harvester',
+    'custom_code.bhtom_catalogs.harvesters.lsst.LSSTHarvester',
+    'custom_code.bhtom_catalogs.harvesters.gaia_alerts.GaiaAlertsHarvester',
+]
+_extra_custom_harvesters = [
+    h for h in _discover_custom_harvesters() if h not in _CORE_CUSTOM_HARVESTER_CLASSES
+]
+TOM_HARVESTER_CLASSES = _CORE_CUSTOM_HARVESTER_CLASSES + _extra_custom_harvesters + _BASE_HARVESTER_CLASSES
 
 HARVESTERS = {
     'TNS': {
@@ -404,8 +445,11 @@ HOOKS = {
     'multiple_data_products_post_save': 'tom_dataproducts.hooks.multiple_data_products_post_save',
 }
 
-# If True, newly-created targets will trigger asynchronous Gaia/LSST DataService
+# If True, newly-created targets will trigger asynchronous DataService
 # queries in the background via the custom target_post_save hook.
+# By default, all installed DataServices are queried.
+# Optional: set AUTO_QUERY_DATA_SERVICE_NAMES = ('GaiaDR3', 'LSST', 'GaiaAlerts')
+# to explicitly limit which services run automatically.
 AUTO_QUERY_DATA_SERVICES_ON_TARGET_CREATE = True
 
 AUTO_THUMBNAILS = False

@@ -15,6 +15,13 @@ Including another URLconf
 """
 from django.urls import path, include
 
+from custom_code.views import UpdateReducedDataAndDataServicesView
+
 urlpatterns = [
+    path(
+        'dataproducts/data/reduced/update/',
+        UpdateReducedDataAndDataServicesView.as_view(),
+        name='update-reduced-data-services',
+    ),
     path('', include('tom_common.urls')),
 ]
