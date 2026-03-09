@@ -1,0 +1,11 @@
+<div class="d-flex justify-content-between align-items-start mb-2">
+  <h4 class="mb-0">Photometry</h4>
+  {% if request and request.user and request.user.is_staff %}
+    <a href="{% url 'dataproducts:update-reduced-data' %}?target_id={{ target.id }}"
+       class="btn btn-primary"
+       title="Update Targets">Check for new data</a>
+  {% endif %}
+</div>
+<div class="light-curve">
+  {{ plot|safe }}
+</div>
