@@ -197,9 +197,9 @@ class GaiaDR3DataService(DataService):
     def _build_photometry_datums(self, rows):
         output = []
         band_specs = [
-            ('G', 'g_transit_time', 'g_transit_mag', 'g_transit_flux_over_error'),
-            ('BP', 'bp_obs_time', 'bp_mag', 'bp_flux_over_error'),
-            ('RP', 'rp_obs_time', 'rp_mag', 'rp_flux_over_error'),
+            ('GaiaDR3(G)', 'g_transit_time', 'g_transit_mag', 'g_transit_flux_over_error'),
+            ('GaiaDR3(BP)', 'bp_obs_time', 'bp_mag', 'bp_flux_over_error'),
+            ('GaiaDR3(RP)', 'rp_obs_time', 'rp_mag', 'rp_flux_over_error'),
         ]
         for row in rows:
             for band, time_col, mag_col, flux_col in band_specs:
