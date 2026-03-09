@@ -1,0 +1,63 @@
+<div class="container-fluid px-0">
+
+  {% for target in targets %}
+  <div class="d-flex justify-content-between align-items-center py-2">
+
+    <!-- Left: Target name -->
+    <div>
+      <a href="{% url 'targets:detail' target.id %}"
+         class="font-weight-bold text-decoration-none"
+         title="Detail for {{ target.name }}">
+        {{ target.name }}
+      </a>
+    </div>
+
+    <!-- Right: Meta info -->
+    <div class="text-muted small text-nowrap">
+      created on {{ target.created|date:"M d, Y" }}
+    </div>
+
+  </div>
+  {% empty %}
+
+  <div class="text-center py-5">
+    {% if authenticated %}
+      {% if empty_database %}
+        <h6 class="mb-3">No targets found</h6>
+        <p class="text-muted mb-4">
+          Create or import targets to get started.
+        </p>
+
+        <div class="d-flex justify-content-center flex-wrap">
+          <a href="{% url 'tom_targets:create' %}"
+             class="btn btn-sm btn-primary mr-2 mb-2">
+            Create Target
+          </a>
+
+          <a href="{% url 'tom_alerts:list' %}"
+             class="btn btn-sm btn-outline-primary mr-2 mb-2">
+            Import from Alerts
+          </a>
+
+          <form method="POST" action="{% url 'tom_targets:seed' %}" class="mb-2">
+            {% csrf_token %}
+            <button class="btn btn-sm btn-outline-primary" type="submit">
+              Add Messier Catalog
+            </button>
+          </form>
+        </div>
+      {% else %}
+        <span class="text-muted">No targets available.</span>
+      {% endif %}
+    {% else %}
+      <p class="mb-2">Please log in to view targets.</p>
+      <a href="{% url 'login' %}?next={% url 'targets:list' %}"
+         class="btn btn-sm btn-outline-primary">
+        Login
+      </a>
+    {% endif %}
+  </div>
+
+  {% endfor %}
+
+</div>

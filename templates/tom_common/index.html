@@ -2,56 +2,79 @@
 {% load static targets_extras observation_extras dataproduct_extras tom_common_extras %}
 {% block title %}Home{% endblock %}
 {% block content %}
-    <div class="row">
-        <div class="col-lg-9">
-            <h2 class="text-center">Black Hole TOM 3.0001</h2>
-            <p class="text-center"><img
-                    src="{% static 'tom_common/img/logo-color.png' %}"
-                    class="img-fluid mx-auto"></p>
-            <p class="text-center"></p>
-            <div>
-                <div id="react">
-                    <!-- Contents get replaced by mounted React.Component -->
-                    <i class="fa fa-lg fa-spinner fa-spin"></i><br><br>
-                    <i class="pending"></i><br><br>
-                </div>
-            </div>
-            <p><a href="https://github.com/BHTOM-Team/bhtom2/blob/bhtom2-dev/Documentation/bhtom-service/README.md">BHTOM2 Documentation</a></p>
-        </div>
-        <div class="col-lg-3">
-            <div class="card text-white bg-dark">
-                <div class="card-header">
-                    Latest Comments
-                </div>
-                {% recent_comments %}
-            </div>
-            <br/>
-            <div class="card text-white bg-dark">
-                <div class="card-header">
-                    Latest Targets
-                </div>
-                {% recent_targets %}
-            </div>
+
+
+  <div class="container">
+    <div class="row align-items-center text-center text-md-start">
+
+      <div class="col-md-4 mb-3 mb-md-0">
+        <img src="{% static 'tom_common/img/logo-color.png' %}" alt="BHTOM3 Logo"
+        class="img-fluid" style="max-height:150px;">
+      </div>
+
+      <div class="col-md-8">
+        <h1 class="display-4 fw-bold">Black Hole TOM 3.0001</h1>
+        <p class="lead">Welcome to the official BHTOM3 platform</p>
+      </div>
+
+    </div>
+  </div>
+
+<hr class="border-3 border-light opacity-100 my-5">
+
+<div class="row mt-5">
+{% if user.is_authenticated %}
+    <div class="col-md-6">
+        <h2 class="border-bottom pb-2 mb-3">Recent comments</h2>
+        {% recent_comments %}
+    </div>
+    <div class="col-md-6">
+        <h2 class="border-bottom pb-2 mb-3">Recent targets</h2>
+        {% recent_targets %}
+    </div>
+{% else %}
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+          <div class="card-body text-center p-4">
+            <p class="text-muted mb-3">
+              Please log in to access targets
+            </p>
+            <a href="{% url 'login' %}" class="btn btn-primary w-100">Login</a>
+          </div>
         </div>
     </div>
+{% endif %}
+</div>
 
-    <h6>
-    <i>        "I have one request, which is this, that the observations shall be made known each year. Observations buried in a desk are no observations. Should they be entrusted to me for reduction, or even for publication, I will undertake it with joy and thanks, and will also answer all questions with care and with the greatest pleasure.”
-    </i>   
-    <br>
-    <p style="text-align:right;">
-    Friedrich Wilhelm August Argelander, 1844 <br>
-        “An Appeal to the Friends of Astronomy” in Schumacher's Astronomical Year Book<br>
-        translated by Annie Jump Cannon, Popular Astronomy, 1912
-    </p>       
-        </h6>
-    <hr>
+
+<div class="alert alert-light my-4" role="alert">
+  Explore the official documentation: <a href="https://github.com/BHTOM-Team/bhtom2/blob/bhtom2-dev/Documentation/bhtom-service/README.md" class="alert-link">BHTOM2 Documentation</a>.
+</div>
+
+
+ <section class="d-flex mt-4 mb-1 justify-content-center align-items-center" style="min-height: 35vh;">
+  <div class="text-center rounded" style="background: rgba(0,0,0,0.5); ">
+    <blockquote class="blockquote mb-0">
+      <p class="mb-3 h5 text-light font-italic"
+         style="text-shadow: 0 0 6px #ff9800, 0 0 10px #ff5722;">
+        "I have one request, which is this, that the observations shall be made known each year. Observations buried in a desk are no observations. Should they be entrusted to me for reduction, or even for publication, I will undertake it with joy and thanks, and will also answer all questions with care and with the greatest pleasure."
+      </p>
+      <footer class="blockquote-footer text-warning small">
+        Friedrich Wilhelm August Argelander <cite title="Source Title">An Appeal to the Friends of Astronomy” in Schumacher's Astronomical Year Book
+translated by Annie Jump Cannon, Popular Astronomy, 1912</cite>
+      </footer>
+    </blockquote>
+  </div>
+</section>
+
+<hr class="border-3 border-light opacity-100">
+
     <h5>
         <img src="{% static 'eu-flag-normal-reproduction-low-resolution.jpg' %}" alt="EU Flag" style="width: 30px; vertical-align: middle;">
         BHTOM is based on the open-source <a href="https://lco.global/tomtoolkit/">TOM Toolkit by LCO</a> and has been developed with funding from the OPTICON-RadioNet Pilot (ORP) of the European Union's Horizon 2020 research and innovation programme under grant agreement No <a href="https://cordis.europa.eu/project/id/101004719">101004719</a> (2021-2025).
-        This project has received funding from ACME, the European Union's Horizon Europe Research and Innovation programme under grant agreement No <a href="https://cordis.europa.eu/project/id/101131928">101131928</a>. (2024-2028)    
+        This project has received funding from ACME, the European Union's Horizon Europe Research and Innovation programme under grant agreement No <a href="https://cordis.europa.eu/project/id/101131928">101131928</a>. (2024-2028)
     </h5>
-<!--- from https://cosmoquest.org/x/365daysofastronomy/2010/01/24/january-24th-friedrich-wilhelm-august-argelander/-->        
+<!--- from https://cosmoquest.org/x/365daysofastronomy/2010/01/24/january-24th-friedrich-wilhelm-august-argelander/-->
     <script>
         {#window.props = {{props|json}};  // make sure to escape your props to prevent XSS! See here for the source for the json filter: https://gist.github.com/pirate/c18bfe4fd96008ffa0aef25001a2e88f#}
         window.react_mount = document.getElementById('react');
