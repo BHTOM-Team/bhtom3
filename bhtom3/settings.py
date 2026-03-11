@@ -397,10 +397,19 @@ _CORE_CUSTOM_HARVESTER_CLASSES = [
     'custom_code.bhtom_catalogs.harvesters.lsst.LSSTHarvester',
     'custom_code.bhtom_catalogs.harvesters.gaia_alerts.GaiaAlertsHarvester',
 ]
-_extra_custom_harvesters = [
-    h for h in _discover_custom_harvesters() if h not in _CORE_CUSTOM_HARVESTER_CLASSES
+_BOTTOM_CUSTOM_HARVESTER_CLASSES = [
+    'custom_code.bhtom_catalogs.harvesters.crts.CRTSHarvester',
 ]
-TOM_HARVESTER_CLASSES = _CORE_CUSTOM_HARVESTER_CLASSES + _extra_custom_harvesters + _BASE_HARVESTER_CLASSES
+_extra_custom_harvesters = [
+    h for h in _discover_custom_harvesters()
+    if h not in _CORE_CUSTOM_HARVESTER_CLASSES and h not in _BOTTOM_CUSTOM_HARVESTER_CLASSES
+]
+TOM_HARVESTER_CLASSES = (
+    _CORE_CUSTOM_HARVESTER_CLASSES
+    + _extra_custom_harvesters
+    + _BASE_HARVESTER_CLASSES
+    + _BOTTOM_CUSTOM_HARVESTER_CLASSES
+)
 
 HARVESTERS = {
     'TNS': {
