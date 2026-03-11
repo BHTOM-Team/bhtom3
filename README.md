@@ -2,6 +2,8 @@
 =======
 How to install it on a new machine.
 
+install python 3.11
+
 python -m venv env
 
 source env/bin/activate
