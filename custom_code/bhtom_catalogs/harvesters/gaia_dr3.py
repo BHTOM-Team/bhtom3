@@ -58,7 +58,7 @@ def search_term_in_gaia(term):
 
     try:
         query = (
-            'SELECT TOP 1 source_id, ra, dec, parallax, pmra, pmdec '
+            'SELECT TOP 1 source_id, ra, dec, parallax, pmra, pmdec, has_xp_sampled '
             'FROM gaiadr3.gaia_source '
             f'WHERE source_id = {term_str}'
         )
@@ -80,7 +80,7 @@ def cone_search(coordinates, radius):
         radius_deg = float(radius.deg)
         box_prefilter = _build_box_prefilter(ra_deg, dec_deg, radius_deg)
         query = (
-            'SELECT TOP 1 source_id, ra, dec, parallax, pmra, pmdec, '
+            'SELECT TOP 1 source_id, ra, dec, parallax, pmra, pmdec, has_xp_sampled, '
             f'       DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) AS dist '
             'FROM gaiadr3.gaia_source '
             f'WHERE {box_prefilter} '

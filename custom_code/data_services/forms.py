@@ -9,6 +9,7 @@ class GaiaDR3QueryForm(BaseQueryForm):
     dec = forms.FloatField(required=False, label='Dec (deg)')
     radius_arcsec = forms.FloatField(required=False, initial=1.0, min_value=0.05, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include epoch photometry')
+    include_spectroscopy = forms.BooleanField(required=False, initial=True, label='Include BP/RP XP spectra')
 
     def clean(self):
         cleaned = super().clean()

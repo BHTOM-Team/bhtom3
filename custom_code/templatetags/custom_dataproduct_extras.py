@@ -7,6 +7,7 @@ import plotly.graph_objs as go
 import numpy as np
 
 from tom_dataproducts.models import ReducedDatum
+from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 
 
 register = template.Library()
@@ -325,3 +326,51 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
 
     request = context.get('request')
     return {'target': target, 'plot': offline.plot(fig, output_type='div', show_link=False), 'request': request}
+
+
+@register.inclusion_tag('tom_dataproducts/partials/spectroscopy_for_target.html', takes_context=True)
+def custom_spectroscopy_for_target(context, target, dataproduct=None):
+    try:
+        spectroscopy_data_type = settings.DATA_PRODUCT_TYPES['spectroscopy'][0]
+    except (AttributeError, KeyError):
+        spectroscopy_data_type = 'spectroscopy'
+
+    datums = ReducedDatum.objects.filter(target=target, data_type=spectroscopy_data_type)
+    if dataproduct:
+        datums = datums.filter(data_product=dataproduct)
+
+    if not settings.TARGET_PERMISSIONS_ONLY:
+        datums = get_objects_for_user(
+            context['request'].user,
+            'tom_dataproducts.view_reduceddatum',
+            klass=datums,
+        )
+
+    serializer = SpectrumSerializer()
+    plot_data = []
+    for datum in datums.order_by('timestamp'):
+        try:
+            spectrum = serializer.deserialize(datum.value)
+        except Exception:
+            continue
+        label = datum.value.get('filter') or datum.value.get('spectrum_type') or datum.timestamp.strftime('%Y%m%d-%H:%M:%S')
+        plot_data.append(
+            go.Scatter(
+                x=spectrum.wavelength.value,
+                y=spectrum.flux.value,
+                name=label,
+                hovertemplate='lambda=%{x:.2f}<br>flux=%{y:.4e}<extra>%{fullData.name}</extra>',
+            )
+        )
+
+    figure = go.Figure(
+        data=plot_data,
+        layout=go.Layout(
+            height=600,
+            width=1000,
+            xaxis=dict(title='Wavelength'),
+            yaxis=dict(title='Flux density', tickformat='.2e'),
+        ),
+    )
+    request = context.get('request')
+    return {'target': target, 'plot': offline.plot(figure, output_type='div', show_link=False), 'request': request}
