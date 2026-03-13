@@ -1,26 +1,24 @@
 import logging
 
+import requests
 from astropy.time import Time
 from django.utils import timezone
-
-import pyvo
 
 from tom_dataservices.dataservices import DataService
 from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
-from custom_code.data_services.forms import SkyMapperQueryForm
+from custom_code.data_services.forms import SwiftUVOTQueryForm
 
 
 logger = logging.getLogger(__name__)
 
-SKYMAPPER_TAP_URL = 'https://api.skymapper.nci.org.au/public/tap/'
+SWIFTUVOT_START_URL = 'http://193.0.88.218:8892/api/start'
+SWIFTUVOT_RESULT_URL = 'http://193.0.88.218:8892/api/result'
 
-def _skymapper_alias(obj_id):
-    return f'SkyMapper_{obj_id}'
+def _swift_alias(ra, dec):
+    return f'SWIFT+J{ra}_{dec}'
 
-def _skymapper_source_location(obj_id):
-    return f'https://skymapper.anu.edu.au/object-viewer/dr4/{obj_id}/'
 
 def _to_float(value):
     try:
@@ -28,30 +26,15 @@ def _to_float(value):
     except (TypeError, ValueError):
         return None
 
-def _build_skymapper_tap_query(ra, dec, radius_arcsec):
-    return f"""
-            SELECT
-            p.mag_psf,p.e_mag_psf,p.filter,p.object_id,
-            i.date
-            FROM dr4.photometry AS p
-            JOIN dr4.images AS i
-            ON p.image_id = i.image_id
-            WHERE 1 = CONTAINS(
-                POINT('ICRS', p.ra_img, p.decl_img),
-                CIRCLE('ICRS', {ra}, {dec}, {radius_arcsec}/3600.)
-            )
-            ORDER BY i.date
-            """
-
-class SkyMapperDataService(DataService):
-    name = 'SkyMapper'
-    verbose_name = 'SkyMapper'
-    info_url = SKYMAPPER_TAP_URL
-    service_notes = 'Query SkyMapper by coordinates through TAP service.'
+class SwiftUVOTDataService(DataService):
+    name = 'SwiftUVOT'
+    verbose_name = 'SwiftUVOT'
+    info_url = SWIFTUVOT_START_URL
+    service_notes = 'Query Swift UVOT by coordinates through in house Swift service.'
 
     @classmethod
     def get_form_class(cls):
-        return SkyMapperQueryForm
+        return SwiftUVOTQueryForm
 
     def build_query_parameters(self, parameters, **kwargs):
         self.query_parameters = {
@@ -71,25 +54,20 @@ class SkyMapperDataService(DataService):
             return self.query_results
 
         try:
-            skytap = pyvo.dal.TAPService(SKYMAPPER_TAP_URL)
-            source_tap_query = _build_skymapper_tap_query(ra, dec, radius_arcsec)
-            tap_response = skytap.search(source_tap_query)
-            tap_response = tap_response.to_table()
+            src_data = {"ra": ra, "dec": dec}
+            requests.post(SWIFTUVOT_START_URL, json=src_data)
+            swift_response = requests.get(SWIFTUVOT_RESULT_URL, params=src_data)
+            swiift_data = swift_response.json()
 
-            obj_id = None
-
-            if len(tap_response) == 0:
-                logger.info('SkyMapper returned no photometry for RA=%s Dec=%s', ra, dec)
-            else:
-                obj_id = tap_response['object_id'][0]
+            if len(swiift_data) == 0:
+                logger.info('Swift UVOT returned no photometry for RA=%s Dec=%s', ra, dec)
 
         except Exception as e:
             logger.info('SkyMapper error', e)
         
         self.query_results = {
-            'obj_id':obj_id,
-            'photometry_data': tap_response or None,
-            'source_location':_skymapper_source_location(obj_id),
+            'photometry_data': swiift_data or None,
+            'source_location': SWIFTUVOT_RESULT_URL,
             'ra': ra,
             'dec': dec,
         }
@@ -98,14 +76,13 @@ class SkyMapperDataService(DataService):
 
     def query_targets(self, query_parameters, **kwargs):
         data = self.query_service(query_parameters, **kwargs)
-        obj_id = data.get('obj_id')
         ra = data.get('ra')
         dec = data.get('dec')
         photometry_data = data.get('photometry_data')
         if ra is None or dec is None or photometry_data is None:
             return []
 
-        alias = _skymapper_alias(obj_id)
+        alias = _swift_alias(ra,dec)
         return [{
             'name': alias,
             'ra': ra,
@@ -156,11 +133,11 @@ class SkyMapperDataService(DataService):
     def _build_photometry_datums(self, rows):
         output = []
         for row in rows:
-            mjd = _to_float(row["date"])
-            mag = _to_float(row["mag_psf"])
-            magerr = _to_float(row["e_mag_psf"])
+            mjd = _to_float(row["obs_time"])
+            mag = _to_float(row["mag"])
+            magerr = _to_float(row["mag_err"])
             fil = row["filter"]
-            band = f"SkyMapper({fil})"
+            band = f"UVOT({fil})"
             if mjd is None or mag is None or magerr is None:
                 continue
             output.append({
