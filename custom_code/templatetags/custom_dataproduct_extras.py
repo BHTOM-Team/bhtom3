@@ -4,7 +4,9 @@ from django.conf import settings
 from guardian.shortcuts import get_objects_for_user
 from plotly import offline
 import plotly.graph_objs as go
+from plotly.subplots import make_subplots
 import numpy as np
+import astropy.units as u
 
 from tom_dataproducts.models import ReducedDatum
 from tom_dataproducts.processors.data_serializers import SpectrumSerializer
@@ -327,7 +329,6 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
     request = context.get('request')
     return {'target': target, 'plot': offline.plot(fig, output_type='div', show_link=False), 'request': request}
 
-
 @register.inclusion_tag('tom_dataproducts/partials/spectroscopy_for_target.html', takes_context=True)
 def custom_spectroscopy_for_target(context, target, dataproduct=None):
     try:
@@ -347,35 +348,48 @@ def custom_spectroscopy_for_target(context, target, dataproduct=None):
         )
 
     serializer = SpectrumSerializer()
-    plot_data = []
+    flux_count_data = []
+    flux_other_data = []
+
     for datum in datums.order_by('timestamp'):
         try:
             spectrum = serializer.deserialize(datum.value)
         except Exception:
             continue
-        label = f"{datum.value.get('filter')} {datum.timestamp.strftime('%Y-%m-%d %H:%M')}"
-        plot_data.append(
-            go.Scatter(
-                x=spectrum.wavelength.value,
-                y=spectrum.flux.value,
-                name=label,
-                hovertemplate='lambda=%{x:.2f}<br>flux=%{y:.4e}<extra>%{fullData.name}</extra>',
-            )
-        )
 
-    figure = go.Figure(
-        data=plot_data,
-        layout=go.Layout(
-            height=600,
-            width=1000,
-            xaxis=dict(title='Wavelength'),
-            yaxis=dict(title='Flux density', tickformat='.2e'),
-        ),
-    )
+        label = f"{datum.value.get('filter')} {datum.timestamp.strftime('%Y-%m-%d %H:%M')}"
+
+        # Separate by flux units
+        if str(spectrum.flux.unit) == 'ct' or str(spectrum.flux.unit) == u.ct:
+            flux_count_data.append(
+                go.Scatter(
+                    x=spectrum.wavelength.value,
+                    y=spectrum.flux.value,
+                    name=label + " (counts)",
+                    hovertemplate='lambda=%{x:.2f}<br>flux=%{y:.4e}<extra>%{fullData.name}</extra>',
+                    yaxis='y2'
+                )
+            )
+        else:
+            flux_other_data.append(
+                go.Scatter(
+                    x=spectrum.wavelength.value,
+                    y=spectrum.flux.value,
+                    name=label,
+                    hovertemplate='lambda=%{x:.2f}<br>flux=%{y:.4e}<extra>%{fullData.name}</extra>',
+                )
+            )
+
+    # Use subplots with secondary y-axis
+    figure = make_subplots(specs=[[{"secondary_y": True}]])
+    for trace in flux_other_data:
+        figure.add_trace(trace, secondary_y=False)
+    for trace in flux_count_data:
+        figure.add_trace(trace, secondary_y=True)
 
     figure.update_layout(
-        showlegend=True,
-        margin=dict(t=40, r=20, b=40, l=80),
+        height=600,
+        width=1000,
         xaxis=dict(
             title="Wavelength (Å)",
             showgrid=True,
@@ -384,6 +398,18 @@ def custom_spectroscopy_for_target(context, target, dataproduct=None):
             exponentformat="none",
             tickformat=".0f"
         ),
+        yaxis=dict(
+            title="Flux density",
+            tickformat=".2e",
+        ),
+        yaxis2=dict(
+            title="Flux (counts)",
+            overlaying='y',
+            side='right',
+            showgrid=False,
+        ),
+        showlegend=True,
+        margin=dict(t=40, r=80, b=40, l=80),
         legend=dict(
             yanchor='top',
             y=-0.15,
@@ -392,5 +418,10 @@ def custom_spectroscopy_for_target(context, target, dataproduct=None):
             orientation='h',
         ),
     )
+
     request = context.get('request')
-    return {'target': target, 'plot': offline.plot(figure, output_type='div', show_link=False), 'request': request}
+    return {
+        'target': target,
+        'plot': offline.plot(figure, output_type='div', show_link=False),
+        'request': request
+    }
