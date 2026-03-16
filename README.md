@@ -18,7 +18,7 @@ python manage.py makemigrations
 
 python manage.py migrate
 
-#Create a superuser to be able to login
+#Create a superuser to be able to login to bhtom
 python manage.py createsuperuser
 
 #python manage.py runserver 
