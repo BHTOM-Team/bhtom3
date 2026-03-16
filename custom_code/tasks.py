@@ -117,6 +117,8 @@ def _build_query_parameters_for_service(target, service_name, service):
         query_parameters['dec'] = target.dec
     if 'include_photometry' in form_fields:
         query_parameters['include_photometry'] = True
+    if 'include_spectroscopy' in form_fields:
+        query_parameters['include_spectroscopy'] = True
 
     if 'radius_arcsec' in form_fields:
         # Conservative default; service-specific forms may override.

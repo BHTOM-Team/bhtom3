@@ -11,4 +11,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.gaia_alerts_dataservice.GaiaAlertsDataService'},
             {'class': f'{self.name}.data_services.gaia_dr3_dataservice.GaiaDR3DataService'},
             {'class': f'{self.name}.data_services.lsst_dataservice.LSSTDataService'},
+            {'class': f'{self.name}.data_services.skymapper_dataservice.SkyMapperDataService'},
+            {'class': f'{self.name}.data_services.swiftuvot_dataservice.SwiftUVOTDataService'},
+            {'class': f'{self.name}.data_services.galex_dataservice.GalexDataService'},
         ]

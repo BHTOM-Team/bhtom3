@@ -1,14 +1,18 @@
 import math
 import re
 import logging
+from datetime import datetime
 
+from astropy import units as u
 from astropy.time import Time
 from astroquery.gaia import Gaia
 from django.utils import timezone
 import pyvo
+from specutils import Spectrum1D
 
 from tom_dataservices.dataservices import DataService
 from tom_dataproducts.models import ReducedDatum
+from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import GaiaDR3QueryForm
@@ -16,6 +20,8 @@ from custom_code.data_services.forms import GaiaDR3QueryForm
 logger = logging.getLogger(__name__)
 
 AIP_TAP_URL = 'https://gaia.aip.de/tap'
+GAIA_DR3_RELEASE_TIMESTAMP = datetime(2022, 6, 13, tzinfo=timezone.utc)
+GAIA_XP_WAVELENGTH_NM = [336.0 + (2.0 * idx) for idx in range(343)]
 
 
 def _to_float(value):
@@ -92,7 +98,7 @@ def _build_box_prefilter(ra_deg, dec_deg, radius_deg):
 
 
 def _build_source_query(where_clause, extra_columns=''):
-    columns = 'source_id, ra, dec, pmra, pmdec, parallax'
+    columns = 'source_id, ra, dec, pmra, pmdec, parallax, has_xp_sampled'
     if extra_columns:
         columns = f'{columns}, {extra_columns}'
     return f'SELECT TOP 1 {columns} FROM gaiadr3.gaia_source WHERE {where_clause}'
@@ -106,6 +112,67 @@ def _build_aip_epoch_query(source_id):
         'FROM gaiadr3.epoch_photometry '
         f'WHERE source_id = {int(source_id)}'
     )
+
+
+def _build_aip_xp_query(source_id):
+    return (
+        'SELECT source_id, flux, flux_error '
+        'FROM gaiadr3.xp_sampled_mean_spectrum '
+        f'WHERE source_id = {int(source_id)}'
+    )
+
+
+def _boolify(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 't', 'yes', 'y'}
+    return bool(value)
+
+
+def _normalize_spectrum_table(table):
+    if len(table) == 0:
+        return None
+
+    first_row = _row_to_dict(table[0])
+    row_keys = {key.lower(): key for key in first_row.keys()}
+    if {'wavelength', 'flux'} <= set(row_keys):
+        wavelengths = []
+        fluxes = []
+        flux_errors = []
+        for row in table:
+            row_data = _row_to_dict(row)
+            wavelength = _to_float(row_data.get(row_keys['wavelength']))
+            flux = _to_float(row_data.get(row_keys['flux']))
+            flux_error = _to_float(row_data.get(row_keys.get('flux_error')))
+            if wavelength is None or flux is None:
+                continue
+            wavelengths.append(wavelength)
+            fluxes.append(flux)
+            flux_errors.append(flux_error)
+        return {
+            'wavelength': wavelengths,
+            'wavelength_units': 'nm',
+            'flux': fluxes,
+            'flux_units': 'W / (nm m2)',
+            'flux_error': flux_errors,
+            'flux_error_units': 'W / (nm m2)',
+        }
+
+    flux = _ensure_sequence(first_row.get(row_keys.get('flux', 'flux')))
+    flux_error = _ensure_sequence(first_row.get(row_keys.get('flux_error', 'flux_error')))
+    if flux:
+        return {
+            'wavelength': list(GAIA_XP_WAVELENGTH_NM),
+            'wavelength_units': 'nm',
+            'flux': flux,
+            'flux_units': 'W / (nm m2)',
+            'flux_error': flux_error,
+            'flux_error_units': 'W / (nm m2)',
+        }
+    return None
 
 
 class GaiaDR3DataService(DataService):
@@ -129,6 +196,7 @@ class GaiaDR3DataService(DataService):
             'dec': parameters.get('dec'),
             'radius_arcsec': parameters.get('radius_arcsec') or 1.0,
             'include_photometry': bool(parameters.get('include_photometry', True)),
+            'include_spectroscopy': bool(parameters.get('include_spectroscopy', True)),
         }
         return self.query_parameters
 
@@ -168,20 +236,37 @@ class GaiaDR3DataService(DataService):
                 source_origin = 'aip' if source_row else None
 
         phot_rows = []
+        spectra = []
+        phot_origin = None
+        spectrum_origin = None
         if source_row and query_parameters.get('include_photometry', True):
             source_id = source_row.get('SOURCE_ID', source_row.get('source_id'))
             phot_rows = self._fetch_epoch_photometry_esa(source_id)
             if phot_rows:
-                source_origin = source_origin or 'esa'
+                phot_origin = 'esa'
             else:
                 phot_rows = self._fetch_epoch_photometry_aip(source_id)
                 if phot_rows:
-                    source_origin = 'aip'
+                    phot_origin = 'aip'
+
+        if source_row and query_parameters.get('include_spectroscopy', True):
+            source_id = source_row.get('SOURCE_ID', source_row.get('source_id'))
+            if _boolify(source_row.get('has_xp_sampled', source_row.get('HAS_XP_SAMPLED'))):
+                spectra = self._fetch_xp_spectrum_esa(source_id)
+                if spectra:
+                    spectrum_origin = 'esa'
+                else:
+                    spectra = self._fetch_xp_spectrum_aip(source_id)
+                    if spectra:
+                        spectrum_origin = 'aip'
 
         self.query_results = {
             'source': source_row,
             'photometry_rows': phot_rows,
+            'spectroscopy_rows': spectra,
             'source_origin': source_origin,
+            'photometry_origin': phot_origin or source_origin,
+            'spectroscopy_origin': spectrum_origin,
         }
         return self.query_results
 
@@ -200,7 +285,10 @@ class GaiaDR3DataService(DataService):
             'pmdec': _to_float(source.get('pmdec')),
             'parallax': _to_float(source.get('parallax')),
             'aliases': [f'GaiaDR3_{source_id}'],
-            'reduced_datums': {'photometry': self._build_photometry_datums(data.get('photometry_rows', []))},
+            'reduced_datums': {
+                'photometry': self._build_photometry_datums(data.get('photometry_rows', [])),
+                'spectroscopy': self._build_spectroscopy_datums(source_id, data.get('spectroscopy_rows', [])),
+            },
         }
         return [target_result]
 
@@ -219,13 +307,13 @@ class GaiaDR3DataService(DataService):
         return [TargetName(name=alias) for alias in alias_results]
 
     def create_reduced_datums_from_query(self, target, data=None, data_type=None, **kwargs):
-        if data_type != 'photometry' or not data:
+        if data_type not in {'photometry', 'spectroscopy'} or not data:
             return
         source_location = kwargs.get('source_location') or self.info_url
         for datum in data:
             ReducedDatum.objects.get_or_create(
                 target=target,
-                data_type='photometry',
+                data_type=data_type,
                 timestamp=datum['timestamp'],
                 value=datum['value'],
                 defaults={
@@ -237,9 +325,12 @@ class GaiaDR3DataService(DataService):
     def to_reduced_datums(self, target, data_results=None, **kwargs):
         if not data_results:
             return
-        source_origin = self.query_results.get('source_origin')
-        source_location = self.info_url if source_origin != 'aip' else AIP_TAP_URL
         for data_type, data in data_results.items():
+            if data_type == 'spectroscopy':
+                origin = self.query_results.get('spectroscopy_origin')
+            else:
+                origin = self.query_results.get('photometry_origin') or self.query_results.get('source_origin')
+            source_location = self.info_url if origin != 'aip' else AIP_TAP_URL
             self.create_reduced_datums_from_query(
                 target,
                 data=data,
@@ -292,6 +383,38 @@ class GaiaDR3DataService(DataService):
             logger.warning('Gaia DR3 AIP epoch photometry unavailable for source %s: %s', source_id, exc)
         return []
 
+    def _fetch_xp_spectrum_esa(self, source_id):
+        try:
+            datalink = Gaia.load_data(
+                ids=[str(source_id)],
+                data_release='Gaia DR3',
+                retrieval_type='XP_SAMPLED',
+                data_structure='INDIVIDUAL',
+                verbose=False,
+                format='votable',
+            )
+            for key in sorted(datalink.keys()):
+                for table in datalink[key]:
+                    normalized = _normalize_spectrum_table(
+                        table.to_table() if hasattr(table, 'to_table') else table
+                    )
+                    if normalized and normalized.get('flux'):
+                        return [normalized]
+        except Exception as exc:
+            logger.warning('Gaia DR3 ESA XP spectrum unavailable for source %s: %s', source_id, exc)
+        return []
+
+    def _fetch_xp_spectrum_aip(self, source_id):
+        try:
+            query = _build_aip_xp_query(source_id)
+            result = pyvo.dal.TAPService(AIP_TAP_URL).run_sync(query, language='ADQL').to_table()
+            normalized = _normalize_spectrum_table(result)
+            if normalized and normalized.get('flux'):
+                return [normalized]
+        except Exception as exc:
+            logger.warning('Gaia DR3 AIP XP spectrum unavailable for source %s: %s', source_id, exc)
+        return []
+
     def _build_photometry_datums(self, rows):
         output = []
         band_specs = [
@@ -320,4 +443,41 @@ class GaiaDR3DataService(DataService):
                         'timestamp': timestamp,
                         'value': {'filter': band, 'magnitude': mag, 'error': err},
                     })
+        return output
+
+    def _build_spectroscopy_datums(self, source_id, rows):
+        output = []
+        serializer = SpectrumSerializer()
+        for row in rows:
+            wavelengths = [_to_float(val) for val in _ensure_sequence(row.get('wavelength'))]
+            fluxes = [_to_float(val) for val in _ensure_sequence(row.get('flux'))]
+            flux_errors = [_to_float(val) for val in _ensure_sequence(row.get('flux_error'))]
+            clean_triplets = []
+            for index, (wavelength, flux) in enumerate(zip(wavelengths, fluxes)):
+                if wavelength is None or flux is None:
+                    continue
+                flux_error = flux_errors[index] if index < len(flux_errors) else None
+                clean_triplets.append((wavelength, flux, flux_error))
+            if not clean_triplets:
+                continue
+
+            clean_wavelengths = [item[0] for item in clean_triplets]
+            clean_fluxes = [item[1] for item in clean_triplets]
+            clean_flux_errors = [item[2] for item in clean_triplets]
+            spectrum = Spectrum1D(
+                flux=clean_fluxes * u.Unit(row.get('flux_units') or 'W / (nm m2)'),
+                spectral_axis=clean_wavelengths * u.Unit(row.get('wavelength_units') or 'nm'),
+            )
+            serialized = serializer.serialize(spectrum)
+            serialized.update({
+                'filter': 'GaiaDR3(XP)',
+                'flux_error': clean_flux_errors,
+                'flux_error_units': row.get('flux_error_units') or row.get('flux_units') or 'W / (nm m2)',
+                'source_id': str(source_id),
+                'spectrum_type': 'xp_sampled_mean_spectrum',
+            })
+            output.append({
+                'timestamp': GAIA_DR3_RELEASE_TIMESTAMP,
+                'value': serialized,
+            })
         return output
