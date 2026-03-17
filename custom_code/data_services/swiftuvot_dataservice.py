@@ -2,7 +2,7 @@ import logging
 
 import requests
 from astropy.time import Time
-from django.utils import timezone
+from datetime import timezone
 
 from tom_dataservices.dataservices import DataService
 from tom_dataproducts.models import ReducedDatum

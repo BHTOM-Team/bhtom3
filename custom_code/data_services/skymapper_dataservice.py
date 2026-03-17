@@ -1,7 +1,7 @@
 import logging
 
 from astropy.time import Time
-from django.utils import timezone
+from datetime import timezone
 
 import pyvo
 

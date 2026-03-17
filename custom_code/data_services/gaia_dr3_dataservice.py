@@ -6,7 +6,7 @@ from datetime import datetime
 from astropy import units as u
 from astropy.time import Time
 from astroquery.gaia import Gaia
-from django.utils import timezone
+from datetime import timezone
 import pyvo
 from specutils import Spectrum1D
 

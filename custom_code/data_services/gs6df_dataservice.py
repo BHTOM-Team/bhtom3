@@ -1,7 +1,7 @@
 import logging
 
 from astropy.time import Time
-from django.utils import timezone
+from datetime import timezone
 
 from astropy.io import fits
 from specutils import Spectrum1D
