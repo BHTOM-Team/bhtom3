@@ -5,3 +5,4 @@ tom_lt==0.4.3
 pyvo
 astroquery
 gPhoton-astro==1.0.4
+skypatrol
