@@ -77,22 +77,25 @@ class Gs6dfDataService(DataService):
             viz_result = vizier.query_region(
                 coord.SkyCoord(ra=ra, dec=dec,
                 unit=(u.deg, u.deg),frame='icrs'),
-                radius=radius_arcsec*u.arcmin,
+                radius=radius_arcsec*u.arcsec,
                 catalog=["VII/259/spectra"])
-            viz_table = viz_result[0].to_pandas()
+            if len(viz_result)>0:
+                viz_table = viz_result[0].to_pandas()
 
-            if len(viz_table) == 0:
-                logger.info('6dFGS returned no spectrum for RA=%s Dec=%s', ra, dec)
+                if len(viz_table) == 0:
+                    logger.info('6dFGS returned no spectrum for RA=%s Dec=%s', ra, dec)
+                else:
+                    cat_name = viz_table['6dFGS'][0]
+                    spec_id = viz_table['SpecID'][0]
+                    time = (viz_table['MJD.V'][0]+viz_table['MJD.R'][0])/2.0
+                    ra_id = cat_name[1:3]
+                    fits_url = f"http://www-wfau.roe.ac.uk/6dFGS/dr3_fits/fits/{ra_id}/{cat_name}.fits"
+                    try:
+                        fits_table = fits.open(fits_url)
+                    except Exception as fitse:
+                        logger.info('6dFGS error', fitse)
             else:
-                cat_name = viz_table['6dFGS'][0]
-                spec_id = viz_table['SpecID'][0]
-                time = (viz_table['MJD.V'][0]+viz_table['MJD.R'][0])/2.0
-                ra_id = cat_name[1:3]
-                fits_url = f"http://www-wfau.roe.ac.uk/6dFGS/dr3_fits/fits/{ra_id}/{cat_name}.fits"
-                try:
-                    fits_table = fits.open(fits_url)
-                except Exception as fitse:
-                    logger.info('6dFGS error', fitse)
+                logger.info('6dFGS returned no spectrum for RA=%s Dec=%s', ra, dec)
 
         except Exception as e:
             logger.info('6dFGS error', e)
