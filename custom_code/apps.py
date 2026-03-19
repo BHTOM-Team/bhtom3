@@ -16,5 +16,6 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.galex_dataservice.GalexDataService'},
             {'class': f'{self.name}.data_services.gs6df_dataservice.Gs6dfDataService'},
             {'class': f'{self.name}.data_services.desi_dataservice.DESIDataService'},
-            {'class': f'{self.name}.data_services.asassn_dataservice.ASASSNDataService'}
+            {'class': f'{self.name}.data_services.asassn_dataservice.ASASSNDataService'},
+            {'class': f'{self.name}.data_services.panstarrs_dataservice.PanSTARRSDataService'}
         ]
