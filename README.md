@@ -37,5 +37,6 @@ Each has to have env setup and run on python3.11 ("type -a python" to check)
 `./manage.py db_worker`
 
 DB_Worker will run the dataservices queries in the background
+test
 
 
