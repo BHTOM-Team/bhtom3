@@ -1,6 +1,8 @@
 import logging
 
+from django.contrib.auth import get_user_model
 from django.contrib.auth.signals import user_logged_in
+from django.db.models.signals import pre_save
 from django.dispatch import receiver
 
 
@@ -49,6 +51,52 @@ def safe_set_cipher_on_user_logged_in(sender, request, user, **kwargs):
     except Exception as exc:
         logger.error(
             'Could not initialize TOM cipher key for user %s: %s',
+            getattr(user, 'username', '<unknown>'),
+            exc,
+        )
+
+
+@receiver(pre_save, sender=get_user_model(), dispatch_uid='custom_code.safe_user_updated_on_user_pre_save')
+def safe_user_updated_on_user_pre_save(sender, **kwargs):
+    """
+    Re-encrypt TOM encrypted profile fields only when a real raw password is available.
+
+    Django may update password hashes during login, which changes user.password but sets
+    user._password to None. That is not a real password change and must not trigger
+    re-encryption.
+    """
+    user = kwargs.get('instance')
+    if not user or getattr(user, 'is_anonymous', False) or getattr(user, 'username', '') == 'AnonymousUser':
+        return
+
+    try:
+        old_hashed_password = sender.objects.get(id=user.id).password
+    except sender.DoesNotExist:
+        old_hashed_password = None
+
+    new_hashed_password = user.password
+    if new_hashed_password == old_hashed_password:
+        return
+
+    session_utils_module = _import_session_utils_module()
+    if session_utils_module is None:
+        logger.debug('No tom_common session utility module found; skipping re-encryption.')
+        return
+
+    raw_password = getattr(user, '_password', None)
+    if not raw_password:
+        logger.warning(
+            'Password hash changed for user %s but raw password is unavailable; '
+            'skipping TOM re-encryption (likely hash upgrade on login).',
+            getattr(user, 'username', '<unknown>'),
+        )
+        return
+
+    try:
+        session_utils_module.reencrypt_data(user)
+    except Exception as exc:
+        logger.error(
+            'Could not re-encrypt TOM data for user %s after password update: %s',
             getattr(user, 'username', '<unknown>'),
             exc,
         )

@@ -26,15 +26,19 @@ class CustomCodeConfig(AppConfig):
         # Import local signal handlers.
         from . import signals  # noqa: F401
 
-        # Some TOM Toolkit versions have a brittle login signal receiver that assumes
-        # request.POST["password"] is always present. Disconnect it and use our safe one.
+        # Some TOM Toolkit versions have brittle signal receivers.
         try:
+            from django.db.models.signals import pre_save
             from django.contrib.auth.signals import user_logged_in
             from tom_common import signals as tom_common_signals
 
-            receiver = getattr(tom_common_signals, 'set_cipher_on_user_logged_in', None)
-            if receiver is not None:
-                user_logged_in.disconnect(receiver=receiver)
+            login_receiver = getattr(tom_common_signals, 'set_cipher_on_user_logged_in', None)
+            if login_receiver is not None:
+                user_logged_in.disconnect(receiver=login_receiver)
+
+            pre_save_receiver = getattr(tom_common_signals, 'user_updated_on_user_pre_save', None)
+            if pre_save_receiver is not None:
+                pre_save.disconnect(receiver=pre_save_receiver)
         except Exception:
-            # If this TOM version does not expose that receiver, nothing to do.
+            # If this TOM version does not expose these receivers, nothing to do.
             pass
