@@ -21,3 +21,20 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.allwise_dataservice.AllWISEDataService'},
             {'class': f'{self.name}.data_services.neowise_dataservice.NeoWISEDataService'}
         ]
+
+    def ready(self):
+        # Import local signal handlers.
+        from . import signals  # noqa: F401
+
+        # Some TOM Toolkit versions have a brittle login signal receiver that assumes
+        # request.POST["password"] is always present. Disconnect it and use our safe one.
+        try:
+            from django.contrib.auth.signals import user_logged_in
+            from tom_common import signals as tom_common_signals
+
+            receiver = getattr(tom_common_signals, 'set_cipher_on_user_logged_in', None)
+            if receiver is not None:
+                user_logged_in.disconnect(receiver=receiver)
+        except Exception:
+            # If this TOM version does not expose that receiver, nothing to do.
+            pass
