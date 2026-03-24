@@ -3,10 +3,14 @@ import logging
 from urllib.parse import urlencode
 
 from django.contrib import messages
+from django.conf import settings
+from django.contrib.auth import logout
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.management import call_command
 from django.http import HttpResponseRedirect
+from django.shortcuts import resolve_url
 from django.views.generic import RedirectView
+from django.views import View
 
 from tom_common.hints import add_hint
 from tom_targets.models import Target
@@ -15,6 +19,22 @@ from custom_code.tasks import enqueue_target_dataservices_update
 
 
 logger = logging.getLogger(__name__)
+
+
+class LegacyLogoutView(View):
+    """
+    Compatibility logout endpoint that accepts both GET and POST.
+    """
+
+    def get(self, request, *args, **kwargs):
+        return self._logout_and_redirect(request)
+
+    def post(self, request, *args, **kwargs):
+        return self._logout_and_redirect(request)
+
+    def _logout_and_redirect(self, request):
+        logout(request)
+        return HttpResponseRedirect(resolve_url(getattr(settings, 'LOGOUT_REDIRECT_URL', '/')))
 
 
 class UpdateReducedDataAndDataServicesView(LoginRequiredMixin, RedirectView):

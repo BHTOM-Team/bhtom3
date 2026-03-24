@@ -15,9 +15,10 @@ Including another URLconf
 """
 from django.urls import path, include
 
-from custom_code.views import UpdateReducedDataAndDataServicesView
+from custom_code.views import LegacyLogoutView, UpdateReducedDataAndDataServicesView
 
 urlpatterns = [
+    path('accounts/logout/', LegacyLogoutView.as_view(), name='logout'),
     path(
         'dataproducts/data/reduced/update/',
         UpdateReducedDataAndDataServicesView.as_view(),

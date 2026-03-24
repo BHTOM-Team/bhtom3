@@ -1,0 +1,21 @@
+{% load tom_common_extras %}
+{% navbar_app_addons 'right' %}
+{% if user.is_authenticated %}
+<li class="nav-item">
+    {% if user.first_name or user.last_name %}
+        <a class="nav-link" href="{% url 'user-profile' %}">{{ user.first_name }} {{ user.last_name }} ({{ user.username }})</a>
+    {% else %}
+        <a class="nav-link" href="{% url 'user-profile' %}">{{ user.username }}</a>
+    {% endif %}
+</li>
+<li>
+    <form method="post" action="{% url 'logout' %}" style="display:inline; margin:0;">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-success" title="logout">Logout</button>
+    </form>
+</li>
+{% else %}
+<li class="nav-item">
+    <a class="btn btn-outline-success" title="login" href="{% url 'login' %}">Login</a>
+</li>
+{% endif %}

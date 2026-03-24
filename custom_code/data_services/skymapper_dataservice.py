@@ -1,4 +1,5 @@
 import logging
+import math
 
 from astropy.time import Time
 from datetime import timezone
@@ -23,10 +24,16 @@ def _skymapper_source_location(obj_id):
     return f'https://skymapper.anu.edu.au/object-viewer/dr4/{obj_id}/'
 
 def _to_float(value):
+    # Astropy masked values convert to NaN with a warning; treat them as missing.
+    if getattr(value, 'mask', False):
+        return None
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(number):
+        return None
+    return number
 
 def _build_skymapper_tap_query(ra, dec, radius_arcsec):
     return f"""
