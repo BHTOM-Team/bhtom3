@@ -93,13 +93,14 @@ class UpdateReducedDataAndDataServicesView(LoginRequiredMixin, RedirectView):
         if target_id:
             if isinstance(target_id, list):
                 target_id = target_id[-1]
-            call_command('updatereduceddata', target_id=target_id, stdout=out)
+            self._run_update_reduced_data(out=out, target_id=target_id)
             self._enqueue_dataservices_for_target(target_id, force_all_services=force_all_dataservices)
         else:
-            call_command('updatereduceddata', stdout=out)
+            self._run_update_reduced_data(out=out)
             self._enqueue_dataservices_for_all_targets(force_all_services=force_all_dataservices)
 
-        messages.info(request, out.getvalue())
+        if out.getvalue():
+            messages.info(request, out.getvalue())
         if force_all_dataservices:
             add_hint(
                 request,
@@ -114,6 +115,19 @@ class UpdateReducedDataAndDataServicesView(LoginRequiredMixin, RedirectView):
 
     def get_redirect_url(self, *args, **kwargs):
         return self.request.META.get('HTTP_REFERER', '/')
+
+    def _run_update_reduced_data(self, out, target_id=None):
+        try:
+            if target_id:
+                call_command('updatereduceddata', target_id=target_id, stdout=out)
+            else:
+                call_command('updatereduceddata', stdout=out)
+        except Exception as exc:
+            logger.exception('Reduced data update failed (target_id=%s): %s', target_id, exc)
+            messages.warning(
+                self.request,
+                f'Broker reduced-data update failed ({exc}). DataServices refresh was still enqueued.',
+            )
 
     def _enqueue_dataservices_for_target(self, target_id, force_all_services=False):
         try:
