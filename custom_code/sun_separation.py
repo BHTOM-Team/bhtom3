@@ -293,21 +293,25 @@ def get_live_target_values(target, time_to_compute: Optional[Time] = None):
             "ra": target.ra,
             "dec": target.dec,
             "sun_separation": target.sun_separation,
+            "computed_at_utc": None,
         }
 
-    coordinates = _resolve_target_coordinates_now(target, time_to_compute=time_to_compute)
+    tt = time_to_compute or Time(datetime.now(timezone.utc))
+    coordinates = _resolve_target_coordinates_now(target, time_to_compute=tt)
     if coordinates is None:
         return {
             "ra": target.ra,
             "dec": target.dec,
             "sun_separation": target.sun_separation,
+            "computed_at_utc": None,
         }
 
     ra, dec = coordinates
     return {
         "ra": ra,
         "dec": dec,
-        "sun_separation": compute_sun_separation(ra, dec, time_to_compute=time_to_compute),
+        "sun_separation": compute_sun_separation(ra, dec, time_to_compute=tt),
+        "computed_at_utc": tt.to_datetime(timezone=timezone.utc),
     }
 
 

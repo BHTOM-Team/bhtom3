@@ -13,7 +13,12 @@
 <dl class="row">
 
   {% if live.ra and live.dec %}
-  <dt class="col-sm-6">{{ "Ra,Dec"}}</dt>
+  <dt class="col-sm-6">
+    {{ "Ra,Dec" }}
+    {% if target.type == 'NON_SIDEREAL' and live.computed_at_utc %}
+      <br><small>({{ live.computed_at_utc|date:"Y-m-d H:i:s" }} UT)</small>
+    {% endif %}
+  </dt>
   <dd class="col-sm-6">{{ live.ra }} {{ live.dec }}</dd>
   <dt class="col-sm-6">&nbsp;</dt>
   <dd class="col-sm-6">{{ live.ra|deg_to_sexigesimal:"hms" }} {{ live.dec|deg_to_sexigesimal:"dms"}}</dd>
