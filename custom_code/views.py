@@ -13,12 +13,52 @@ from django.views.generic import RedirectView
 from django.views import View
 
 from tom_common.hints import add_hint
+from tom_targets.views import TargetListView
 from tom_targets.models import Target
 
 from custom_code.tasks import enqueue_target_dataservices_update
 
 
 logger = logging.getLogger(__name__)
+
+
+class Bhtom2TargetListView(TargetListView):
+    """
+    Target list override matching the non-paginated bhtom2-style table page.
+    """
+
+    paginate_by = 20
+
+    def get_paginate_by(self, queryset):
+        # HTMXTableViewMixin requires a paginator in context. Use a single page
+        # sized to all rows so the bhtom2-style list remains effectively unpaginated.
+        try:
+            size = queryset.count()
+        except (AttributeError, TypeError):
+            # django-tables2 may pass TableQuerysetData instead of a QuerySet.
+            try:
+                size = len(queryset)
+            except TypeError:
+                size = queryset.data.count() if hasattr(queryset, 'data') else 1
+        return max(size, 1)
+
+    def get_context_data(self, *args, **kwargs):
+        context = super().get_context_data(*args, **kwargs)
+
+        object_list = context.get('object_list', [])
+        try:
+            context['target_count'] = object_list.count()
+        except (AttributeError, TypeError):
+            context['target_count'] = len(object_list)
+
+        if hasattr(self, 'filterset') and self.filterset and self.filterset.data:
+            params = [(k, v) for k, v in self.filterset.data.lists() if any(item != '' for item in v)]
+            sorted_params = sorted(params, key=lambda item: item[0])
+            context['query_string'] = urlencode(sorted_params, doseq=True)
+        else:
+            context['query_string'] = self.request.META.get('QUERY_STRING', '')
+
+        return context
 
 
 class LegacyLogoutView(View):

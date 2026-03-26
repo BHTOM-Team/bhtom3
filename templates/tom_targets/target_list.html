@@ -1,32 +1,34 @@
 {% extends 'tom_common/base.html' %}
-{% load bootstrap4 targets_extras dataproduct_extras %}
+{% load bootstrap4 targets_extras dataproduct_extras static %}
 {% block title %}Targets{% endblock %}
 {% block content %}
 <div class="row">
-  <div class="col-md-10">
+  <div class="col-md-12">
     <div class="row">
       <div class="col-md-12">
-        <span class="float-right">
-        <span class="target-count">{{ target_count }} Targets</span> &nbsp;
-        <button class="btn btn-primary dropdown-toggle" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-          Create Targets
-        </button>
-        <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
-          <a class="dropdown-item" href="{% url 'targets:create' %}" title="Create a Target">Create a Target</a>
-          <a class="dropdown-item" href="{% url 'targets:import' %}" title="Import Targets">Import Targets</a>
-          <a class="dropdown-item" href="{% url 'tom_catalogs:query' %}" title="Catalog Search">Catalog Search</a>
-        </div>
-        {% update_broker_data_button %}
-        <button onclick="document.getElementById('invisible-export-button').click()" class="btn btn-primary">Export Filtered Targets</button>
-         <!-- use an invisible button, because the key "Enter" event will triggered the first submit button and we want the default action to be applying filter -->
-      </span>
+        <span class="float-right" style="color: rgb(43, 158, 203);">
+          {{ target_count }} {% if target_count == 1 %}Target{% else %}Targets{% endif %} &nbsp;
+          <button class="btn btn-primary dropdown-toggle" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            Create Targets
+          </button>
+          <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+            <a class="dropdown-item" href="{% url 'targets:create' %}" title="Create a Target">Create a Target</a>
+            <a class="dropdown-item" href="{% url 'targets:import' %}" title="Import Targets">Import Targets</a>
+            <a class="dropdown-item" href="{% url 'tom_catalogs:query' %}" title="Catalog Search">Catalog Search</a>
+          </div>
+          {% update_broker_data_button %}
+          <button onclick="document.getElementById('invisible-export-button').click()" class="btn btn-primary">Export Filtered Targets</button>
+        </span>
       </div>
     </div>
+
+    <div style="padding-bottom: 20px;"></div>
     {% select_target_js %}
     {% target_distribution filter.qs %}
-    {% bootstrap_pagination page_obj extra=request.GET.urlencode %}
+
     <label id="displaySelected"></label>
     <button id="optionSelectAll" type="button" class="btn btn-link" onClick="select_all({{ target_count }})"></button>
+
     <form id="grouping-form" action="{% url 'targets:add-remove-grouping' %}" method="POST">
       {% csrf_token %}
       <div class="form-group d-flex justify-content-end align-items-baseline">
@@ -44,20 +46,108 @@
       </div>
       {% target_table object_list %}
     </form>
-    {% bootstrap_pagination page_obj extra=request.GET.urlencode %}
-  </div>
-  {{ filter.fields }}
-  <div class="col-md-2">
-    <form action="" method="get" class="form">
-      {% bootstrap_form filter.form %}
-      {% buttons %}
-        <button type="submit" class="btn btn-primary">
-          Filter
-        </button>
-        <a href="{% url 'targets:list' %}" class="btn btn-secondary" title="Reset">Reset</a>
-        <button type="submit" formaction="{% url 'targets:export' %}" id="invisible-export-button" style="display:none"></button>
-      {% endbuttons %}
-    </form>
   </div>
 </div>
+
+<div class="row">
+  <div class="col-md-12">
+    <h4>Filtering</h4>
+    {{ filter.fields }}
+    <div class="col-md-4 pl-0">
+      <form action="" method="get" class="form">
+        {% bootstrap_form filter.form %}
+        {% buttons %}
+        <button type="submit" class="btn btn-primary">Filter</button>
+        <a href="{% url 'targets:list' %}" class="btn btn-secondary" title="Reset">Reset</a>
+        <button type="submit" formaction="{% url 'targets:export' %}" id="invisible-export-button" style="display:none"></button>
+        {% endbuttons %}
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block javascript %}
+<style>
+  table.dataTable thead th.sorting,
+  table.dataTable thead th.sorting_asc,
+  table.dataTable thead th.sorting_desc {
+    position: relative;
+    padding-right: 1.4rem;
+    cursor: pointer;
+  }
+
+  table.dataTable thead th.sorting::after {
+    content: '⇅';
+    position: absolute;
+    right: 0.45rem;
+    color: #9aa0a6;
+    font-size: 0.85rem;
+  }
+
+  table.dataTable thead th.sorting_asc::after {
+    content: '▲';
+    position: absolute;
+    right: 0.45rem;
+    color: #2b9ecb;
+    font-size: 0.75rem;
+  }
+
+  table.dataTable thead th.sorting_desc::after {
+    content: '▼';
+    position: absolute;
+    right: 0.45rem;
+    color: #2b9ecb;
+    font-size: 0.75rem;
+  }
+</style>
+<script src="https://code.jquery.com/jquery-3.6.1.min.js" integrity="sha256-o88AwQnZB+VDvE9tvIXrMQaPlFFSUTR+nldQm1LuPXQ=" crossorigin="anonymous"></script>
+<script type="text/javascript" src="//cdn.datatables.net/1.12.1/js/jquery.dataTables.min.js"></script>
+<script>
+  $(document).ready(function() {
+    var table = $('.table').DataTable();
+    $('#DataTables_Table_0_filter').hide();
+
+    function setPaginationStyle() {
+      var buttons = document.querySelectorAll('.paginate_button');
+      for (var i = 0; i < buttons.length; i++) {
+        buttons[i].style.setProperty('color', '#fff', 'important');
+      }
+
+      var prevButton = document.querySelector('.paginate_button.previous');
+      if (prevButton) {
+        prevButton.textContent = '<<';
+        prevButton.style.setProperty('color', '#fff', 'important');
+      }
+
+      var nextButton = document.querySelector('.paginate_button.next');
+      if (nextButton) {
+        nextButton.textContent = '>>';
+        nextButton.style.setProperty('color', '#fff', 'important');
+      }
+    }
+
+    if (table.data().count() > 0) {
+      setPaginationStyle();
+      $('.dataTables_paginate').on('click', '.paginate_button', function() {
+        $(this).css('color', '#fff !important');
+      });
+      table.on('draw', function() {
+        setPaginationStyle();
+      });
+    }
+
+    $('#id_cone_search').on('input', function() {
+      var inputVal = $(this).val().trim();
+      var isValid = /^[\w\s]+,\s*[\w\s]+,\s*[\w\s]+$/g.test(inputVal);
+      $(this).css('color', isValid ? '' : 'red');
+    });
+
+    $('#id_target_cone_search').on('input', function() {
+      var inputVal = $(this).val().trim();
+      var isValid = /^[\w\s]+,\s*[\w\s]+$/g.test(inputVal);
+      $(this).css('color', isValid ? '' : 'red');
+    });
+  });
+</script>
 {% endblock %}

@@ -15,10 +15,15 @@ Including another URLconf
 """
 from django.urls import path, include
 
-from custom_code.views import LegacyLogoutView, UpdateReducedDataAndDataServicesView
+from custom_code.views import (
+    Bhtom2TargetListView,
+    LegacyLogoutView,
+    UpdateReducedDataAndDataServicesView,
+)
 
 urlpatterns = [
     path('accounts/logout/', LegacyLogoutView.as_view(), name='logout'),
+    path('targets/', Bhtom2TargetListView.as_view(), name='targets-list-override'),
     path(
         'dataproducts/data/reduced/update/',
         UpdateReducedDataAndDataServicesView.as_view(),
