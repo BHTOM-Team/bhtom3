@@ -1,5 +1,6 @@
 {% extends 'tom_common/base.html' %}
 {% load bootstrap4 targets_extras dataproduct_extras static %}
+{% load target_map_extras %}
 {% block title %}Targets{% endblock %}
 {% block content %}
 <div class="row mx-0 targets-layout">
@@ -24,7 +25,7 @@
 
     <div style="padding-bottom: 20px;"></div>
     {% select_target_js %}
-    {% target_distribution filter.qs %}
+    {% custom_target_distribution filter.qs %}
 
     <label id="displaySelected"></label>
     <button id="optionSelectAll" type="button" class="btn btn-link" onClick="select_all({{ target_count }})"></button>

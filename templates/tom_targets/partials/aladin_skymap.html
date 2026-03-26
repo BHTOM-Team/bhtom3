@@ -71,13 +71,19 @@
 
         aladin.setCooGrid({ color: 'grey', labelSize: 5 });
 
-        // Create a single catalog for all targets (instead of one per target).
-        // Stored on window so that updateAladinTargets() can replace its
+        // Two catalogs:
+        // - Sidereal targets: blue circles
+        // - Non-sidereal targets: green squares
+        // Stored on window so updateAladinTargets() can replace their
         // contents without rebuilding the viewer.
-        window.aladinTargetCatalog = A.catalog({
-            name: 'Targets', color: 'blue', sourceSize: 16
+        window.aladinSiderealCatalog = A.catalog({
+            name: 'Targets (Sidereal)', color: 'blue', sourceSize: 16, shape: 'circle'
         });
-        aladin.addCatalog(window.aladinTargetCatalog);
+        window.aladinNonSiderealCatalog = A.catalog({
+            name: 'Targets (Non-sidereal)', color: 'lime', sourceSize: 16, shape: 'square'
+        });
+        aladin.addCatalog(window.aladinSiderealCatalog);
+        aladin.addCatalog(window.aladinNonSiderealCatalog);
 
         // Global function to update target markers on the existing viewer.
         //
@@ -88,14 +94,18 @@
         //   1. A global JS update function registered on page load
         //   2. An OOB <script> block in the partial that calls it with new data
         window.updateAladinTargets = function(targets) {
-            if (!window.aladinTargetCatalog) return;
-            window.aladinTargetCatalog.removeAll();
+            if (!window.aladinSiderealCatalog || !window.aladinNonSiderealCatalog) return;
+            window.aladinSiderealCatalog.removeAll();
+            window.aladinNonSiderealCatalog.removeAll();
             for (var i = 0; i < targets.length; i++) {
                 var t = targets[i];
                 var popup = 'RA: ' + t.ra + '<br>Dec: ' + t.dec;
-                window.aladinTargetCatalog.addSources([
-                    A.marker(t.ra, t.dec, {popupTitle: t.name, popupDesc: popup})
-                ]);
+                var marker = A.marker(t.ra, t.dec, {popupTitle: t.name, popupDesc: popup});
+                if (t.is_non_sidereal) {
+                    window.aladinNonSiderealCatalog.addSources([marker]);
+                } else {
+                    window.aladinSiderealCatalog.addSources([marker]);
+                }
             }
         };
 
