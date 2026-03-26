@@ -2,9 +2,13 @@ import logging
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.signals import user_logged_in
-from django.db.models.signals import pre_save
+from django.db.backends.signals import connection_created
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
+from tom_dataproducts.models import ReducedDatum
+
+from custom_code.last_photometry import refresh_target_last_photometry
 
 logger = logging.getLogger(__name__)
 
@@ -100,3 +104,28 @@ def safe_user_updated_on_user_pre_save(sender, **kwargs):
             getattr(user, 'username', '<unknown>'),
             exc,
         )
+
+
+@receiver(post_save, sender=ReducedDatum, dispatch_uid='custom_code.update_target_last_photometry_on_save')
+def update_target_last_photometry_on_save(sender, instance, created, **kwargs):
+    if not created or instance.data_type != 'photometry' or instance.target_id is None:
+        return
+
+    refresh_target_last_photometry(instance.target_id)
+
+
+@receiver(post_delete, sender=ReducedDatum, dispatch_uid='custom_code.update_target_last_photometry_on_delete')
+def update_target_last_photometry_on_delete(sender, instance, **kwargs):
+    if instance.data_type != 'photometry' or instance.target_id is None:
+        return
+
+    refresh_target_last_photometry(instance.target_id)
+
+
+@receiver(connection_created, dispatch_uid='custom_code.sqlite_pragmas')
+def configure_sqlite_pragmas(sender, connection, **kwargs):
+    if connection.vendor != 'sqlite':
+        return
+    with connection.cursor() as cursor:
+        cursor.execute('PRAGMA journal_mode=WAL;')
+        cursor.execute('PRAGMA busy_timeout=30000;')

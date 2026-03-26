@@ -8,6 +8,7 @@ from django.utils.module_loading import import_string
 from django_tasks import task
 
 from tom_targets.models import Target
+from custom_code.last_photometry import refresh_target_last_photometry
 
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,17 @@ def update_target_dataservices_for_target(target_id):
             continue
         _run_service_for_target(target, service_name, clazz)
 
+    # Ensure summary fields are refreshed once after all DataServices finish,
+    # even when all inserted rows were duplicates (get_or_create(created=False)).
+    try:
+        refresh_target_last_photometry(target.id)
+    except Exception as exc:
+        logger.warning(
+            'Could not refresh last photometry fields for target %s at task end: %s',
+            target.name,
+            exc,
+        )
+
 
 def _run_service_for_target(target, service_name, service_class):
     service = service_class()
@@ -97,6 +109,15 @@ def _run_service_for_target(target, service_name, service_class):
         reduced_datums = result.get('reduced_datums')
         if reduced_datums:
             service.to_reduced_datums(target, reduced_datums)
+            try:
+                refresh_target_last_photometry(target.id)
+            except Exception as exc:
+                logger.warning(
+                    'Could not refresh last photometry fields for target %s after service "%s": %s',
+                    target.name,
+                    service_name,
+                    exc,
+                )
 
     logger.info('Data service "%s" update finished for target %s (aliases added: %s).',
                 service_name, target.name, aliases_added)
