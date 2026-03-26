@@ -43,6 +43,7 @@ def _build_crts_url(ra, dec, radius_arcmin):
 class CRTSDataService(DataService):
     name = 'CRTS'
     verbose_name = 'CRTS'
+    update_on_daily_refresh = False
     info_url = CRTS_QUERY_URL
     service_notes = 'Query CRTS by coordinates and ingest Catalina photometry.'
 

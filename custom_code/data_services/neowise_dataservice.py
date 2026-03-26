@@ -42,6 +42,7 @@ def _build_wise_query(ra,dec,rad):
 class NeoWISEDataService(DataService):
     name = 'NeoWISE'
     verbose_name = 'NeoWISE'
+    update_on_daily_refresh = False
     info_url = WISE_QUERY_URL
     service_notes = 'Query NeoWISE by coordinates and ingest NeoWISE photometry.'
 
@@ -74,7 +75,7 @@ class NeoWISEDataService(DataService):
                 res_tab = wise_response.text.split("null|\n", 1)[1]
                 lc_data = pd.read_csv(StringIO(res_tab), header=None,
                              names=['ra', 'dec', 'clon', 'clat', 'mjd', 'w1mpro', 'w1sigmpro', 'w2mpro', 'w2sigmpro',
-                                    'dist', 'angle'], sep='\s+')
+                                    'dist', 'angle'], sep=r'\s+')
             else:
                 logger.info('NeoWISE returned no data for RA=%s Dec=%s', ra, dec)
         except ValueError:

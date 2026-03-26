@@ -34,6 +34,7 @@ def _asassn_alias(id):
 class ASASSNDataService(DataService):
     name = 'ASASSN'
     verbose_name = 'ASASSN'
+    update_on_daily_refresh = True
     info_url = ASASSN_QUERY_URL
     service_notes = 'Query ASASSN by coordinates and ingest ASASSN photometry.'
 

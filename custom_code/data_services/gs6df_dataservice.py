@@ -41,6 +41,7 @@ def _to_float(value):
 class Gs6dfDataService(DataService):
     name = '6dFGS'
     verbose_name = '6dFGS'
+    update_on_daily_refresh = False
     info_url = GS6DF_PAGE_URL
     service_notes = 'Query 6dFGS spectra by coordinates from Vizier.'
 

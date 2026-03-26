@@ -39,4 +39,10 @@ Each has to have env setup and run on python3.11 ("type -a python" to check)
 DB_Worker will run the dataservices queries in the background
 test
 
+After March 26: LW added a cron-like job for updating data services and Sun distance.
 
+In a separate terminal and correct env (LW has bhtom3env alias) run:
+
+`./manage.py refresh_dataservices_daily --importance-gt 0 --enqueue`
+
+this will enqueue daily updataes of the data services for all targets with importance>0 as well as their Sun distance.

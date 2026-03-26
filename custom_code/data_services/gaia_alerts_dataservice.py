@@ -58,6 +58,7 @@ def _gaia_alerts_error(mag):
 class GaiaAlertsDataService(DataService):
     name = 'GaiaAlerts'
     verbose_name = 'GaiaAlerts'
+    update_on_daily_refresh = False
     info_url = f'{GAIA_ALERTS_BASE_URL}/alerts'
     service_notes = 'Query Gaia Alerts by alert name or cone search, with optional lightcurve photometry.'
 

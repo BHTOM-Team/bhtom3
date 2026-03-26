@@ -29,6 +29,7 @@ def _to_float(value):
 class SwiftUVOTDataService(DataService):
     name = 'SwiftUVOT'
     verbose_name = 'SwiftUVOT'
+    update_on_daily_refresh = True
     info_url = SWIFTUVOT_START_URL
     service_notes = 'Query Swift UVOT by coordinates through in house Swift service.'
 

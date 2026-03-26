@@ -2,8 +2,8 @@
 {% load bootstrap4 targets_extras dataproduct_extras static %}
 {% block title %}Targets{% endblock %}
 {% block content %}
-<div class="row">
-  <div class="col-md-12">
+<div class="row mx-0 targets-layout">
+  <div class="col-md-10 px-0 targets-main-col">
     <div class="row">
       <div class="col-md-12">
         <span class="float-right" style="color: rgb(43, 158, 203);">
@@ -44,31 +44,101 @@
         <button type="submit" class="btn btn-outline-primary ml-1" name="move">Move</button>
         <button type="submit" class="btn btn-outline-danger ml-1" name="remove">Remove</button>
       </div>
-      {% target_table object_list %}
+      <div class="targets-table-wrap">
+        {% target_table object_list %}
+      </div>
     </form>
   </div>
-</div>
-
-<div class="row">
-  <div class="col-md-12">
+  <div class="col-md-2 px-0 targets-filter-col">
     <h4>Filtering</h4>
     {{ filter.fields }}
-    <div class="col-md-4 pl-0">
-      <form action="" method="get" class="form">
-        {% bootstrap_form filter.form %}
-        {% buttons %}
-        <button type="submit" class="btn btn-primary">Filter</button>
-        <a href="{% url 'targets:list' %}" class="btn btn-secondary" title="Reset">Reset</a>
-        <button type="submit" formaction="{% url 'targets:export' %}" id="invisible-export-button" style="display:none"></button>
-        {% endbuttons %}
-      </form>
-    </div>
+    <form action="" method="get" class="form">
+      {% bootstrap_form filter.form %}
+      {% buttons %}
+      <button type="submit" class="btn btn-primary">Filter</button>
+      <a href="{% url 'targets:list' %}" class="btn btn-secondary" title="Reset">Reset</a>
+      <button type="submit" formaction="{% url 'targets:export' %}" id="invisible-export-button" style="display:none"></button>
+      {% endbuttons %}
+    </form>
   </div>
 </div>
 {% endblock %}
 
 {% block javascript %}
 <style>
+  main.container {
+    max-width: 100%;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  main.container .content {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .targets-layout {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .targets-main-col {
+    flex: 1 1 auto;
+    max-width: calc(100% - 320px);
+    overflow-x: hidden;
+    min-width: 0;
+  }
+
+  .targets-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .targets-table-wrap .table {
+    width: 100% !important;
+    max-width: 100%;
+  }
+
+  .targets-filter-col {
+    flex: 0 0 304px;
+    max-width: 304px;
+    min-width: 304px;
+    padding-left: 0;
+    margin-top: 58px;
+    position: relative;
+    z-index: 2;
+    background: #000;
+  }
+
+  .targets-main-col #aladin-lite-div {
+    width: min(100%, 960px) !important;
+    max-width: min(100%, 960px);
+    height: auto !important;
+    aspect-ratio: 2 / 1;
+    min-height: 420px;
+    margin: 20px auto 20px auto !important;
+  }
+
+  @media (max-width: 1199px) {
+    .targets-layout {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .targets-main-col,
+    .targets-filter-col {
+      flex: 0 0 100%;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .targets-filter-col {
+      margin-top: 8px;
+    }
+  }
+
   table.dataTable thead th.sorting,
   table.dataTable thead th.sorting_asc,
   table.dataTable thead th.sorting_desc {

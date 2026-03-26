@@ -49,6 +49,7 @@ def _to_float(value):
 class DESIDataService(DataService):
     name = 'DESI'
     verbose_name = 'DESI'
+    update_on_daily_refresh = False
     info_url = DESI_PAGE_URL
     service_notes = 'Query DESI spectra by coordinates.'
 

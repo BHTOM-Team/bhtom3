@@ -9,6 +9,7 @@ from django_tasks import task
 
 from tom_targets.models import Target
 from custom_code.last_photometry import refresh_target_last_photometry
+from custom_code.sun_separation import refresh_target_sun_separation
 
 
 logger = logging.getLogger(__name__)
@@ -46,12 +47,11 @@ def _get_data_service_classes():
     return data_service_choices
 
 
-def enqueue_target_dataservices_update(target_id):
-    update_target_dataservices_for_target.enqueue(target_id)
+def enqueue_target_dataservices_update(target_id, include_create_only=True):
+    update_target_dataservices_for_target.enqueue(target_id, include_create_only)
 
 
-@task
-def update_target_dataservices_for_target(target_id):
+def run_target_dataservices_for_target(target_id, include_create_only=True):
     close_old_connections()
     try:
         target = Target.objects.get(pk=target_id)
@@ -71,6 +71,13 @@ def update_target_dataservices_for_target(target_id):
         if clazz is None:
             logger.info('Data service "%s" not installed; skipping.', service_name)
             continue
+        if not _service_enabled_for_run(clazz, include_create_only=include_create_only):
+            logger.info(
+                'Data service "%s" is configured for target-create only; '
+                'skipping in recurring refresh mode.',
+                service_name,
+            )
+            continue
         _run_service_for_target(target, service_name, clazz)
 
     # Ensure summary fields are refreshed once after all DataServices finish,
@@ -83,6 +90,19 @@ def update_target_dataservices_for_target(target_id):
             target.name,
             exc,
         )
+    try:
+        refresh_target_sun_separation(target.id)
+    except Exception as exc:
+        logger.warning(
+            'Could not refresh sun separation for target %s at task end: %s',
+            target.name,
+            exc,
+        )
+
+
+@task
+def update_target_dataservices_for_target(target_id, include_create_only=True):
+    run_target_dataservices_for_target(target_id, include_create_only=include_create_only)
 
 
 def _run_service_for_target(target, service_name, service_class):
@@ -121,6 +141,12 @@ def _run_service_for_target(target, service_name, service_class):
 
     logger.info('Data service "%s" update finished for target %s (aliases added: %s).',
                 service_name, target.name, aliases_added)
+
+
+def _service_enabled_for_run(service_class, include_create_only=True):
+    if include_create_only:
+        return True
+    return bool(getattr(service_class, 'update_on_daily_refresh', True))
 
 
 def _build_query_parameters_for_service(target, service_name, service):

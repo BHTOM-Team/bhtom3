@@ -42,6 +42,7 @@ def _build_wise_query(ra,dec,rad):
 class AllWISEDataService(DataService):
     name = 'AllWISE'
     verbose_name = 'AllWISE'
+    update_on_daily_refresh = False
     info_url = WISE_QUERY_URL
     service_notes = 'Query AllWISE by coordinates and ingest AllWISE photometry.'
 

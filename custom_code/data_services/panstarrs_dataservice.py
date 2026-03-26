@@ -46,6 +46,7 @@ def _get_ps1_filter_name(filter_id):
 class PanSTARRSDataService(DataService):
     name = 'PS1'
     verbose_name = 'PS1'
+    update_on_daily_refresh = False
     info_url = PS1_QUERY_URL
     service_notes = 'Query Pan-STARRS by coordinates and ingest Pan-STARRS photometry.'
 

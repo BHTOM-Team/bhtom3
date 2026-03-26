@@ -1,4 +1,4 @@
-{% load bootstrap4 targets_extras dataproduct_extras static %}
+{% load bootstrap4 targets_extras dataproduct_extras live_target_extras static %}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 <link rel="stylesheet" href="{% static 'tom_common/css/main.css' %}">
 <table class="table table-hover sortable">
@@ -20,19 +20,28 @@
   </thead>
   <tbody>
     {% for target in targets %}
+    {% live_target_values target as live %}
     <tr>
       <td><label><input type="checkbox" name="selected-target" value="{{ target.id }}" onClick="single_select()" /></label></td>
       <td><a href="{% url 'targets:detail' target.id %}" title="{{ target.name }}">{{ target.name }}</a></td>
       <td>
-        {% if target.ra != None %}
-          {{ target.ra|deg_to_sexigesimal:"hms" }}
+        {% if live.ra != None %}
+          {% if target.type == 'NON_SIDEREAL' %}
+            ({{ live.ra|deg_to_sexigesimal:"hms" }})
+          {% else %}
+            {{ live.ra|deg_to_sexigesimal:"hms" }}
+          {% endif %}
         {% else %}
           -
         {% endif %}
       </td>
       <td>
-        {% if target.dec != None %}
-          {{ target.dec|deg_to_sexigesimal:"dms" }}
+        {% if live.dec != None %}
+          {% if target.type == 'NON_SIDEREAL' %}
+            ({{ live.dec|deg_to_sexigesimal:"dms" }})
+          {% else %}
+            {{ live.dec|deg_to_sexigesimal:"dms" }}
+          {% endif %}
         {% else %}
           -
         {% endif %}
@@ -51,7 +60,7 @@
           {{ target.priority|floatformat:1 }}
         </div>
       </td>
-      <td>{{ target.sun_separation|floatformat:0 }}</td>
+      <td>{{ live.sun_separation|floatformat:0 }}</td>
       <td>{{ target.get_classification_type_display }}</td>
     </tr>
     {% empty %}

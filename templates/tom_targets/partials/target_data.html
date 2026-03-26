@@ -1,4 +1,5 @@
-{% load tom_common_extras targets_extras tz %}
+{% load tom_common_extras targets_extras live_target_extras tz %}
+{% live_target_values target as live %}
 <dl class="row">
   {% for target_name in target.names %}
     {% if forloop.first %}
@@ -11,11 +12,11 @@
 </dl>
 <dl class="row">
 
-  {% if target.ra and target.dec %}
+  {% if live.ra and live.dec %}
   <dt class="col-sm-6">{{ "Ra,Dec"}}</dt>
-  <dd class="col-sm-6">{{ target.ra }} {{ target.dec }}</dd>
+  <dd class="col-sm-6">{{ live.ra }} {{ live.dec }}</dd>
   <dt class="col-sm-6">&nbsp;</dt>
-  <dd class="col-sm-6">{{ target.ra|deg_to_sexigesimal:"hms" }} {{ target.dec|deg_to_sexigesimal:"dms"}}</dd>
+  <dd class="col-sm-6">{{ live.ra|deg_to_sexigesimal:"hms" }} {{ live.dec|deg_to_sexigesimal:"dms"}}</dd>
   {% endif %}
 
   {% if target.galactic_lat != None and target.galactic_lng != None %}
@@ -73,9 +74,9 @@
   <dd class="col-sm-6">{{ target.priority }}</dd>
   {% endif %}
 
-  {% if target.sun_separation != None %}
+  {% if live.sun_separation != None %}
   <dt class="col-sm-6">{{ "Sun Separation (deg)" }}</dt>
-  <dd class="col-sm-6">{{ target.sun_separation }}</dd>
+  <dd class="col-sm-6">{{ live.sun_separation }}</dd>
   {% endif %}
 
   {% if target.creation_date != None %}

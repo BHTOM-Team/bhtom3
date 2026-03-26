@@ -53,6 +53,7 @@ def _build_skymapper_tap_query(ra, dec, radius_arcsec):
 class SkyMapperDataService(DataService):
     name = 'SkyMapper'
     verbose_name = 'SkyMapper'
+    update_on_daily_refresh = False
     info_url = SKYMAPPER_TAP_URL
     service_notes = 'Query SkyMapper by coordinates through TAP service.'
 

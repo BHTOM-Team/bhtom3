@@ -60,6 +60,7 @@ def _to_float(value):
 class GalexDataService(DataService):
     name = 'Galex'
     verbose_name = 'Galex'
+    update_on_daily_refresh = False
     info_url = GALEX_WEBPAGE
     service_notes = 'Query Galex by coordinates through gPhoton.'
 

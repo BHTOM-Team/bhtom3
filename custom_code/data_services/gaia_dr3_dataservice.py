@@ -178,6 +178,7 @@ def _normalize_spectrum_table(table):
 class GaiaDR3DataService(DataService):
     name = 'GaiaDR3'
     verbose_name = 'GaiaDR3'
+    update_on_daily_refresh = False
     info_url = 'https://gea.esac.esa.int/archive/'
     service_notes = 'Query Gaia DR3 by source_id or cone search, with optional epoch photometry.'
 
