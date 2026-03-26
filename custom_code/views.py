@@ -86,36 +86,44 @@ class UpdateReducedDataAndDataServicesView(LoginRequiredMixin, RedirectView):
     def get(self, request, *args, **kwargs):
         query_params = request.GET.copy()
         target_id = query_params.pop('target_id', None)
+        query_params.pop('force_all_dataservices', None)
+        force_all_dataservices = str(request.GET.get('force_all_dataservices', '')).lower() in ('1', 'true', 'yes')
         out = StringIO()
 
         if target_id:
             if isinstance(target_id, list):
                 target_id = target_id[-1]
             call_command('updatereduceddata', target_id=target_id, stdout=out)
-            self._enqueue_dataservices_for_target(target_id)
+            self._enqueue_dataservices_for_target(target_id, force_all_services=force_all_dataservices)
         else:
             call_command('updatereduceddata', stdout=out)
-            self._enqueue_dataservices_for_all_targets()
+            self._enqueue_dataservices_for_all_targets(force_all_services=force_all_dataservices)
 
         messages.info(request, out.getvalue())
-        add_hint(
-            request,
-            'DataServices updates were enqueued in the background. Refresh photometry in a moment if needed.',
-        )
+        if force_all_dataservices:
+            add_hint(
+                request,
+                'Forced DataServices refresh was enqueued in the background.',
+            )
+        else:
+            add_hint(
+                request,
+                'DataServices updates were enqueued in the background. Refresh photometry in a moment if needed.',
+            )
         return HttpResponseRedirect(f'{self.get_redirect_url(*args, **kwargs)}?{urlencode(query_params)}')
 
     def get_redirect_url(self, *args, **kwargs):
         return self.request.META.get('HTTP_REFERER', '/')
 
-    def _enqueue_dataservices_for_target(self, target_id):
+    def _enqueue_dataservices_for_target(self, target_id, force_all_services=False):
         try:
-            enqueue_target_dataservices_update(int(target_id))
+            enqueue_target_dataservices_update(int(target_id), force_all_services=force_all_services)
         except Exception as exc:
             logger.warning('Could not enqueue DataServices for target %s: %s', target_id, exc)
 
-    def _enqueue_dataservices_for_all_targets(self):
+    def _enqueue_dataservices_for_all_targets(self, force_all_services=False):
         for pk in Target.objects.values_list('pk', flat=True).iterator():
             try:
-                enqueue_target_dataservices_update(pk)
+                enqueue_target_dataservices_update(pk, force_all_services=force_all_services)
             except Exception as exc:
                 logger.warning('Could not enqueue DataServices for target %s: %s', pk, exc)

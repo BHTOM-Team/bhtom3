@@ -1,0 +1,6 @@
+<a href="{% url 'dataproducts:update-reduced-data' %}{% if query_params %}?{{ query_params }}&force_all_dataservices=1{% else %}?force_all_dataservices=1{% endif %}"
+   class="btn btn-primary"
+   title="Update Broker Data"
+   onclick="return confirm('Are you sure you want to force-update all DataServices for all targets?');">
+  Update Broker Data
+</a>

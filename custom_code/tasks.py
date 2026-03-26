@@ -47,11 +47,11 @@ def _get_data_service_classes():
     return data_service_choices
 
 
-def enqueue_target_dataservices_update(target_id, include_create_only=True):
-    update_target_dataservices_for_target.enqueue(target_id, include_create_only)
+def enqueue_target_dataservices_update(target_id, include_create_only=True, force_all_services=False):
+    update_target_dataservices_for_target.enqueue(target_id, include_create_only, force_all_services)
 
 
-def run_target_dataservices_for_target(target_id, include_create_only=True):
+def run_target_dataservices_for_target(target_id, include_create_only=True, force_all_services=False):
     close_old_connections()
     try:
         target = Target.objects.get(pk=target_id)
@@ -61,7 +61,7 @@ def run_target_dataservices_for_target(target_id, include_create_only=True):
 
     service_classes = _get_data_service_classes()
     service_names = getattr(settings, 'AUTO_QUERY_DATA_SERVICE_NAMES', None)
-    if service_names:
+    if service_names and not force_all_services:
         selected_names = tuple(service_names)
     else:
         selected_names = tuple(sorted(service_classes.keys()))
@@ -101,8 +101,12 @@ def run_target_dataservices_for_target(target_id, include_create_only=True):
 
 
 @task
-def update_target_dataservices_for_target(target_id, include_create_only=True):
-    run_target_dataservices_for_target(target_id, include_create_only=include_create_only)
+def update_target_dataservices_for_target(target_id, include_create_only=True, force_all_services=False):
+    run_target_dataservices_for_target(
+        target_id,
+        include_create_only=include_create_only,
+        force_all_services=force_all_services,
+    )
 
 
 def _run_service_for_target(target, service_name, service_class):
