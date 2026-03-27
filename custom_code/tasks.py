@@ -9,6 +9,7 @@ from django_tasks import task
 
 from tom_targets.models import Target
 from custom_code.last_photometry import refresh_target_last_photometry
+from custom_code.priority import refresh_target_priority
 from custom_code.sun_separation import refresh_target_sun_separation
 
 
@@ -87,6 +88,14 @@ def run_target_dataservices_for_target(target_id, include_create_only=True, forc
     except Exception as exc:
         logger.warning(
             'Could not refresh last photometry fields for target %s at task end: %s',
+            target.name,
+            exc,
+        )
+    try:
+        refresh_target_priority(target.id)
+    except Exception as exc:
+        logger.warning(
+            'Could not refresh priority for target %s at task end: %s',
             target.name,
             exc,
         )

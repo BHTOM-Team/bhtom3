@@ -10,6 +10,7 @@ from astropy.time import Time
 from numpy import around
 
 from tom_targets.models import Target
+from custom_code.priority import refresh_target_priority
 
 logger = logging.getLogger(__name__)
 
@@ -327,3 +328,6 @@ def refresh_target_sun_separation(target_id: int) -> None:
 
     sun_separation = compute_sun_separation(ra, dec)
     Target.objects.filter(pk=target_id).update(sun_separation=sun_separation)
+    # Priority depends on current MJD (dt), so refresh it whenever "now" based
+    # quantities like sun separation are refreshed.
+    refresh_target_priority(target_id)

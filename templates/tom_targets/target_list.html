@@ -176,7 +176,10 @@
 <script type="text/javascript" src="//cdn.datatables.net/1.12.1/js/jquery.dataTables.min.js"></script>
 <script>
   $(document).ready(function() {
-    var table = $('.table').DataTable();
+    var table = $('.table').DataTable({
+      order: [[9, 'desc']],
+      columnDefs: [{ targets: 0, orderable: false }]
+    });
     $('#DataTables_Table_0_filter').hide();
 
     function setPaginationStyle() {

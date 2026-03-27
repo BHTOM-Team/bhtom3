@@ -7,8 +7,10 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from tom_dataproducts.models import ReducedDatum
+from tom_targets.models import Target
 
 from custom_code.last_photometry import refresh_target_last_photometry
+from custom_code.priority import refresh_target_priority
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +114,7 @@ def update_target_last_photometry_on_save(sender, instance, created, **kwargs):
         return
 
     refresh_target_last_photometry(instance.target_id)
+    refresh_target_priority(instance.target_id)
 
 
 @receiver(post_delete, sender=ReducedDatum, dispatch_uid='custom_code.update_target_last_photometry_on_delete')
@@ -120,6 +123,14 @@ def update_target_last_photometry_on_delete(sender, instance, **kwargs):
         return
 
     refresh_target_last_photometry(instance.target_id)
+    refresh_target_priority(instance.target_id)
+
+
+@receiver(post_save, sender=Target, dispatch_uid='custom_code.update_target_priority_on_target_save')
+def update_target_priority_on_target_save(sender, instance, **kwargs):
+    if instance is None or instance.pk is None:
+        return
+    refresh_target_priority(instance.pk)
 
 
 @receiver(connection_created, dispatch_uid='custom_code.sqlite_pragmas')

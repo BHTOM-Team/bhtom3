@@ -16,6 +16,7 @@ from tom_common.hints import add_hint
 from tom_targets.views import TargetListView
 from tom_targets.models import Target
 
+from custom_code.filters import BhtomTargetFilterSet
 from custom_code.tasks import enqueue_target_dataservices_update
 
 
@@ -28,6 +29,8 @@ class Bhtom2TargetListView(TargetListView):
     """
 
     paginate_by = 20
+    ordering = ['-priority', '-created']
+    filterset_class = BhtomTargetFilterSet
 
     def get_paginate_by(self, queryset):
         # HTMXTableViewMixin requires a paginator in context. Use a single page
