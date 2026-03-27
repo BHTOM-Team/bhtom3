@@ -20,6 +20,21 @@ MU_SUN_AU3_PER_DAY2 = 0.01720209895 ** 2
 OBLIQUITY_DEG = 23.4392911
 
 
+def _utc_time_now() -> Time:
+    return Time(datetime.now(timezone.utc), scale="utc")
+
+
+def _coerce_time_utc(value: Optional[Time] = None) -> Time:
+    if value is None:
+        return _utc_time_now()
+    dt = value.to_datetime(timezone=timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return Time(dt, scale="utc")
+
+
 @dataclass
 class OrbitalElements:
     a_au: float
@@ -240,7 +255,7 @@ def compute_sun_separation(ra, dec, time_to_compute: Optional[Time] = None) -> f
     Compute Sun-target angular separation in degrees for current UTC time.
     Rounds to integer degrees to match historical bhtom2/cpcsv2 behavior.
     """
-    tt = time_to_compute or Time(datetime.now(timezone.utc))
+    tt = _coerce_time_utc(time_to_compute)
     sun_pos = get_body("sun", tt)
     obj_pos = SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame="icrs")
     obj_in_sun_frame = obj_pos.transform_to(sun_pos.frame)
@@ -248,7 +263,7 @@ def compute_sun_separation(ra, dec, time_to_compute: Optional[Time] = None) -> f
 
 
 def _resolve_target_coordinates_now(target, time_to_compute: Optional[Time] = None):
-    tt = time_to_compute or Time(datetime.now(timezone.utc))
+    tt = _coerce_time_utc(time_to_compute)
 
     if target.type != Target.NON_SIDEREAL:
         if target.ra is None or target.dec is None:
@@ -297,7 +312,7 @@ def get_live_target_values(target, time_to_compute: Optional[Time] = None):
             "computed_at_utc": None,
         }
 
-    tt = time_to_compute or Time(datetime.now(timezone.utc))
+    tt = _coerce_time_utc(time_to_compute)
     coordinates = _resolve_target_coordinates_now(target, time_to_compute=tt)
     if coordinates is None:
         return {
@@ -321,12 +336,13 @@ def refresh_target_sun_separation(target_id: int) -> None:
     if target is None:
         return
 
-    coordinates = _resolve_target_coordinates_now(target)
+    tt = _utc_time_now()
+    coordinates = _resolve_target_coordinates_now(target, time_to_compute=tt)
     if coordinates is None:
         return
     ra, dec = coordinates
 
-    sun_separation = compute_sun_separation(ra, dec)
+    sun_separation = compute_sun_separation(ra, dec, time_to_compute=tt)
     Target.objects.filter(pk=target_id).update(sun_separation=sun_separation)
     # Priority depends on current MJD (dt), so refresh it whenever "now" based
     # quantities like sun separation are refreshed.

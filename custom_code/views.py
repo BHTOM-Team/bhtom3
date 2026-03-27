@@ -46,6 +46,17 @@ def _hours_to_hms(hours_value):
     return f"{h:02d}:{m:02d}:{s:05.2f}"
 
 
+def _hours_to_hms_astro(hours_value):
+    if hours_value is None:
+        return "-"
+    value = float(hours_value) % 24.0
+    h = int(value)
+    minutes_total = (value - h) * 60.0
+    m = int(minutes_total)
+    s = (minutes_total - m) * 60.0
+    return f"{h:02d}:{m:02d}:{s:05.2f}"
+
+
 def _deg_to_dms(deg_value):
     if deg_value is None:
         return "-"
@@ -192,6 +203,7 @@ class GeoTomTargetListView(ListView):
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs)
         observer = self._resolve_observer()
+        calculation_time_utc = datetime.now(timezone.utc)
 
         object_list = context.get('object_list', [])
         map_targets = []
@@ -203,15 +215,18 @@ class GeoTomTargetListView(ListView):
                 observer_lat_deg=observer['lat_deg'],
                 observer_lon_deg=observer['lon_deg'],
                 observer_elevation_m=observer['elevation_m'],
+                when_utc=calculation_time_utc,
             )
             if sat is None:
                 row.update({
                     "alt_deg": None,
                     "az_deg": None,
                     "hour_angle_hours": None,
+                    "ra_icrf_hours": None,
                     "dec_deg": None,
                     "estimated_vmag": None,
                     "hour_angle_sex": "-",
+                    "ra_icrf_sex": "-",
                     "dec_sex": "-",
                 })
                 geotom_rows.append(row)
@@ -221,9 +236,11 @@ class GeoTomTargetListView(ListView):
                 "alt_deg": sat["alt_deg"],
                 "az_deg": sat["az_deg"],
                 "hour_angle_hours": sat["hour_angle_hours"],
+                "ra_icrf_hours": sat["ra_icrf_hours"],
                 "dec_deg": sat["dec_deg"],
                 "estimated_vmag": sat["estimated_vmag"],
                 "hour_angle_sex": _hours_to_hms(sat["hour_angle_hours"]),
+                "ra_icrf_sex": _hours_to_hms_astro(sat["ra_icrf_hours"]),
                 "dec_sex": _deg_to_dms(sat["dec_deg"]),
             })
             geotom_rows.append(row)
@@ -245,11 +262,13 @@ class GeoTomTargetListView(ListView):
             observer_lat_deg=observer['lat_deg'],
             observer_lon_deg=observer['lon_deg'],
             observer_elevation_m=observer['elevation_m'],
+            when_utc=calculation_time_utc,
         )
         sun_curve = sun_visibility_curve_ha_dec(
             observer_lat_deg=observer['lat_deg'],
             observer_lon_deg=observer['lon_deg'],
             observer_elevation_m=observer['elevation_m'],
+            when_utc=calculation_time_utc,
         )
         context['geotom_visibility_curve_altaz_json'] = json.dumps(sun_curve_altaz['curve_points'])
         context['geotom_visibility_curve_hadec_json'] = json.dumps(sun_curve['curve_points'])
@@ -264,7 +283,7 @@ class GeoTomTargetListView(ListView):
         context['geotom_rows'] = geotom_rows
         paginator = context.get('paginator')
         context['target_count'] = paginator.count if paginator else len(object_list)
-        context['geotom_generated_utc'] = datetime.now(timezone.utc)
+        context['geotom_generated_utc'] = calculation_time_utc
         context['filter_values'] = {
             'name': (self.request.GET.get('name') or '').strip(),
             'norad_id': (self.request.GET.get('norad_id') or '').strip(),
@@ -311,6 +330,20 @@ class GeoTomAddSatView(LoginRequiredMixin, FormView):
         else:
             messages.success(self.request, f'Updated satellite {geotarget.name} (NORAD {norad_id}).')
         return super().form_valid(form)
+
+
+class GeoTomDeleteSatView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        pk = kwargs.get('pk')
+        target = GeoTarget.objects.filter(pk=pk).first()
+        if target is None:
+            messages.warning(request, 'Satellite not found.')
+            return HttpResponseRedirect(reverse_lazy('geotom-list'))
+
+        label = f'{target.name} (NORAD {target.norad_id})'
+        target.delete()
+        messages.success(request, f'Deleted satellite {label}.')
+        return HttpResponseRedirect(reverse_lazy('geotom-list'))
 
 
 class LegacyLogoutView(View):

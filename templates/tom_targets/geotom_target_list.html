@@ -71,9 +71,11 @@
             <th>Alt [deg]</th>
             <th>Az [deg]</th>
             <th>Hour Angle [HH:MM:SS]</th>
+            <th>RA (ICRF) [HH:MM:SS]</th>
             <th>Dec [DD:MM:SS]</th>
             <th>V (est.)</th>
             <th>Updated</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -84,13 +86,24 @@
             <td>{% if row.alt_deg is not None %}{{ row.alt_deg|floatformat:3 }}{% else %}-{% endif %}</td>
             <td>{% if row.az_deg is not None %}{{ row.az_deg|floatformat:3 }}{% else %}-{% endif %}</td>
             <td>{{ row.hour_angle_sex }}</td>
+            <td>{{ row.ra_icrf_sex }}</td>
             <td>{{ row.dec_sex }}</td>
             <td>{% if row.estimated_vmag is not None %}{{ row.estimated_vmag|floatformat:2 }}{% else %}-{% endif %}</td>
             <td>{{ row.target.modified }}</td>
+            <td>
+              {% if user.is_authenticated %}
+              <form method="post" action="{% url 'geotom-delete-sat' row.target.id %}" onsubmit="return confirm('Delete {{ row.target.name }} (NORAD {{ row.target.norad_id }})?');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+              </form>
+              {% else %}
+              -
+              {% endif %}
+            </td>
           </tr>
           {% empty %}
           <tr>
-            <td colspan="8">No GEO satellites yet. Use "Add Sat" to add one by NORAD ID.</td>
+            <td colspan="10">No GEO satellites yet. Use "Add Sat" to add one by NORAD ID.</td>
           </tr>
           {% endfor %}
         </tbody>

@@ -22,6 +22,13 @@ _TLE_CACHE_TIMEOUT_SECONDS = 6 * 3600
 _TS = load.timescale()
 
 
+def _coerce_utc_datetime(value: Optional[datetime]) -> datetime:
+    instant = value or datetime.now(timezone.utc)
+    if instant.tzinfo is None:
+        return instant.replace(tzinfo=timezone.utc)
+    return instant.astimezone(timezone.utc)
+
+
 def fetch_tle_by_norad_id(norad_id: int):
     url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={norad_id}&FORMAT=TLE"
     with urllib.request.urlopen(url, timeout=20) as response:
@@ -64,9 +71,7 @@ def geosat_alt_az(
         return None
 
     name, line1, line2 = tle
-    instant = when_utc or datetime.now(timezone.utc)
-    if instant.tzinfo is None:
-        instant = instant.replace(tzinfo=timezone.utc)
+    instant = _coerce_utc_datetime(when_utc)
 
     satellite = EarthSatellite(line1, line2, name, _TS)
     observer = wgs84.latlon(observer_lat_deg, observer_lon_deg, elevation_m=observer_elevation_m)
@@ -108,6 +113,7 @@ def geosat_alt_az(
         "tle_name": name,
         "alt_deg": float(alt.degrees),
         "az_deg": float(az.degrees),
+        "ra_icrf_hours": float(ra.hours),
         "dec_deg": float(dec.degrees),
         "hour_angle_hours": float(hour_angle_hours),
         "distance_km": float(distance.km),
@@ -159,9 +165,7 @@ def sun_visibility_curve(
     when_utc: Optional[datetime] = None,
     num_points: int = 361,
 ):
-    instant = when_utc or datetime.now(timezone.utc)
-    if instant.tzinfo is None:
-        instant = instant.replace(tzinfo=timezone.utc)
+    instant = _coerce_utc_datetime(when_utc)
 
     location = EarthLocation(
         lat=observer_lat_deg * u.deg,
@@ -221,9 +225,7 @@ def sun_visibility_curve_ha_dec(
     when_utc: Optional[datetime] = None,
     num_points: int = 361,
 ):
-    instant = when_utc or datetime.now(timezone.utc)
-    if instant.tzinfo is None:
-        instant = instant.replace(tzinfo=timezone.utc)
+    instant = _coerce_utc_datetime(when_utc)
 
     location = EarthLocation(
         lat=observer_lat_deg * u.deg,
