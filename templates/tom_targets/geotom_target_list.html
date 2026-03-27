@@ -12,6 +12,12 @@
         <span class="float-right" style="color: rgb(43, 158, 203);">
           {{ target_count }} {% if target_count == 1 %}Satellite{% else %}Satellites{% endif %} &nbsp;
           <a class="btn btn-primary" href="{% url 'geotom-add-sat' %}">Add Sat</a>
+          {% if user.is_authenticated %}
+          <form method="post" action="{% url 'geotom-refresh-tle' %}" class="d-inline" onsubmit="return confirm('Refresh TLE for all GeoTOM targets?');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-info">Refresh TLE</button>
+          </form>
+          {% endif %}
         </span>
       </div>
     </div>
@@ -32,6 +38,7 @@
         <form method="get" action="">
           <input type="hidden" name="name" value="{{ filter_values.name }}">
           <input type="hidden" name="norad_id" value="{{ filter_values.norad_id }}">
+          <input type="hidden" name="object_class" value="{{ filter_values.object_class }}">
           <div class="form-row">
             <div class="form-group col-md-3">
               <label for="id_observer">Preset</label>
@@ -63,11 +70,12 @@
     {% include 'tom_targets/partials/geotom_altaz_map.html' %}
 
     <div class="targets-table-wrap mt-3">
-      <table class="table table-hover">
+      <table id="geotom-table" class="table table-hover">
         <thead>
           <tr>
             <th>Name</th>
             <th>NORAD</th>
+            <th>Class</th>
             <th>Alt [deg]</th>
             <th>Az [deg]</th>
             <th>Hour Angle [HH:MM:SS]</th>
@@ -83,6 +91,13 @@
           <tr>
             <td>{{ row.target.name }}</td>
             <td>{{ row.target.norad_id }}</td>
+            <td>
+              {% if row.target.is_debris %}
+              <span class="geotom-class-badge geotom-class-debris">Debris</span>
+              {% else %}
+              <span class="geotom-class-badge geotom-class-satellite">Satellite</span>
+              {% endif %}
+            </td>
             <td>{% if row.alt_deg is not None %}{{ row.alt_deg|floatformat:3 }}{% else %}-{% endif %}</td>
             <td>{% if row.az_deg is not None %}{{ row.az_deg|floatformat:3 }}{% else %}-{% endif %}</td>
             <td>{{ row.hour_angle_sex }}</td>
@@ -103,7 +118,7 @@
           </tr>
           {% empty %}
           <tr>
-            <td colspan="10">No GEO satellites yet. Use "Add Sat" to add one by NORAD ID.</td>
+            <td colspan="11">No GEO satellites yet. Use "Add Sat" to add one by NORAD ID.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -114,6 +129,10 @@
   <div class="col-md-2 px-0 targets-filter-col">
     <h4>Filtering</h4>
     <form action="" method="get" class="form">
+      <input type="hidden" name="observer" value="{{ geotom_observer.key }}">
+      <input type="hidden" name="lat" value="{{ geotom_observer.input_lat }}">
+      <input type="hidden" name="lon" value="{{ geotom_observer.input_lon }}">
+      <input type="hidden" name="elev" value="{{ geotom_observer.input_elev }}">
       <div class="form-group">
         <label for="id_name">Name</label>
         <input id="id_name" class="form-control" type="text" name="name" value="{{ filter_values.name }}">
@@ -122,6 +141,25 @@
         <label for="id_norad_id">NORAD ID</label>
         <input id="id_norad_id" class="form-control" type="text" name="norad_id" value="{{ filter_values.norad_id }}">
       </div>
+      <div class="form-group">
+        <label for="id_object_class">Class</label>
+        <select id="id_object_class" class="form-control" name="object_class">
+          <option value="all"{% if filter_values.object_class == 'all' %} selected{% endif %}>All</option>
+          <option value="satellite"{% if filter_values.object_class == 'satellite' %} selected{% endif %}>Satellite</option>
+          <option value="debris"{% if filter_values.object_class == 'debris' %} selected{% endif %}>Debris</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <button type="submit" name="visible_only" value="1" class="btn {% if filter_values.visible_only %}btn-info{% else %}btn-outline-info{% endif %}">
+          Visible Only
+        </button>
+        {% if filter_values.visible_only %}
+        <a href="?name={{ filter_values.name|urlencode }}&norad_id={{ filter_values.norad_id|urlencode }}&object_class={{ filter_values.object_class|urlencode }}&observer={{ geotom_observer.key|urlencode }}&lat={{ geotom_observer.input_lat|urlencode }}&lon={{ geotom_observer.input_lon|urlencode }}&elev={{ geotom_observer.input_elev|urlencode }}" class="btn btn-outline-secondary">Show All</a>
+        {% endif %}
+      </div>
+      {% if filter_values.visible_only %}
+      <input type="hidden" name="visible_only" value="1">
+      {% endif %}
       <button type="submit" class="btn btn-primary">Filter</button>
       <a href="{% url 'geotom-list' %}" class="btn btn-secondary" title="Reset">Reset</a>
     </form>
@@ -183,6 +221,28 @@
   .geotom-observer-panel {
     background: #0f141a;
     border-color: #31404f;
+  }
+
+  .geotom-class-badge {
+    display: inline-block;
+    padding: 0.15rem 0.45rem;
+    border-radius: 0.45rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    border: 1px solid transparent;
+  }
+
+  .geotom-class-satellite {
+    color: #aee5ff;
+    background: rgba(33, 137, 191, 0.22);
+    border-color: rgba(71, 168, 216, 0.55);
+  }
+
+  .geotom-class-debris {
+    color: #ffd0a8;
+    background: rgba(179, 86, 31, 0.28);
+    border-color: rgba(214, 129, 66, 0.55);
   }
 
   .targets-table-wrap {
@@ -250,5 +310,16 @@
     observerSelect.addEventListener('change', setCustomState);
     setCustomState();
   })();
+</script>
+<script src="https://code.jquery.com/jquery-3.6.1.min.js" integrity="sha256-o88AwQnZB+VDvE9tvIXrMQaPlFFSUTR+nldQm1LuPXQ=" crossorigin="anonymous"></script>
+<script type="text/javascript" src="//cdn.datatables.net/1.12.1/js/jquery.dataTables.min.js"></script>
+<script>
+  $(document).ready(function() {
+    $('#geotom-table').DataTable({
+      order: [[0, 'asc']],
+      pageLength: 50,
+      columnDefs: [{ targets: 9, orderable: false }]
+    });
+  });
 </script>
 {% endblock %}

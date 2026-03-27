@@ -23,6 +23,7 @@ from tom_targets.models import Target
 from custom_code.filters import BhtomTargetFilterSet
 from custom_code.forms import GeoTomAddSatForm
 from custom_code.geosat import (
+    convert_altaz_curve_to_hadec,
     geosat_alt_az,
     sun_visibility_curve,
     sun_visibility_curve_ha_dec,
@@ -189,6 +190,7 @@ class GeoTomTargetListView(ListView):
         queryset = super().get_queryset()
         name = (self.request.GET.get('name') or '').strip()
         norad = (self.request.GET.get('norad_id') or '').strip()
+        object_class = (self.request.GET.get('object_class') or 'all').strip().lower()
 
         if name:
             queryset = queryset.filter(Q(name__icontains=name) | Q(tle_name__icontains=name))
@@ -197,6 +199,10 @@ class GeoTomTargetListView(ListView):
                 queryset = queryset.filter(norad_id=int(norad))
             except ValueError:
                 queryset = queryset.none()
+        if object_class == 'debris':
+            queryset = queryset.filter(is_debris=True)
+        elif object_class == 'satellite':
+            queryset = queryset.filter(is_debris=False)
 
         return queryset.order_by('name')
 
@@ -204,6 +210,7 @@ class GeoTomTargetListView(ListView):
         context = super().get_context_data(*args, **kwargs)
         observer = self._resolve_observer()
         calculation_time_utc = datetime.now(timezone.utc)
+        visible_only = str(self.request.GET.get('visible_only', '')).lower() in ('1', 'true', 'yes', 'on')
 
         object_list = context.get('object_list', [])
         map_targets = []
@@ -229,31 +236,39 @@ class GeoTomTargetListView(ListView):
                     "ra_icrf_sex": "-",
                     "dec_sex": "-",
                 })
-                geotom_rows.append(row)
+                if not visible_only:
+                    geotom_rows.append(row)
                 continue
 
+            is_visible = sat["alt_deg"] > 0 and sat["solar_elongation_deg"] >= 90.0
             row.update({
                 "alt_deg": sat["alt_deg"],
                 "az_deg": sat["az_deg"],
                 "hour_angle_hours": sat["hour_angle_hours"],
                 "ra_icrf_hours": sat["ra_icrf_hours"],
                 "dec_deg": sat["dec_deg"],
+                "solar_elongation_deg": sat["solar_elongation_deg"],
+                "is_visible": is_visible,
                 "estimated_vmag": sat["estimated_vmag"],
                 "hour_angle_sex": _hours_to_hms(sat["hour_angle_hours"]),
                 "ra_icrf_sex": _hours_to_hms_astro(sat["ra_icrf_hours"]),
                 "dec_sex": _deg_to_dms(sat["dec_deg"]),
             })
+            if visible_only and not is_visible:
+                continue
             geotom_rows.append(row)
 
             map_targets.append({
                 'target_id': target.pk,
                 'target_name': target.name,
                 'norad_id': target.norad_id,
+                'is_debris': bool(target.is_debris),
                 'tle_name': sat['tle_name'],
                 'alt_deg': sat['alt_deg'],
                 'az_deg': sat['az_deg'],
                 'hour_angle_hours': sat['hour_angle_hours'],
                 'dec_deg': sat['dec_deg'],
+                'solar_elongation_deg': sat['solar_elongation_deg'],
                 'distance_km': sat['distance_km'],
             })
 
@@ -271,7 +286,12 @@ class GeoTomTargetListView(ListView):
             when_utc=calculation_time_utc,
         )
         context['geotom_visibility_curve_altaz_json'] = json.dumps(sun_curve_altaz['curve_points'])
-        context['geotom_visibility_curve_hadec_json'] = json.dumps(sun_curve['curve_points'])
+        context['geotom_visibility_curve_hadec_json'] = json.dumps(
+            convert_altaz_curve_to_hadec(
+                sun_curve_altaz['curve_points'],
+                observer_lat_deg=observer['lat_deg'],
+            )
+        )
         context['geotom_sun_altaz_json'] = json.dumps({
             'az_deg': sun_curve_altaz['sun_az_deg'],
             'alt_deg': sun_curve_altaz['sun_alt_deg'],
@@ -282,11 +302,16 @@ class GeoTomTargetListView(ListView):
         })
         context['geotom_rows'] = geotom_rows
         paginator = context.get('paginator')
-        context['target_count'] = paginator.count if paginator else len(object_list)
+        if visible_only:
+            context['target_count'] = len(geotom_rows)
+        else:
+            context['target_count'] = paginator.count if paginator else len(object_list)
         context['geotom_generated_utc'] = calculation_time_utc
         context['filter_values'] = {
             'name': (self.request.GET.get('name') or '').strip(),
             'norad_id': (self.request.GET.get('norad_id') or '').strip(),
+            'object_class': (self.request.GET.get('object_class') or 'all').strip().lower(),
+            'visible_only': visible_only,
         }
         context['geotom_observer'] = observer
         context['geotom_observer_presets'] = [
@@ -312,6 +337,10 @@ class GeoTomAddSatView(LoginRequiredMixin, FormView):
 
         defaults = {
             'name': payload['name'],
+            'intldes': payload.get('intldes', ''),
+            'source': payload.get('source', 'manual'),
+            'object_type': payload.get('object_type', 'SATELLITE') or 'SATELLITE',
+            'is_debris': payload.get('is_debris', False),
             'tle_name': payload['tle_name'],
             'tle_line1': payload['tle_line1'],
             'tle_line2': payload['tle_line2'],
@@ -326,10 +355,47 @@ class GeoTomAddSatView(LoginRequiredMixin, FormView):
         }
         geotarget, created = GeoTarget.objects.update_or_create(norad_id=norad_id, defaults=defaults)
         if created:
-            messages.success(self.request, f'Added satellite {geotarget.name} (NORAD {norad_id}).')
+            messages.success(self.request, f'Added object {geotarget.name} (NORAD {norad_id}).')
         else:
-            messages.success(self.request, f'Updated satellite {geotarget.name} (NORAD {norad_id}).')
+            messages.success(self.request, f'Updated object {geotarget.name} (NORAD {norad_id}).')
         return super().form_valid(form)
+
+
+class GeoTomRefreshTleView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        service = GeoSatDataService()
+        updated = 0
+        failed = 0
+        for target in GeoTarget.objects.all().iterator():
+            try:
+                payload = service.query_by_norad_id(target.norad_id)
+                object_type, is_debris = service.classify_object_type(target.name, target.object_type)
+                GeoTarget.objects.filter(pk=target.pk).update(
+                    name=payload['name'],
+                    source=target.source or 'manual',
+                    object_type=object_type,
+                    is_debris=is_debris,
+                    tle_name=payload['tle_name'],
+                    tle_line1=payload['tle_line1'],
+                    tle_line2=payload['tle_line2'],
+                    epoch_jd=payload['epoch_jd'],
+                    inclination_deg=payload['inclination_deg'],
+                    eccentricity=payload['eccentricity'],
+                    raan_deg=payload['raan_deg'],
+                    arg_perigee_deg=payload['arg_perigee_deg'],
+                    mean_anomaly_deg=payload['mean_anomaly_deg'],
+                    mean_motion_rev_per_day=payload['mean_motion_rev_per_day'],
+                    bstar=payload['bstar'],
+                )
+                updated += 1
+            except Exception:
+                failed += 1
+
+        if failed:
+            messages.warning(request, f'Refreshed TLE for {updated} satellites, {failed} failed.')
+        else:
+            messages.success(request, f'Refreshed TLE for {updated} satellites.')
+        return HttpResponseRedirect(reverse_lazy('geotom-list'))
 
 
 class GeoTomDeleteSatView(LoginRequiredMixin, View):

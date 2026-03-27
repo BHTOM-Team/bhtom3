@@ -95,6 +95,10 @@ class BhtomTarget(BaseTarget):
 class GeoTarget(models.Model):
     norad_id = models.PositiveIntegerField(unique=True, db_index=True)
     name = models.CharField(max_length=128, db_index=True)
+    intldes = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    source = models.CharField(max_length=32, blank=True, default="manual", db_index=True)
+    object_type = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    is_debris = models.BooleanField(default=False, db_index=True)
     tle_name = models.CharField(max_length=128, blank=True, default="")
     tle_line1 = models.CharField(max_length=128)
     tle_line2 = models.CharField(max_length=128)

@@ -19,6 +19,7 @@
       var y = [];
       var text = [];
       var markerColors = [];
+      var markerOpacity = [];
       var curveX = [];
       var curveY = [];
       var curve = mode === 'hadec' ? visibilityCurveHADEC : visibilityCurveALTAZ;
@@ -37,7 +38,7 @@
             'Dec: ' + t.dec_deg.toFixed(3) + '&deg;<br>' +
             'Range: ' + t.distance_km.toFixed(0) + ' km'
           );
-          markerColors.push('#2b9ecb');
+          markerColors.push(t.is_debris ? '#ff8a3d' : '#2b9ecb');
         } else {
           x.push(t.az_deg);
           y.push(t.alt_deg);
@@ -49,7 +50,17 @@
             'Alt: ' + t.alt_deg.toFixed(2) + '&deg;<br>' +
             'Range: ' + t.distance_km.toFixed(0) + ' km'
           );
-          markerColors.push(t.alt_deg >= 0 ? '#2b9ecb' : '#777777');
+          markerColors.push(t.is_debris ? '#ff8a3d' : '#2b9ecb');
+        }
+
+        var belowHorizon = t.alt_deg < 0;
+        var inDaylightZone = t.solar_elongation_deg < 90;
+        if (belowHorizon && inDaylightZone) {
+          markerOpacity.push(0.12);
+        } else if (belowHorizon || inDaylightZone) {
+          markerOpacity.push(0.22);
+        } else {
+          markerOpacity.push(0.95);
         }
       }
 
@@ -68,6 +79,7 @@
         marker: {
           size: 11,
           color: markerColors,
+          opacity: markerOpacity,
           line: { color: '#111', width: 0.5 }
         }
       };
@@ -93,9 +105,9 @@
         x: [mode === 'hadec' ? sun.ha_hours : sun.az_deg],
         y: [mode === 'hadec' ? sun.dec_deg : sun.alt_deg],
         marker: {
-          size: 12,
-          color: '#ffb300',
-          line: { color: '#8a5a00', width: 1 }
+          size: 18,
+          color: '#ffd400',
+          line: { color: '#8a6a00', width: 1.2 }
         },
         hovertemplate: mode === 'hadec'
           ? '<b>Sun</b><br>HA: %{x:.3f} h<br>Dec: %{y:.2f}&deg;<extra></extra>'

@@ -279,3 +279,48 @@ def sun_visibility_curve_ha_dec(
         "computed_at_utc": instant,
         "curve_points": points,
     }
+
+
+def _altaz_to_hadec_point(alt_deg, az_deg, lat_deg):
+    alt_rad = math.radians(alt_deg)
+    az_rad = math.radians(az_deg)
+    lat_rad = math.radians(lat_deg)
+
+    sin_dec = (
+        math.sin(lat_rad) * math.sin(alt_rad)
+        + math.cos(lat_rad) * math.cos(alt_rad) * math.cos(az_rad)
+    )
+    sin_dec = max(-1.0, min(1.0, sin_dec))
+    dec_rad = math.asin(sin_dec)
+
+    cos_dec = max(math.cos(dec_rad), 1e-12)
+    sin_ha = -math.cos(alt_rad) * math.sin(az_rad) / cos_dec
+    cos_ha = (
+        math.sin(alt_rad) - math.sin(lat_rad) * math.sin(dec_rad)
+    ) / (max(math.cos(lat_rad) * cos_dec, 1e-12))
+    sin_ha = max(-1.0, min(1.0, sin_ha))
+    cos_ha = max(-1.0, min(1.0, cos_ha))
+
+    ha_rad = math.atan2(sin_ha, cos_ha)
+    ha_hours = (math.degrees(ha_rad) / 15.0) % 24.0
+    dec_deg = math.degrees(dec_rad)
+    return ha_hours, dec_deg
+
+
+def convert_altaz_curve_to_hadec(curve_points, observer_lat_deg: float):
+    converted = []
+    previous_ha = None
+    for point in curve_points:
+        az_deg = point.get("az_deg")
+        alt_deg = point.get("alt_deg")
+        if az_deg is None or alt_deg is None:
+            converted.append({"ha_hours": None, "dec_deg": None})
+            previous_ha = None
+            continue
+
+        ha_hours, dec_deg = _altaz_to_hadec_point(alt_deg, az_deg, observer_lat_deg)
+        if previous_ha is not None and abs(ha_hours - previous_ha) > 12.0:
+            converted.append({"ha_hours": None, "dec_deg": None})
+        converted.append({"ha_hours": ha_hours, "dec_deg": dec_deg})
+        previous_ha = ha_hours
+    return converted

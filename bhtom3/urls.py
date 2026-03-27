@@ -19,6 +19,7 @@ from custom_code.views import (
     Bhtom2TargetListView,
     GeoTomAddSatView,
     GeoTomDeleteSatView,
+    GeoTomRefreshTleView,
     GeoTomTargetListView,
     LegacyLogoutView,
     UpdateReducedDataAndDataServicesView,
@@ -29,6 +30,7 @@ urlpatterns = [
     path('targets/', Bhtom2TargetListView.as_view(), name='targets-list-override'),
     path('geotom/', GeoTomTargetListView.as_view(), name='geotom-list'),
     path('geotom/add/', GeoTomAddSatView.as_view(), name='geotom-add-sat'),
+    path('geotom/refresh-tle/', GeoTomRefreshTleView.as_view(), name='geotom-refresh-tle'),
     path('geotom/<int:pk>/delete/', GeoTomDeleteSatView.as_view(), name='geotom-delete-sat'),
     path(
         'dataproducts/data/reduced/update/',
