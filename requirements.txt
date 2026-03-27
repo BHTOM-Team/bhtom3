@@ -6,3 +6,5 @@ pyvo
 astroquery
 gPhoton-astro==1.0.4
 skypatrol
+skyfield
+sgp4

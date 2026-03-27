@@ -1,0 +1,241 @@
+{% extends 'tom_common/base.html' %}
+{% load static %}
+{% block title %}GeoTOM{% endblock %}
+{% block content %}
+<div class="row mx-0 targets-layout">
+  <div class="col-md-10 px-0 targets-main-col">
+    <div class="geotom-generated-time mb-1">
+      Generated (UT): {{ geotom_generated_utc|date:"Y-m-d H:i:s" }}
+    </div>
+    <div class="row">
+      <div class="col-md-12">
+        <span class="float-right" style="color: rgb(43, 158, 203);">
+          {{ target_count }} {% if target_count == 1 %}Satellite{% else %}Satellites{% endif %} &nbsp;
+          <a class="btn btn-primary" href="{% url 'geotom-add-sat' %}">Add Sat</a>
+        </span>
+      </div>
+    </div>
+
+    <div class="mt-2 mb-2 geotom-observer-wrap">
+      <div class="geotom-observer">
+        <button class="btn btn-link btn-sm p-0 align-baseline geotom-observer-toggle" type="button" data-toggle="collapse" data-target="#observer-picker" aria-expanded="false" aria-controls="observer-picker">
+          Observer:
+        </button>
+        {{ geotom_observer.name }} ({{ geotom_observer.lat_deg }}, {{ geotom_observer.lon_deg }}, {{ geotom_observer.elevation_m }} m)
+      </div>
+    </div>
+    <div id="observer-picker" class="collapse mb-3">
+      <div class="card card-body geotom-observer-panel">
+        {% if geotom_observer.error %}
+        <div class="alert alert-warning py-2 mb-2">{{ geotom_observer.error }}</div>
+        {% endif %}
+        <form method="get" action="">
+          <input type="hidden" name="name" value="{{ filter_values.name }}">
+          <input type="hidden" name="norad_id" value="{{ filter_values.norad_id }}">
+          <div class="form-row">
+            <div class="form-group col-md-3">
+              <label for="id_observer">Preset</label>
+              <select id="id_observer" name="observer" class="form-control">
+                {% for preset in geotom_observer_presets %}
+                <option value="{{ preset.key }}"{% if geotom_observer.key == preset.key %} selected{% endif %}>{{ preset.name }}</option>
+                {% endfor %}
+                <option value="custom"{% if geotom_observer.key == 'custom' %} selected{% endif %}>Custom</option>
+              </select>
+            </div>
+            <div class="form-group col-md-3">
+              <label for="id_lat">Latitude</label>
+              <input id="id_lat" type="text" name="lat" class="form-control geotom-custom-input" value="{{ geotom_observer.input_lat }}">
+            </div>
+            <div class="form-group col-md-3">
+              <label for="id_lon">Longitude</label>
+              <input id="id_lon" type="text" name="lon" class="form-control geotom-custom-input" value="{{ geotom_observer.input_lon }}">
+            </div>
+            <div class="form-group col-md-3">
+              <label for="id_elev">Elevation [m]</label>
+              <input id="id_elev" type="text" name="elev" class="form-control geotom-custom-input" value="{{ geotom_observer.input_elev }}">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Apply Observer</button>
+        </form>
+      </div>
+    </div>
+
+    {% include 'tom_targets/partials/geotom_altaz_map.html' %}
+
+    <div class="targets-table-wrap mt-3">
+      <table class="table table-hover">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>NORAD</th>
+            <th>Alt [deg]</th>
+            <th>Az [deg]</th>
+            <th>Hour Angle [HH:MM:SS]</th>
+            <th>Dec [DD:MM:SS]</th>
+            <th>V (est.)</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in geotom_rows %}
+          <tr>
+            <td>{{ row.target.name }}</td>
+            <td>{{ row.target.norad_id }}</td>
+            <td>{% if row.alt_deg is not None %}{{ row.alt_deg|floatformat:3 }}{% else %}-{% endif %}</td>
+            <td>{% if row.az_deg is not None %}{{ row.az_deg|floatformat:3 }}{% else %}-{% endif %}</td>
+            <td>{{ row.hour_angle_sex }}</td>
+            <td>{{ row.dec_sex }}</td>
+            <td>{% if row.estimated_vmag is not None %}{{ row.estimated_vmag|floatformat:2 }}{% else %}-{% endif %}</td>
+            <td>{{ row.target.modified }}</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8">No GEO satellites yet. Use "Add Sat" to add one by NORAD ID.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="col-md-2 px-0 targets-filter-col">
+    <h4>Filtering</h4>
+    <form action="" method="get" class="form">
+      <div class="form-group">
+        <label for="id_name">Name</label>
+        <input id="id_name" class="form-control" type="text" name="name" value="{{ filter_values.name }}">
+      </div>
+      <div class="form-group">
+        <label for="id_norad_id">NORAD ID</label>
+        <input id="id_norad_id" class="form-control" type="text" name="norad_id" value="{{ filter_values.norad_id }}">
+      </div>
+      <button type="submit" class="btn btn-primary">Filter</button>
+      <a href="{% url 'geotom-list' %}" class="btn btn-secondary" title="Reset">Reset</a>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block javascript %}
+<style>
+  main.container {
+    max-width: 100%;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  main.container .content {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .targets-layout {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .targets-main-col {
+    flex: 1 1 auto;
+    max-width: calc(100% - 320px);
+    overflow-x: hidden;
+    min-width: 0;
+  }
+
+  .geotom-observer {
+    clear: both;
+    color: #e8eef8;
+    font-weight: 500;
+  }
+
+  .geotom-generated-time {
+    clear: both;
+    color: #c7d7ec;
+    font-size: 0.95rem;
+  }
+
+  .geotom-observer-toggle {
+    color: #7fc2ff;
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .geotom-observer-toggle:hover,
+  .geotom-observer-toggle:focus {
+    color: #a9d6ff;
+    text-decoration: underline;
+  }
+
+  .geotom-observer-panel {
+    background: #0f141a;
+    border-color: #31404f;
+  }
+
+  .targets-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .targets-filter-col {
+    flex: 0 0 304px;
+    max-width: 304px;
+    min-width: 304px;
+    padding-left: 0;
+    margin-top: 58px;
+    position: relative;
+    z-index: 2;
+    background: #000;
+  }
+
+  #geotom-altaz-map {
+    clear: both;
+    position: relative;
+    width: min(100%, 960px);
+    max-width: min(100%, 960px);
+    height: 560px;
+    margin: 14px auto 28px auto;
+  }
+
+  #geotom-altaz-map .js-plotly-plot,
+  #geotom-altaz-map .plot-container,
+  #geotom-altaz-map .svg-container {
+    height: 100% !important;
+  }
+
+  @media (max-width: 1199px) {
+    .targets-layout {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .targets-main-col,
+    .targets-filter-col {
+      flex: 0 0 100%;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .targets-filter-col {
+      margin-top: 8px;
+    }
+  }
+</style>
+<script>
+  (function() {
+    var observerSelect = document.getElementById('id_observer');
+    var customInputs = document.querySelectorAll('.geotom-custom-input');
+    if (!observerSelect) return;
+
+    function setCustomState() {
+      var enabled = observerSelect.value === 'custom';
+      for (var i = 0; i < customInputs.length; i++) {
+        customInputs[i].disabled = !enabled;
+      }
+    }
+
+    observerSelect.addEventListener('change', setCustomState);
+    setCustomState();
+  })();
+</script>
+{% endblock %}

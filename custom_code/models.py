@@ -91,3 +91,26 @@ class BhtomTarget(BaseTarget):
                 return display
         return "Unknown"  # Default to "Unknown" if not found
 
+
+class GeoTarget(models.Model):
+    norad_id = models.PositiveIntegerField(unique=True, db_index=True)
+    name = models.CharField(max_length=128, db_index=True)
+    tle_name = models.CharField(max_length=128, blank=True, default="")
+    tle_line1 = models.CharField(max_length=128)
+    tle_line2 = models.CharField(max_length=128)
+    epoch_jd = models.FloatField(null=True, blank=True)
+    inclination_deg = models.FloatField(null=True, blank=True)
+    eccentricity = models.FloatField(null=True, blank=True)
+    raan_deg = models.FloatField(null=True, blank=True)
+    arg_perigee_deg = models.FloatField(null=True, blank=True)
+    mean_anomaly_deg = models.FloatField(null=True, blank=True)
+    mean_motion_rev_per_day = models.FloatField(null=True, blank=True)
+    bstar = models.FloatField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("name",)
+
+    def __str__(self):
+        return f"{self.name} ({self.norad_id})"

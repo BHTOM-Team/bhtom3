@@ -1,0 +1,19 @@
+{% extends 'tom_common/base.html' %}
+{% load bootstrap4 %}
+{% block title %}Add Geo Satellite{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-md-6 offset-md-3">
+    <h3 class="mb-3">Add Sat</h3>
+    <p class="text-muted">Provide NORAD ID. Satellite metadata and TLE parameters are fetched automatically.</p>
+    <form method="post">
+      {% csrf_token %}
+      {% bootstrap_form form %}
+      {% buttons %}
+      <button type="submit" class="btn btn-primary">Add / Update</button>
+      <a href="{% url 'geotom-list' %}" class="btn btn-secondary">Cancel</a>
+      {% endbuttons %}
+    </form>
+  </div>
+</div>
+{% endblock %}

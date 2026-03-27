@@ -1,0 +1,163 @@
+<div class="d-flex justify-content-end align-items-center mb-2">
+  <div class="btn-group btn-group-sm" role="group" aria-label="Map mode">
+    <button id="map-mode-hadec" type="button" class="btn btn-outline-primary">HA-Dec</button>
+    <button id="map-mode-altaz" type="button" class="btn btn-primary">Alt-Az</button>
+  </div>
+</div>
+<div id="geotom-altaz-map"></div>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script>
+  (function() {
+    var targets = JSON.parse('{{ geotom_targets_json|escapejs }}');
+    var visibilityCurveHADEC = JSON.parse('{{ geotom_visibility_curve_hadec_json|escapejs }}');
+    var visibilityCurveALTAZ = JSON.parse('{{ geotom_visibility_curve_altaz_json|escapejs }}');
+    var sunHADEC = JSON.parse('{{ geotom_sun_hadec_json|escapejs }}');
+    var sunALTAZ = JSON.parse('{{ geotom_sun_altaz_json|escapejs }}');
+
+    function buildModePayload(mode) {
+      var x = [];
+      var y = [];
+      var text = [];
+      var markerColors = [];
+      var curveX = [];
+      var curveY = [];
+      var curve = mode === 'hadec' ? visibilityCurveHADEC : visibilityCurveALTAZ;
+      var sun = mode === 'hadec' ? sunHADEC : sunALTAZ;
+
+      for (var i = 0; i < targets.length; i++) {
+        var t = targets[i];
+        if (mode === 'hadec') {
+          x.push(t.hour_angle_hours);
+          y.push(t.dec_deg);
+          text.push(
+            '<b>' + t.target_name + '</b><br>' +
+            'NORAD: ' + t.norad_id + '<br>' +
+            'TLE: ' + t.tle_name + '<br>' +
+            'HA: ' + t.hour_angle_hours.toFixed(3) + ' h<br>' +
+            'Dec: ' + t.dec_deg.toFixed(3) + '&deg;<br>' +
+            'Range: ' + t.distance_km.toFixed(0) + ' km'
+          );
+          markerColors.push('#2b9ecb');
+        } else {
+          x.push(t.az_deg);
+          y.push(t.alt_deg);
+          text.push(
+            '<b>' + t.target_name + '</b><br>' +
+            'NORAD: ' + t.norad_id + '<br>' +
+            'TLE: ' + t.tle_name + '<br>' +
+            'Az: ' + t.az_deg.toFixed(2) + '&deg;<br>' +
+            'Alt: ' + t.alt_deg.toFixed(2) + '&deg;<br>' +
+            'Range: ' + t.distance_km.toFixed(0) + ' km'
+          );
+          markerColors.push(t.alt_deg >= 0 ? '#2b9ecb' : '#777777');
+        }
+      }
+
+      for (var j = 0; j < curve.length; j++) {
+        curveX.push(mode === 'hadec' ? curve[j].ha_hours : curve[j].az_deg);
+        curveY.push(curve[j].dec_deg !== undefined ? curve[j].dec_deg : curve[j].alt_deg);
+      }
+
+      var satTrace = {
+        type: 'scatter',
+        mode: 'markers',
+        x: x,
+        y: y,
+        text: text,
+        hovertemplate: '%{text}<extra></extra>',
+        marker: {
+          size: 11,
+          color: markerColors,
+          line: { color: '#111', width: 0.5 }
+        }
+      };
+
+      var visibilityTrace = {
+        type: 'scatter',
+        mode: 'lines',
+        x: curveX,
+        y: curveY,
+        line: {
+          color: '#ff8c00',
+          width: 2,
+          dash: 'dash'
+        },
+        hovertemplate: mode === 'hadec'
+          ? 'Visibility line<br>HA: %{x:.3f} h<br>Dec: %{y:.2f}&deg;<extra></extra>'
+          : 'Visibility line<br>Az: %{x:.2f}&deg;<br>Alt: %{y:.2f}&deg;<extra></extra>'
+      };
+
+      var sunTrace = {
+        type: 'scatter',
+        mode: 'markers',
+        x: [mode === 'hadec' ? sun.ha_hours : sun.az_deg],
+        y: [mode === 'hadec' ? sun.dec_deg : sun.alt_deg],
+        marker: {
+          size: 12,
+          color: '#ffb300',
+          line: { color: '#8a5a00', width: 1 }
+        },
+        hovertemplate: mode === 'hadec'
+          ? '<b>Sun</b><br>HA: %{x:.3f} h<br>Dec: %{y:.2f}&deg;<extra></extra>'
+          : '<b>Sun</b><br>Az: %{x:.2f}&deg;<br>Alt: %{y:.2f}&deg;<extra></extra>'
+      };
+
+      var layout = {
+        margin: { l: 54, r: 24, t: 12, b: 48 },
+        showlegend: false,
+        paper_bgcolor: '#ffffff',
+        plot_bgcolor: '#ffffff',
+        xaxis: mode === 'hadec'
+          ? { title: 'Hour Angle [h]', range: [0, 24], dtick: 2, zeroline: false, gridcolor: '#e7e7e7' }
+          : { title: 'Azimuth [deg]', range: [0, 360], dtick: 45, zeroline: false, gridcolor: '#e7e7e7' },
+        yaxis: mode === 'hadec'
+          ? { title: 'Declination [deg]', range: [-90, 90], dtick: 10, zeroline: false, gridcolor: '#efefef' }
+          : { title: 'Altitude [deg]', range: [-20, 90], dtick: 10, zeroline: true, zerolinewidth: 2, zerolinecolor: '#4a4a4a', gridcolor: '#efefef' },
+        shapes: mode === 'hadec'
+          ? []
+          : [{
+              type: 'line',
+              x0: 0,
+              x1: 360,
+              y0: 0,
+              y1: 0,
+              line: { color: '#444', width: 2 }
+            }]
+      };
+
+      return { traces: [visibilityTrace, satTrace, sunTrace], layout: layout };
+    }
+
+    function setButtons(mode) {
+      var hadecBtn = document.getElementById('map-mode-hadec');
+      var altazBtn = document.getElementById('map-mode-altaz');
+      if (mode === 'hadec') {
+        hadecBtn.className = 'btn btn-primary';
+        altazBtn.className = 'btn btn-outline-primary';
+      } else {
+        hadecBtn.className = 'btn btn-outline-primary';
+        altazBtn.className = 'btn btn-primary';
+      }
+    }
+
+    function renderMode(mode) {
+      var payload = buildModePayload(mode);
+      Plotly.react('geotom-altaz-map', payload.traces, payload.layout, {
+        responsive: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d']
+      });
+      setButtons(mode);
+    }
+
+    Plotly.newPlot('geotom-altaz-map', [], {}, {
+      responsive: true,
+      displaylogo: false,
+      modeBarButtonsToRemove: ['lasso2d', 'select2d']
+    });
+
+    renderMode('altaz');
+    document.getElementById('map-mode-hadec').addEventListener('click', function() { renderMode('hadec'); });
+    document.getElementById('map-mode-altaz').addEventListener('click', function() { renderMode('altaz'); });
+  })();
+</script>

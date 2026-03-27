@@ -17,6 +17,8 @@ from django.urls import path, include
 
 from custom_code.views import (
     Bhtom2TargetListView,
+    GeoTomAddSatView,
+    GeoTomTargetListView,
     LegacyLogoutView,
     UpdateReducedDataAndDataServicesView,
 )
@@ -24,6 +26,8 @@ from custom_code.views import (
 urlpatterns = [
     path('accounts/logout/', LegacyLogoutView.as_view(), name='logout'),
     path('targets/', Bhtom2TargetListView.as_view(), name='targets-list-override'),
+    path('geotom/', GeoTomTargetListView.as_view(), name='geotom-list'),
+    path('geotom/add/', GeoTomAddSatView.as_view(), name='geotom-add-sat'),
     path(
         'dataproducts/data/reduced/update/',
         UpdateReducedDataAndDataServicesView.as_view(),
