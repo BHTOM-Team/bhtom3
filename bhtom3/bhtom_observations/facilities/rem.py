@@ -8,7 +8,7 @@ from tom_observations.cadence import CadenceForm
 from tom_targets.models import Target
 
 from custom_code.models import BhtomTarget
-from django.core.mail import send_mail
+from django.core.mail import EmailMessage
 from django.conf import settings
 
 import random
@@ -348,7 +348,10 @@ Priority: 2
             filter_ir = "JHK_IRCam"  # default value
 
         # Format the template
-        user_email = observation_payload['params'].get('email', "")
+        user_email = (
+            observation_payload['params'].get('useremail')
+            or observation_payload['params'].get('email', "")
+        )
 
         filled_template = template.format(
             target_name=target_name,
@@ -371,9 +374,13 @@ Priority: 2
         # Now, the filled_template contains the complete formatted text
         # print(filled_template)
 
-        recipient_email = ["remobs@www.rem.inaf.it","wyrzykow@gmail.com", "pzielinski@umk.pl", user_email]
+        to_recipients = ["remobs@www.rem.inaf.it"]
+        cc_recipients = ["wyrzykow@gmail.com", "pzielinski@umk.pl"]
+        if user_email:
+            cc_recipients.append(user_email)
+
         # Send the email
-        self.send_template_email(filled_template, recipient_email)
+        self.send_template_email(filled_template, to_recipients, cc_recipients)
         obs_id = random.randint(10000, 99999)
         return [obs_id]
 
@@ -390,21 +397,22 @@ Priority: 2
         julian_date = dt.toordinal() + 1721424.5 + (dt.hour + dt.minute / 60 + dt.second / 3600) / 24
         return julian_date
  
-    #recipients can be a single string or a list of strings
-    def send_template_email(self,filled_template, recipients):
+    # recipients/cc can be a single string or a list of strings
+    def send_template_email(self, filled_template, recipients, cc=None):
         if isinstance(recipients, str):
             recipients = [recipients]  # Convert single email to list
+        if isinstance(cc, str):
+            cc = [cc]
+        cc = [email for email in (cc or []) if email]
 
         subject = "REM_OBS" #don't change!
         message = filled_template  # The filled template string
         from_email = settings.EMAIL_HOST_USER  # From email address
-        recipient_list = recipients
-
-        # Send the email
-        send_mail(
-            subject,
-            message,
-            from_email,
-            recipient_list,
-            fail_silently=False,  # Set to True in production to avoid raising errors
+        email_message = EmailMessage(
+            subject=subject,
+            body=message,
+            from_email=from_email,
+            to=recipients,
+            cc=cc,
         )
+        email_message.send(fail_silently=False)
