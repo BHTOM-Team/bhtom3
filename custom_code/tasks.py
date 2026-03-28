@@ -9,11 +9,22 @@ from django_tasks import task
 
 from tom_targets.models import Target
 from custom_code.last_photometry import refresh_target_last_photometry
+from custom_code.models import TargetAliasInfo
 from custom_code.priority import refresh_target_priority
 from custom_code.sun_separation import refresh_target_sun_separation
 
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_alias_result(alias):
+    if isinstance(alias, dict):
+        name = str(alias.get('name') or '').strip()
+        url = str(alias.get('url') or '').strip()
+        source_name = str(alias.get('source_name') or '').strip()
+        return {'name': name, 'url': url, 'source_name': source_name}
+    name = str(alias or '').strip()
+    return {'name': name, 'url': '', 'source_name': ''}
 
 
 def _get_data_service_classes():
@@ -146,7 +157,16 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
             for field_name, value in target_updates.items():
                 setattr(target, field_name, value)
         for alias in result.get('aliases', []):
-            _, created = target.aliases.get_or_create(name=str(alias))
+            alias_data = _normalize_alias_result(alias)
+            if not alias_data['name']:
+                continue
+            alias_obj, created = target.aliases.get_or_create(name=alias_data['name'])
+            source_name = alias_data['source_name'] or service_name
+            if alias_data['url'] or source_name:
+                TargetAliasInfo.objects.update_or_create(
+                    target_name=alias_obj,
+                    defaults={'url': alias_data['url'], 'source_name': source_name},
+                )
             if created:
                 aliases_added += 1
         reduced_datums = result.get('reduced_datums')
@@ -195,6 +215,9 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
     if 'radius_arcsec' in form_fields:
         # Conservative default; service-specific forms may override.
         query_parameters['radius_arcsec'] = 5.0
+
+    if service_name == 'Simbad':
+        query_parameters['radius_arcsec'] = 3.0
 
     if 'source_id' in form_fields:
         query_parameters['radius_arcsec'] = 1.0

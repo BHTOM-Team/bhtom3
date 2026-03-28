@@ -1,14 +1,10 @@
 {% load tom_common_extras targets_extras live_target_extras tz %}
 {% live_target_values target as live %}
 <dl class="row">
-  {% for target_name in target.names %}
-    {% if forloop.first %}
-      <dt class="col-sm-6">Names</dt>
-    {% else %}
-      <dt class="col-sm-6">&nbsp;</dt>
-    {% endif %}
-    <dd class="col-sm-6">{{ target_name }}</dd>
-  {% endfor %}
+  <dt class="col-sm-6">Name</dt>
+  <dd class="col-sm-6">{{ target.name }}</dd>
+  <dt class="col-sm-6">Target ID</dt>
+  <dd class="col-sm-6">{{ target.id }}</dd>
 </dl>
 <dl class="row">
 
@@ -106,4 +102,21 @@
   <dd class="col-sm-6">{{ value }}</dd>
 {% endfor %}
 </dl>
+{% endif %}
+{% if target_other_names %}
+<div class="mt-3 other-names-block">
+  <p class="mb-2"><strong>Other Names</strong></p>
+  {% for alias in target_other_names %}
+    <div class="{% if not forloop.first %}mt-2{% endif %}">
+      <div><strong>{{ alias.source_name }}</strong></div>
+      <div>
+        {% if alias.url %}
+          <a href="{{ alias.url }}" target="_blank" rel="noopener noreferrer">{{ alias.name }}</a>
+        {% else %}
+          {{ alias.name }}
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
 {% endif %}

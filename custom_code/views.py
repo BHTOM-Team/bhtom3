@@ -7,33 +7,101 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth import logout
+from django.contrib.auth.models import Group
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.http import HttpResponseRedirect
+from django.shortcuts import redirect
 from django.shortcuts import resolve_url
 from django.views.generic import FormView, ListView, RedirectView
 from django.views import View
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.db.models import Q
+from django.db import transaction
 
 from tom_common.hints import add_hint
-from tom_targets.views import TargetListView
+from tom_common.hooks import run_hook
+from tom_catalogs.harvester import MissingDataException
+from tom_targets.forms import TargetExtraFormset
 from tom_targets.models import Target
+from tom_targets.views import TargetCreateView, TargetDetailView, TargetListView, TargetUpdateView
 
 from custom_code.filters import BhtomTargetFilterSet
-from custom_code.forms import GeoTomAddSatForm
+from custom_code.forms import BhtomCatalogQueryForm, BhtomTargetNamesFormset, GeoTomAddSatForm
+from custom_code.models import GeoTarget
 from custom_code.geosat import (
     altaz_to_hadec_point,
     convert_altaz_curve_to_hadec,
     geosat_alt_az,
     sun_visibility_curve,
 )
-from custom_code.models import GeoTarget
 from custom_code.data_services.geosat_dataservice import GeoSatDataService
 from custom_code.tasks import enqueue_target_dataservices_update
 
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_alias_payload(payload):
+    if not payload:
+        return []
+    try:
+        alias_rows = json.loads(payload)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(alias_rows, list):
+        return []
+
+    cleaned = []
+    for row in alias_rows:
+        if isinstance(row, str):
+            value = row.strip()
+            if value:
+                cleaned.append({'name': value, 'url': ''})
+            continue
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get('name') or '').strip()
+        url = str(row.get('url') or '').strip()
+        source_name = str(row.get('source_name') or '').strip()
+        if name:
+            cleaned.append({'name': name, 'url': url, 'source_name': source_name})
+    return cleaned
+
+
+def _guess_alias_source(alias_name, url=''):
+    value = str(alias_name or '').strip()
+    url_value = str(url or '').strip().lower()
+    upper = value.upper()
+
+    if 'simbad' in url_value:
+        return 'Simbad'
+    if upper.startswith('GAIADR3_'):
+        return 'GaiaDR3'
+    if upper.startswith('GAIA'):
+        return 'GaiaAlerts'
+    if upper.startswith('LSST_'):
+        return 'LSST'
+    if upper.startswith('ASASSN_'):
+        return 'ASASSN'
+    if upper.startswith('ALLWISE'):
+        return 'AllWISE'
+    if upper.startswith('NEOWISE'):
+        return 'NeoWISE'
+    if upper.startswith('PS1_'):
+        return 'PS1'
+    if upper.startswith('SWIFT'):
+        return 'SwiftUVOT'
+    if upper.startswith('GALEX'):
+        return 'Galex'
+    if upper.startswith('6DFGS'):
+        return '6dFGS'
+    if upper.startswith('DESI'):
+        return 'DESI'
+    if upper.startswith('CRTS'):
+        return 'CRTS'
+    return 'Other'
 
 
 def _hours_to_hms(hours_value):
@@ -110,6 +178,114 @@ class Bhtom2TargetListView(TargetListView):
             context['query_string'] = self.request.META.get('QUERY_STRING', '')
 
         return context
+
+
+class BhtomTargetCreateView(TargetCreateView):
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        alias_payload = _parse_alias_payload(self.request.GET.get('alias_payload'))
+        if self.request.method == 'POST':
+            context['names_form'] = BhtomTargetNamesFormset(self.request.POST, instance=getattr(self, 'object', None))
+        elif alias_payload:
+            context['names_form'] = BhtomTargetNamesFormset(initial=alias_payload)
+        else:
+            context['names_form'] = BhtomTargetNamesFormset(
+                initial=[{'name': new_name} for new_name in self.request.GET.get('names', '').split(',') if new_name]
+            )
+        return context
+
+    def get_form(self, *args, **kwargs):
+        form = super().get_form(*args, **kwargs)
+        if self.request.user.is_superuser:
+            form.fields['groups'].queryset = Group.objects.all()
+        else:
+            form.fields['groups'].queryset = self.request.user.groups.all()
+        return form
+
+    @transaction.atomic
+    def form_valid(self, form):
+        self.object = form.save()
+        extra = TargetExtraFormset(self.request.POST, instance=self.object)
+        names = BhtomTargetNamesFormset(self.request.POST, instance=self.object)
+        if extra.is_valid() and names.is_valid():
+            extra.save()
+            names.save()
+            run_hook('target_post_save', target=self.object, created=True)
+            return redirect(self.get_success_url())
+        form.add_error(None, extra.errors)
+        form.add_error(None, extra.non_form_errors())
+        form.add_error(None, names.errors)
+        form.add_error(None, names.non_form_errors())
+        transaction.set_rollback(True)
+        return super().form_invalid(form)
+
+
+class BhtomTargetUpdateView(TargetUpdateView):
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if self.request.method == 'POST':
+            context['names_form'] = BhtomTargetNamesFormset(self.request.POST, instance=self.object)
+        else:
+            context['names_form'] = BhtomTargetNamesFormset(instance=self.object)
+        return context
+
+    @transaction.atomic
+    def form_valid(self, form):
+        self.object = form.save()
+        extra = TargetExtraFormset(self.request.POST, instance=self.object)
+        names = BhtomTargetNamesFormset(self.request.POST, instance=self.object)
+        if extra.is_valid() and names.is_valid():
+            extra.save()
+            names.save()
+            return redirect(self.get_success_url())
+        form.add_error(None, extra.errors)
+        form.add_error(None, extra.non_form_errors())
+        form.add_error(None, names.errors)
+        form.add_error(None, names.non_form_errors())
+        transaction.set_rollback(True)
+        return super().form_invalid(form)
+
+
+class BhtomTargetDetailView(TargetDetailView):
+    def get_context_data(self, *args, **kwargs):
+        context = super().get_context_data(*args, **kwargs)
+        target = self.get_object()
+        other_names = []
+        for alias in target.aliases.all().select_related('alias_info'):
+            alias_info = getattr(alias, 'alias_info', None)
+            url = getattr(alias_info, 'url', '')
+            other_names.append({
+                'source_name': getattr(alias_info, 'source_name', '') or _guess_alias_source(alias.name, url),
+                'name': alias.name,
+                'url': url,
+            })
+        other_names.sort(key=lambda row: (row['source_name'].lower(), row['name'].lower()))
+        context['target_other_names'] = other_names
+        return context
+
+
+class BhtomCatalogQueryView(FormView):
+    form_class = BhtomCatalogQueryForm
+    template_name = 'tom_catalogs/query_form.html'
+
+    def form_valid(self, form):
+        try:
+            self.target = form.get_target()
+        except MissingDataException:
+            error_target = 'ra' if form.cleaned_data.get('service') == 'Simbad' else 'term'
+            form.add_error(error_target, ValidationError('Object not found'))
+            return self.form_invalid(form)
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        target_params = self.target.as_dict()
+        target_params['names'] = ','.join(
+            alias['name'] for alias in getattr(self.target, 'extra_aliases', []) if alias.get('name')
+        )
+        alias_payload = BhtomCatalogQueryForm.serialize_alias_payload(self.target)
+        if alias_payload:
+            target_params['alias_payload'] = alias_payload
+        return reverse('targets:create') + '?' + urlencode(target_params)
 
 
 class GeoTomTargetListView(ListView):

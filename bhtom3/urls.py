@@ -16,7 +16,11 @@ Including another URLconf
 from django.urls import path, include
 
 from custom_code.views import (
+    BhtomCatalogQueryView,
     Bhtom2TargetListView,
+    BhtomTargetCreateView,
+    BhtomTargetDetailView,
+    BhtomTargetUpdateView,
     GeoTomAddSatView,
     GeoTomDeleteSatView,
     GeoTomRefreshTleView,
@@ -27,7 +31,11 @@ from custom_code.views import (
 
 urlpatterns = [
     path('accounts/logout/', LegacyLogoutView.as_view(), name='logout'),
+    path('catalogs/query/', BhtomCatalogQueryView.as_view(), name='catalog-query-override'),
     path('targets/', Bhtom2TargetListView.as_view(), name='targets-list-override'),
+    path('targets/create/', BhtomTargetCreateView.as_view(), name='targets-create-override'),
+    path('targets/<int:pk>/update/', BhtomTargetUpdateView.as_view(), name='targets-update-override'),
+    path('targets/<int:pk>/', BhtomTargetDetailView.as_view(), name='targets-detail-override'),
     path('geotom/', GeoTomTargetListView.as_view(), name='geotom-list'),
     path('geotom/add/', GeoTomAddSatView.as_view(), name='geotom-add-sat'),
     path('geotom/refresh-tle/', GeoTomRefreshTleView.as_view(), name='geotom-refresh-tle'),

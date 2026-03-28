@@ -123,3 +123,18 @@ class GeoTarget(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.norad_id})"
+
+
+class TargetAliasInfo(models.Model):
+    target_name = models.OneToOneField('tom_targets.TargetName', on_delete=models.CASCADE, related_name='alias_info')
+    source_name = models.CharField(max_length=100, blank=True, default='')
+    url = models.URLField(max_length=500, blank=True, default='')
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'target alias info'
+        verbose_name_plural = 'target alias info'
+
+    def __str__(self):
+        return f'{self.target_name.name}'

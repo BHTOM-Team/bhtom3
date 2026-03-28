@@ -205,3 +205,17 @@ class PhotometricClassificationQueryForm(BaseQueryForm):
         if not has_coords:
             raise forms.ValidationError('Provide RA+Dec.')
         return cleaned
+
+
+class SimbadQueryForm(BaseQueryForm):
+    ra = forms.FloatField(required=False, label='RA (deg)')
+    dec = forms.FloatField(required=False, label='Dec (deg)')
+    radius_arcsec = forms.FloatField(required=False, initial=3.0, min_value=0.1, label='Search radius (arcsec)')
+
+    def clean(self):
+        cleaned = super().clean()
+        has_coords = cleaned.get('ra') is not None and cleaned.get('dec') is not None
+        if not has_coords:
+            raise forms.ValidationError('Provide RA+Dec.')
+        cleaned['radius_arcsec'] = 3.0
+        return cleaned

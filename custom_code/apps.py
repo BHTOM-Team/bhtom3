@@ -20,6 +20,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.panstarrs_dataservice.PanSTARRSDataService'},
             {'class': f'{self.name}.data_services.allwise_dataservice.AllWISEDataService'},
             {'class': f'{self.name}.data_services.neowise_dataservice.NeoWISEDataService'},
+            {'class': f'{self.name}.data_services.simbad_dataservice.SimbadDataService'},
             {'class': f'{self.name}.data_services.photometric_classification_dataservice.PhotometricClassificationDataService'},
         ]
 

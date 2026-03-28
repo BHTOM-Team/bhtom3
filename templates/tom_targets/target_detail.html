@@ -1,5 +1,5 @@
 {% extends 'tom_common/base.html' %}
-{% load comments bootstrap4 tom_common_extras targets_extras observation_extras dataproduct_extras custom_dataproduct_extras static cache %}
+{% load comments bootstrap4 tom_common_extras targets_extras observation_extras dataproduct_extras custom_dataproduct_extras custom_target_extras static cache %}
 {% block title %}Target {{ object.name }}{% endblock %}
 {% block additional_css %}
 <link rel="stylesheet" href="{% static 'tom_targets/css/main.css' %}">
@@ -33,6 +33,13 @@
     line-height: 1.2;
     overflow-wrap: anywhere;
     word-break: break-word;
+  }
+
+  .target-detail-page .other-names-block,
+  .target-detail-page .other-names-block div,
+  .target-detail-page .other-names-block p,
+  .target-detail-page .other-names-block strong {
+    color: #fff !important;
   }
 </style>
 {% endblock %}
@@ -76,7 +83,7 @@
       {% endif %}
       {% target_unknown_statuses object %}
       {% target_buttons object %}
-      {% target_data object %}
+      {% bhtom_target_data object %}
       {% recent_photometry object limit=3 %}
       {% if object.type == 'SIDEREAL' %}
       {% aladin_finderchart object %}

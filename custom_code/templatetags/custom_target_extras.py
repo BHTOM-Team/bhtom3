@@ -1,0 +1,71 @@
+from django import template
+from django.conf import settings
+
+
+register = template.Library()
+
+
+def _guess_alias_source(alias_name, url=''):
+    value = str(alias_name or '').strip()
+    url_value = str(url or '').strip().lower()
+    upper = value.upper()
+
+    if 'simbad' in url_value:
+        return 'Simbad'
+    if upper.startswith('GAIADR3_'):
+        return 'GaiaDR3'
+    if upper.startswith('GAIA'):
+        return 'GaiaAlerts'
+    if upper.startswith('LSST_'):
+        return 'LSST'
+    if upper.startswith('ASASSN_'):
+        return 'ASASSN'
+    if upper.startswith('ALLWISE'):
+        return 'AllWISE'
+    if upper.startswith('NEOWISE'):
+        return 'NeoWISE'
+    if upper.startswith('PS1_'):
+        return 'PS1'
+    if upper.startswith('SWIFT'):
+        return 'SwiftUVOT'
+    if upper.startswith('GALEX'):
+        return 'Galex'
+    if upper.startswith('6DFGS'):
+        return '6dFGS'
+    if upper.startswith('DESI'):
+        return 'DESI'
+    if upper.startswith('CRTS'):
+        return 'CRTS'
+    return 'Other'
+
+
+def _simbad_coordinate_url(target):
+    if target.ra is None or target.dec is None:
+        return ''
+    return (
+        f'https://simbad.cds.unistra.fr/simbad/sim-coo?Coord={target.ra}+{target.dec}'
+        f'&Radius=3&Radius.unit=arcsec&submit=submit+query'
+    )
+
+
+@register.inclusion_tag('tom_targets/partials/target_data.html')
+def bhtom_target_data(target):
+    extras = {k['name']: target.extra_fields.get(k['name'], '') for k in settings.EXTRA_FIELDS if not k.get('hidden')}
+    other_names = []
+    for alias in target.aliases.all().select_related('alias_info'):
+        alias_info = getattr(alias, 'alias_info', None)
+        url = getattr(alias_info, 'url', '')
+        source_name = getattr(alias_info, 'source_name', '') or _guess_alias_source(alias.name, url)
+        if source_name == 'Simbad':
+            url = _simbad_coordinate_url(target)
+        other_names.append({
+            'source_name': source_name,
+            'name': alias.name,
+            'url': url,
+        })
+    other_names.sort(key=lambda row: (row['source_name'].lower(), row['name'].lower()))
+    return {
+        'target': target,
+        'extras': extras,
+        'target_other_names': other_names,
+    }
