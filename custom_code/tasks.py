@@ -7,6 +7,7 @@ from django.db import close_old_connections
 from django.utils.module_loading import import_string
 from django_tasks import task
 
+from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target
 from custom_code.last_photometry import refresh_target_last_photometry
 from custom_code.models import TargetAliasInfo
@@ -25,6 +26,18 @@ def _normalize_alias_result(alias):
         return {'name': name, 'url': url, 'source_name': source_name}
     name = str(alias or '').strip()
     return {'name': name, 'url': '', 'source_name': ''}
+
+
+def _count_returned_reduced_datums(reduced_datums):
+    if not reduced_datums:
+        return 0
+    total = 0
+    for data in reduced_datums.values():
+        try:
+            total += len(data)
+        except TypeError:
+            continue
+    return total
 
 
 def _get_data_service_classes():
@@ -146,10 +159,17 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
         return
 
     if not target_results:
-        logger.info('Data service "%s": no matching results for target %s.', service_name, target.name)
+        logger.info(
+            'Data service "%s" finished for target %s: no match (results=0, aliases_found=0, aliases_added=0, datapoints_returned=0, datapoints_added=0).',
+            service_name,
+            target.name,
+        )
         return
 
     aliases_added = 0
+    aliases_found = 0
+    datapoints_returned = 0
+    datapoints_added = 0
     for result in target_results:
         target_updates = result.get('target_updates') or {}
         if target_updates:
@@ -160,6 +180,7 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
             alias_data = _normalize_alias_result(alias)
             if not alias_data['name']:
                 continue
+            aliases_found += 1
             alias_obj, created = target.aliases.get_or_create(name=alias_data['name'])
             source_name = alias_data['source_name'] or service_name
             if alias_data['url'] or source_name:
@@ -171,7 +192,11 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
                 aliases_added += 1
         reduced_datums = result.get('reduced_datums')
         if reduced_datums:
+            datapoints_returned += _count_returned_reduced_datums(reduced_datums)
+            before_count = ReducedDatum.objects.filter(target=target, source_name=service_name).count()
             service.to_reduced_datums(target, reduced_datums)
+            after_count = ReducedDatum.objects.filter(target=target, source_name=service_name).count()
+            datapoints_added += max(0, after_count - before_count)
             try:
                 refresh_target_last_photometry(target.id)
             except Exception as exc:
@@ -182,8 +207,16 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
                     exc,
                 )
 
-    logger.info('Data service "%s" update finished for target %s (aliases added: %s).',
-                service_name, target.name, aliases_added)
+    logger.info(
+        'Data service "%s" finished for target %s: success (results=%s, aliases_found=%s, aliases_added=%s, datapoints_returned=%s, datapoints_added=%s).',
+        service_name,
+        target.name,
+        len(target_results),
+        aliases_found,
+        aliases_added,
+        datapoints_returned,
+        datapoints_added,
+    )
 
 
 def _service_enabled_for_run(service_class, include_create_only=True):

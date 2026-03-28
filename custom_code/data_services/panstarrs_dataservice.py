@@ -81,9 +81,9 @@ class PanSTARRSDataService(DataService):
                 ps1_id = lc_data['objID'][0]
                 source_location = _ps1_cat_url(ps1_id)
             else:
-                logger.info('PanSTARRS returned no data for RA=%s Dec=%s', ra, dec)
+                logger.debug('PanSTARRS returned no data for RA=%s Dec=%s', ra, dec)
         except ValueError:
-            logger.info('PanSTARRS returned error for RA=%s Dec=%s', ra, dec)
+            logger.debug('PanSTARRS returned error for RA=%s Dec=%s', ra, dec)
 
         self.query_results = {
             'ps1_id':ps1_id,

@@ -1,4 +1,6 @@
 import logging
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 
 from pyasassn.client import SkyPatrolClient
 
@@ -64,22 +66,35 @@ class ASASSNDataService(DataService):
         lc_filtered = None
         source_location = None
         try:
-            client = SkyPatrolClient()
-            query=client.cone_search(ra_deg=ra, dec_deg=dec, radius=radius_arcsec/3600.0, catalog='master_list')
+            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                client = SkyPatrolClient()
+                query = client.cone_search(
+                    ra_deg=ra,
+                    dec_deg=dec,
+                    radius=radius_arcsec / 3600.0,
+                    catalog='master_list',
+                )
             if query.empty:
-                logger.info('ASASSN returned no spectrum for RA=%s Dec=%s', ra, dec)
+                logger.debug('ASASSN returned no spectrum for RA=%s Dec=%s', ra, dec)
             else:
                 t = SkyCoord(ra=ra, dec=dec, unit='deg')
                 separations = t.separation(SkyCoord(ra=query['ra_deg']*u.degree, dec=query['dec_deg']*u.degree, unit=(u.deg, u.deg)))
                 min_index = np.argmin(separations)
                 asassn_id = query.iloc[min_index]['asas_sn_id']
                 source_location = f"http://asas-sn.ifa.hawaii.edu/skypatrol/objects/{asassn_id}"
-                lcs = client.cone_search(ra_deg=ra, dec_deg=dec, radius=radius_arcsec/3600., download=True, threads=8)
+                with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                    lcs = client.cone_search(
+                        ra_deg=ra,
+                        dec_deg=dec,
+                        radius=radius_arcsec / 3600.0,
+                        download=True,
+                        threads=8,
+                    )
                 lc = lcs[asassn_id]
                 lc_filtered = lc.data[(lc.data['mag_err'] < 0.5) & (lc.data['mag'] <= 99) & (lc.data['mag_err'] > 0)]
                 lc_limits = lc.data[(lc.data['mag_err'] < 0) & (lc.data['mag'] <= 99)]
         except ValueError:
-            logger.info('ASASSN returned error for RA=%s Dec=%s', ra, dec)
+            logger.debug('ASASSN returned error for RA=%s Dec=%s', ra, dec)
 
         self.query_results = {
             'asassn_id':asassn_id,

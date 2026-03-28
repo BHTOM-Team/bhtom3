@@ -98,7 +98,7 @@ class DESIDataService(DataService):
             datalab_table = pd.read_csv(StringIO(datalab_response.text))
 
             if len(datalab_table) == 0:
-                logger.info('DESI returned no spectrum for RA=%s Dec=%s', ra, dec)
+                logger.debug('DESI returned no spectrum for RA=%s Dec=%s', ra, dec)
             else:
                 cat_name = datalab_table['desiname'][0]
                 spec_id = datalab_table['targetid'][0]
@@ -123,7 +123,7 @@ class DESIDataService(DataService):
                 spectra_data = retrieve_response[1]
 
         except Exception as e:
-            logger.info('DESI error', e)
+            logger.debug('DESI error %s', e)
         
         self.query_results = {
             'cat_name':cat_name or None,

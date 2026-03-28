@@ -43,7 +43,7 @@ class PhotometricClassificationDataService(DataService):
         ra = _to_float(query_parameters.get('ra'))
         dec = _to_float(query_parameters.get('dec'))
         if ra is None or dec is None:
-            logger.info(
+            logger.debug(
                 'PhotometricClassification skipped: missing coordinates (target_id=%s, ra=%s, dec=%s).',
                 target_id,
                 query_parameters.get('ra'),
@@ -52,7 +52,7 @@ class PhotometricClassificationDataService(DataService):
             self.query_results = []
             return []
 
-        logger.info(
+        logger.debug(
             'Running PhotometricClassification (target_id=%s, ra=%s, dec=%s, force=%s).',
             target_id,
             ra,
@@ -66,13 +66,13 @@ class PhotometricClassificationDataService(DataService):
             except (Target.DoesNotExist, TypeError, ValueError):
                 target = None
             if target is not None and getattr(target, 'phot_classification_done', False):
-                logger.info('PhotometricClassification already done for target %s; skipping.', target.name)
+                logger.debug('PhotometricClassification already done for target %s; skipping.', target.name)
                 self.query_results = []
                 return []
 
         phot_class = classify_target_coordinates(ra, dec)
         if phot_class in (None, '', '--', '-'):
-            logger.info(
+            logger.debug(
                 'PhotometricClassification produced no usable result (target_id=%s, ra=%s, dec=%s, phot_class=%s).',
                 target_id,
                 ra,
@@ -80,7 +80,7 @@ class PhotometricClassificationDataService(DataService):
                 phot_class,
             )
         else:
-            logger.info(
+            logger.debug(
                 'PhotometricClassification result (target_id=%s, ra=%s, dec=%s): %s',
                 target_id,
                 ra,

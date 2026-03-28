@@ -87,12 +87,12 @@ class SkyMapperDataService(DataService):
             obj_id = None
 
             if len(tap_response) == 0:
-                logger.info('SkyMapper returned no photometry for RA=%s Dec=%s', ra, dec)
+                logger.debug('SkyMapper returned no photometry for RA=%s Dec=%s', ra, dec)
             else:
                 obj_id = tap_response['object_id'][0]
 
         except Exception as e:
-            logger.info('SkyMapper error', e)
+            logger.debug('SkyMapper error %s', e)
         
         self.query_results = {
             'obj_id':obj_id,

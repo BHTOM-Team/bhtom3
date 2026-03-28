@@ -84,7 +84,7 @@ class CRTSDataService(DataService):
                     if query_parameters.get('include_photometry', True):
                         photometry_rows = rows
         except ValueError:
-            logger.info('CRTS returned no photometry for RA=%s Dec=%s', ra, dec)
+            logger.debug('CRTS returned no photometry for RA=%s Dec=%s', ra, dec)
 
         self.query_results = {
             'match': match_row,

@@ -137,7 +137,7 @@ class SimbadDataService(DataService):
                 'parallax': parallax,
             },
         }
-        logger.info('SIMBAD query result mapped to %s', result)
+        logger.debug('SIMBAD query result mapped to %s', result)
         return [result]
 
     def create_target_from_query(self, target_result: Dict[str, Any], **kwargs) -> Target:

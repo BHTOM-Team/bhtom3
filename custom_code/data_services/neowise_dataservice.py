@@ -77,9 +77,9 @@ class NeoWISEDataService(DataService):
                              names=['ra', 'dec', 'clon', 'clat', 'mjd', 'w1mpro', 'w1sigmpro', 'w2mpro', 'w2sigmpro',
                                     'dist', 'angle'], sep=r'\s+')
             else:
-                logger.info('NeoWISE returned no data for RA=%s Dec=%s', ra, dec)
+                logger.debug('NeoWISE returned no data for RA=%s Dec=%s', ra, dec)
         except ValueError:
-            logger.info('NeoWISE returned error for RA=%s Dec=%s', ra, dec)
+            logger.debug('NeoWISE returned error for RA=%s Dec=%s', ra, dec)
 
         self.query_results = {
             'lc_data': lc_data,

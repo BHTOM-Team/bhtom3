@@ -1,5 +1,9 @@
 import logging
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 
+import astropy.units as u
+from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from datetime import timezone
 
@@ -29,12 +33,13 @@ def galex_aperture_timeout(band, ra, dec, radius, annulus, timeout=900):
 
     def worker():
         try:
-            result["data"] = gPhoton.gAperture(
-                band=band,
-                skypos=[ra, dec],
-                radius=radius,
-                annulus=annulus
-            )
+            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                result["data"] = gPhoton.gAperture(
+                    band=band,
+                    skypos=[ra, dec],
+                    radius=radius,
+                    annulus=annulus
+                )
         except Exception:
             result["data"] = None
 
@@ -86,19 +91,23 @@ class GalexDataService(DataService):
             return self.query_results
 
         try:
-            galex_catalog_data = Catalogs.query_region(f"{ra} {dec}", catalog="Galex",radius=(radius_arcsec/3600.0))
+            galex_catalog_data = Catalogs.query_region(
+                coordinates=SkyCoord(ra=ra, dec=dec, unit='deg'),
+                catalog="Galex",
+                radius=(radius_arcsec / 3600.0) * u.deg,
+            )
             galex_data = galex_catalog_data.to_pandas()
             obj_id = None
             IAU_name = None
 
             if len(galex_data) == 0:
-                logger.info('Galex (astroquery) returned no photometry for RA=%s Dec=%s', ra, dec)
+                logger.debug('Galex (astroquery) returned no photometry for RA=%s Dec=%s', ra, dec)
             else:
                 obj_id = galex_data['objID'][0]
                 IAU_name = galex_data['IAUName'][0]
 
         except Exception as e:
-            logger.info('Astroquery error', e)
+            logger.debug('Astroquery error %s', e)
         
         self.query_results = {
             'obj_id':obj_id or None,
@@ -174,7 +183,7 @@ class GalexDataService(DataService):
             data_fuv = galex_aperture_timeout("FUV",ra,dec,aperture_radius,[bkg_in_aperture_radius, bkg_out_aperture_radius])
                     
         except Exception as e:
-            logger.info('gPhoton error', e)
+            logger.debug('gPhoton error %s', e)
 
         if data_nuv is None or data_fuv is None:
             return output

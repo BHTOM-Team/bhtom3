@@ -12,8 +12,11 @@ I_FILTER_TOKENS = ("i(", "(I)", "(zi)", "(i)")
 R_FILTER_TOKENS = ("r(", "(R)", "(zr)", "(r)")
 G_FILTER_TOKENS = ("g(", "(zg)", "(g)")
 V_FILTER_TOKENS = ("V(", "(V)")
+B_FILTER_TOKENS = ("B(", "(B)")
+U_FILTER_TOKENS = ("U(", "(U)")
 G_REF_FILTER_TOKENS = ("G(", "(G)", "g(Gaia)")
-IGNORE_FILTERS = {"WISE(W1)", "WISE(W2)", "GALEX(NUV)", "GALEX(FUV)", "UVOT(UVW1)", "UVOT(UVW2)", "UVOT(UVM2)", "LAT(>100MeV)", "LAT(>800MeV)"}
+IGNORE_FILTERS = {"WISE(W1)", "WISE(W2)", "GALEX(NUV)", "GALEX(FUV)", "LAT(>100MeV)", "LAT(>800MeV)"}
+IGNORE_FILTER_PREFIXES = ("UVOT(UVW", "UVOT(UVM")
 
 
 def _is_finite_number(value) -> bool:
@@ -47,6 +50,11 @@ def _extract_mjd(datum: ReducedDatum):
     return float(Time(timestamp, scale="utc").mjd)
 
 
+def _should_ignore_filter(datum_filter: str) -> bool:
+    normalized_filter = str(datum_filter or "").strip()
+    return normalized_filter in IGNORE_FILTERS or normalized_filter.startswith(IGNORE_FILTER_PREFIXES)
+
+
 def compute_last_photometry_values(target_id: int) -> Tuple[float, float, str]:
     datums = ReducedDatum.objects.filter(target_id=target_id, data_type="photometry").order_by("timestamp")
     if not datums.exists():
@@ -60,10 +68,14 @@ def compute_last_photometry_values(target_id: int) -> Tuple[float, float, str]:
     mean_r = 0.0
     mean_g = 0.0
     mean_v = 0.0
+    mean_b = 0.0
+    mean_u = 0.0
     n_i = 0
     n_r = 0
     n_g = 0
     n_v = 0
+    n_b = 0
+    n_u = 0
 
     for datum in datums:
         mag, datum_filter = _extract_mag_and_filter(datum)
@@ -71,7 +83,7 @@ def compute_last_photometry_values(target_id: int) -> Tuple[float, float, str]:
         value_ok = _is_finite_number(mag)
         mjd_ok = _is_finite_number(mjd)
 
-        if value_ok and mjd_ok and datum_filter not in IGNORE_FILTERS and float(mjd) > last_mjd:
+        if value_ok and mjd_ok and not _should_ignore_filter(datum_filter) and float(mjd) > last_mjd:
             last_mjd = float(mjd)
             last_mag = float(mag)
             last_filter = datum_filter
@@ -91,6 +103,12 @@ def compute_last_photometry_values(target_id: int) -> Tuple[float, float, str]:
         if any(token in datum_filter for token in V_FILTER_TOKENS):
             mean_v += float(mag)
             n_v += 1
+        if any(token in datum_filter for token in B_FILTER_TOKENS):
+            mean_b += float(mag)
+            n_b += 1
+        if any(token in datum_filter for token in U_FILTER_TOKENS):
+            mean_u += float(mag)
+            n_u += 1
 
     if n_i:
         mean_i /= n_i
@@ -100,6 +118,10 @@ def compute_last_photometry_values(target_id: int) -> Tuple[float, float, str]:
         mean_g /= n_g
     if n_v:
         mean_v /= n_v
+    if n_b:
+        mean_b /= n_b
+    if n_u:
+        mean_u /= n_u
 
     return_mag = last_mag
     approxsign = last_filter
@@ -121,6 +143,15 @@ def compute_last_photometry_values(target_id: int) -> Tuple[float, float, str]:
             approxsign = "~G"
         if mean_g != 0 and mean_i != 0 and any(token in last_filter for token in G_FILTER_TOKENS):
             return_mag = last_mag - (mean_g - mean_i) / 2.0
+            approxsign = "~G"
+        if mean_b != 0 and mean_r != 0 and any(token in last_filter for token in B_FILTER_TOKENS):
+            return_mag = last_mag - (mean_b - mean_r)
+            approxsign = "~G"
+        if mean_u != 0 and mean_g != 0 and any(token in last_filter for token in U_FILTER_TOKENS):
+            return_mag = last_mag - (mean_u - mean_g)
+            approxsign = "~G"
+        if mean_u != 0 and mean_r != 0 and any(token in last_filter for token in U_FILTER_TOKENS):
+            return_mag = last_mag - (mean_u - mean_r)
             approxsign = "~G"
 
     return round(float(return_mag), 1), round(float(last_mjd), 8), approxsign

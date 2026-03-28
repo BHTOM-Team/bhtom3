@@ -84,7 +84,7 @@ class Gs6dfDataService(DataService):
                 viz_table = viz_result[0].to_pandas()
 
                 if len(viz_table) == 0:
-                    logger.info('6dFGS returned no spectrum for RA=%s Dec=%s', ra, dec)
+                    logger.debug('6dFGS returned no spectrum for RA=%s Dec=%s', ra, dec)
                 else:
                     cat_name = viz_table['6dFGS'][0]
                     spec_id = viz_table['SpecID'][0]
@@ -94,12 +94,12 @@ class Gs6dfDataService(DataService):
                     try:
                         fits_table = fits.open(fits_url)
                     except Exception as fitse:
-                        logger.info('6dFGS error', fitse)
+                        logger.debug('6dFGS error %s', fitse)
             else:
-                logger.info('6dFGS returned no spectrum for RA=%s Dec=%s', ra, dec)
+                logger.debug('6dFGS returned no spectrum for RA=%s Dec=%s', ra, dec)
 
         except Exception as e:
-            logger.info('6dFGS error', e)
+            logger.debug('6dFGS error %s', e)
         
         self.query_results = {
             'cat_name':cat_name or None,

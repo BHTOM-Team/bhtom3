@@ -83,9 +83,9 @@ class AllWISEDataService(DataService):
                 sep=r'\s+'
             )
             else:
-                logger.info('ALLWISE returned no data for RA=%s Dec=%s', ra, dec)
+                logger.debug('ALLWISE returned no data for RA=%s Dec=%s', ra, dec)
         except ValueError:
-            logger.info('ALLWISE returned error for RA=%s Dec=%s', ra, dec)
+            logger.debug('ALLWISE returned error for RA=%s Dec=%s', ra, dec)
 
         self.query_results = {
             'lc_data': lc_data,

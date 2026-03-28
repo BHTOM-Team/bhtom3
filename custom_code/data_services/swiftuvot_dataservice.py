@@ -61,10 +61,10 @@ class SwiftUVOTDataService(DataService):
             swiift_data = swift_response.json()
 
             if len(swiift_data) == 0:
-                logger.info('Swift UVOT returned no photometry for RA=%s Dec=%s', ra, dec)
+                logger.debug('Swift UVOT returned no photometry for RA=%s Dec=%s', ra, dec)
 
         except Exception as e:
-            logger.info('SkyMapper error', e)
+            logger.debug('SkyMapper error %s', e)
         
         self.query_results = {
             'photometry_data': swiift_data or None,
