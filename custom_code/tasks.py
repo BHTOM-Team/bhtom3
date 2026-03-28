@@ -79,7 +79,7 @@ def run_target_dataservices_for_target(target_id, include_create_only=True, forc
                 service_name,
             )
             continue
-        _run_service_for_target(target, service_name, clazz)
+        _run_service_for_target(target, service_name, clazz, force_all_services=force_all_services)
 
     # Ensure summary fields are refreshed once after all DataServices finish,
     # even when all inserted rows were duplicates (get_or_create(created=False)).
@@ -118,9 +118,14 @@ def update_target_dataservices_for_target(target_id, include_create_only=True, f
     )
 
 
-def _run_service_for_target(target, service_name, service_class):
+def _run_service_for_target(target, service_name, service_class, force_all_services=False):
     service = service_class()
-    query_parameters = _build_query_parameters_for_service(target, service_name, service)
+    query_parameters = _build_query_parameters_for_service(
+        target,
+        service_name,
+        service,
+        force=force_all_services,
+    )
 
     try:
         built_parameters = service.build_query_parameters(query_parameters)
@@ -135,6 +140,11 @@ def _run_service_for_target(target, service_name, service_class):
 
     aliases_added = 0
     for result in target_results:
+        target_updates = result.get('target_updates') or {}
+        if target_updates:
+            Target.objects.filter(pk=target.pk).update(**target_updates)
+            for field_name, value in target_updates.items():
+                setattr(target, field_name, value)
         for alias in result.get('aliases', []):
             _, created = target.aliases.get_or_create(name=str(alias))
             if created:
@@ -162,7 +172,7 @@ def _service_enabled_for_run(service_class, include_create_only=True):
     return bool(getattr(service_class, 'update_on_daily_refresh', True))
 
 
-def _build_query_parameters_for_service(target, service_name, service):
+def _build_query_parameters_for_service(target, service_name, service, force=False):
     form_fields = {}
     try:
         form_class = service.get_form_class()
@@ -171,6 +181,8 @@ def _build_query_parameters_for_service(target, service_name, service):
         pass
 
     query_parameters = {'data_service': service_name}
+    query_parameters['target_id'] = target.id
+    query_parameters['force'] = bool(force)
     if 'ra' in form_fields:
         query_parameters['ra'] = target.ra
     if 'dec' in form_fields:

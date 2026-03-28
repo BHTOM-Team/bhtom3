@@ -14,6 +14,10 @@
     var sunHADEC = JSON.parse('{{ geotom_sun_hadec_json|escapejs }}');
     var sunALTAZ = JSON.parse('{{ geotom_sun_altaz_json|escapejs }}');
 
+    function formatEstimatedMagnitude(value) {
+      return value === null || value === undefined ? '-' : value.toFixed(2);
+    }
+
     function buildModePayload(mode) {
       var x = [];
       var y = [];
@@ -36,6 +40,7 @@
             'TLE: ' + t.tle_name + '<br>' +
             'HA: ' + t.hour_angle_hours.toFixed(3) + ' h<br>' +
             'Dec: ' + t.dec_deg.toFixed(3) + '&deg;<br>' +
+            'V (est.): ' + formatEstimatedMagnitude(t.estimated_vmag) + '<br>' +
             'Range: ' + t.distance_km.toFixed(0) + ' km'
           );
           markerColors.push(t.is_debris ? '#ff8a3d' : '#2b9ecb');
@@ -48,6 +53,7 @@
             'TLE: ' + t.tle_name + '<br>' +
             'Az: ' + t.az_deg.toFixed(2) + '&deg;<br>' +
             'Alt: ' + t.alt_deg.toFixed(2) + '&deg;<br>' +
+            'V (est.): ' + formatEstimatedMagnitude(t.estimated_vmag) + '<br>' +
             'Range: ' + t.distance_km.toFixed(0) + ' km'
           );
           markerColors.push(t.is_debris ? '#ff8a3d' : '#2b9ecb');

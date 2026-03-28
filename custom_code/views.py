@@ -23,10 +23,10 @@ from tom_targets.models import Target
 from custom_code.filters import BhtomTargetFilterSet
 from custom_code.forms import GeoTomAddSatForm
 from custom_code.geosat import (
+    altaz_to_hadec_point,
     convert_altaz_curve_to_hadec,
     geosat_alt_az,
     sun_visibility_curve,
-    sun_visibility_curve_ha_dec,
 )
 from custom_code.models import GeoTarget
 from custom_code.data_services.geosat_dataservice import GeoSatDataService
@@ -133,6 +133,37 @@ class GeoTomTargetListView(ListView):
         except (TypeError, ValueError):
             return default
 
+    @staticmethod
+    def _parse_utc_datetime(value):
+        if not value:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if normalized.endswith('Z'):
+            normalized = normalized[:-1] + '+00:00'
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def _resolve_calculation_time(self):
+        time_raw = (self.request.GET.get('time_utc') or '').strip()
+        calculation_time_utc = self._parse_utc_datetime(time_raw)
+        if calculation_time_utc is not None:
+            return calculation_time_utc, calculation_time_utc.strftime('%Y-%m-%dT%H:%M:%S'), ''
+        if time_raw:
+            return (
+                datetime.now(timezone.utc),
+                time_raw,
+                'Custom UTC time is invalid. Use a valid UTC date and time.',
+            )
+        now_utc = datetime.now(timezone.utc)
+        return now_utc, now_utc.strftime('%Y-%m-%dT%H:%M:%S'), ''
+
     def _resolve_observer(self):
         observer_key = (self.request.GET.get('observer') or 'warsaw').strip().lower()
         lat_raw = (self.request.GET.get('lat') or '').strip()
@@ -209,7 +240,7 @@ class GeoTomTargetListView(ListView):
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs)
         observer = self._resolve_observer()
-        calculation_time_utc = datetime.now(timezone.utc)
+        calculation_time_utc, calculation_time_input, calculation_time_error = self._resolve_calculation_time()
         visible_only = str(self.request.GET.get('visible_only', '')).lower() in ('1', 'true', 'yes', 'on')
 
         object_list = context.get('object_list', [])
@@ -257,6 +288,11 @@ class GeoTomTargetListView(ListView):
             if visible_only and not is_visible:
                 continue
             geotom_rows.append(row)
+            plot_ha_hours, plot_dec_deg = altaz_to_hadec_point(
+                sat['alt_deg'],
+                sat['az_deg'],
+                observer['lat_deg'],
+            )
 
             map_targets.append({
                 'target_id': target.pk,
@@ -266,10 +302,11 @@ class GeoTomTargetListView(ListView):
                 'tle_name': sat['tle_name'],
                 'alt_deg': sat['alt_deg'],
                 'az_deg': sat['az_deg'],
-                'hour_angle_hours': sat['hour_angle_hours'],
-                'dec_deg': sat['dec_deg'],
+                'hour_angle_hours': plot_ha_hours,
+                'dec_deg': plot_dec_deg,
                 'solar_elongation_deg': sat['solar_elongation_deg'],
                 'distance_km': sat['distance_km'],
+                'estimated_vmag': sat['estimated_vmag'],
             })
 
         context['geotom_targets_json'] = json.dumps(map_targets)
@@ -279,13 +316,12 @@ class GeoTomTargetListView(ListView):
             observer_elevation_m=observer['elevation_m'],
             when_utc=calculation_time_utc,
         )
-        sun_curve = sun_visibility_curve_ha_dec(
-            observer_lat_deg=observer['lat_deg'],
-            observer_lon_deg=observer['lon_deg'],
-            observer_elevation_m=observer['elevation_m'],
-            when_utc=calculation_time_utc,
-        )
         context['geotom_visibility_curve_altaz_json'] = json.dumps(sun_curve_altaz['curve_points'])
+        sun_hadec = altaz_to_hadec_point(
+            sun_curve_altaz['sun_alt_deg'],
+            sun_curve_altaz['sun_az_deg'],
+            observer['lat_deg'],
+        )
         context['geotom_visibility_curve_hadec_json'] = json.dumps(
             convert_altaz_curve_to_hadec(
                 sun_curve_altaz['curve_points'],
@@ -297,8 +333,8 @@ class GeoTomTargetListView(ListView):
             'alt_deg': sun_curve_altaz['sun_alt_deg'],
         })
         context['geotom_sun_hadec_json'] = json.dumps({
-            'ha_hours': sun_curve['sun_ha_hours'],
-            'dec_deg': sun_curve['sun_dec_deg'],
+            'ha_hours': sun_hadec[0],
+            'dec_deg': sun_hadec[1],
         })
         context['geotom_rows'] = geotom_rows
         paginator = context.get('paginator')
@@ -307,6 +343,8 @@ class GeoTomTargetListView(ListView):
         else:
             context['target_count'] = paginator.count if paginator else len(object_list)
         context['geotom_generated_utc'] = calculation_time_utc
+        context['geotom_generated_utc_input'] = calculation_time_input
+        context['geotom_time_error'] = calculation_time_error
         context['filter_values'] = {
             'name': (self.request.GET.get('name') or '').strip(),
             'norad_id': (self.request.GET.get('norad_id') or '').strip(),
@@ -462,7 +500,11 @@ class UpdateReducedDataAndDataServicesView(LoginRequiredMixin, RedirectView):
                 request,
                 'DataServices updates were enqueued in the background. Refresh photometry in a moment if needed.',
             )
-        return HttpResponseRedirect(f'{self.get_redirect_url(*args, **kwargs)}?{urlencode(query_params)}')
+        redirect_url = self.get_redirect_url(*args, **kwargs)
+        encoded_query = urlencode(query_params)
+        if encoded_query:
+            redirect_url = f'{redirect_url}?{encoded_query}'
+        return HttpResponseRedirect(redirect_url)
 
     def get_redirect_url(self, *args, **kwargs):
         return self.request.META.get('HTTP_REFERER', '/')

@@ -76,6 +76,11 @@ class BhtomTarget(BaseTarget):
     phot_class = models.CharField(max_length=50,
                                   verbose_name='phot class', null=True, blank=True
                                   )
+    phot_classification_done = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name='photometric classification done',
+    )
     photometry_plot = models.FileField(upload_to=photometry_plot_path, null=True, blank=True, default=None)
     photometry_plot_obs = models.FileField(upload_to=photometry_plot_obs_path, null=True, blank=True, default=None)
     photometry_icon_plot = models.FileField(upload_to=photometry_icon_plot_path, null=True, blank=True, default=None)

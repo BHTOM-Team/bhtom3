@@ -4,6 +4,9 @@ tom_swift==0.3.0
 tom_lt==0.4.3
 pyvo
 astroquery
+numpy
+pandas
+scikit-learn
 gPhoton-astro==1.0.4
 skypatrol
 skyfield

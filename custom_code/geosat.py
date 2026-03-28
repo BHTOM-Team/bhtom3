@@ -281,7 +281,7 @@ def sun_visibility_curve_ha_dec(
     }
 
 
-def _altaz_to_hadec_point(alt_deg, az_deg, lat_deg):
+def altaz_to_hadec_point(alt_deg, az_deg, lat_deg):
     alt_rad = math.radians(alt_deg)
     az_rad = math.radians(az_deg)
     lat_rad = math.radians(lat_deg)
@@ -318,7 +318,7 @@ def convert_altaz_curve_to_hadec(curve_points, observer_lat_deg: float):
             previous_ha = None
             continue
 
-        ha_hours, dec_deg = _altaz_to_hadec_point(alt_deg, az_deg, observer_lat_deg)
+        ha_hours, dec_deg = altaz_to_hadec_point(alt_deg, az_deg, observer_lat_deg)
         if previous_ha is not None and abs(ha_hours - previous_ha) > 12.0:
             converted.append({"ha_hours": None, "dec_deg": None})
         converted.append({"ha_hours": ha_hours, "dec_deg": dec_deg})

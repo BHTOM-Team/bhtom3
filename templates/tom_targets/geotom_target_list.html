@@ -4,8 +4,36 @@
 {% block content %}
 <div class="row mx-0 targets-layout">
   <div class="col-md-10 px-0 targets-main-col">
-    <div class="geotom-generated-time mb-1">
-      Generated (UT): {{ geotom_generated_utc|date:"Y-m-d H:i:s" }}
+    <div class="geotom-generated-time-wrap mb-1">
+      <div class="geotom-generated-time">
+        Generated (UT): {{ geotom_generated_utc|date:"Y-m-d H:i:s" }}
+      </div>
+      <button class="btn btn-outline-secondary btn-sm geotom-time-toggle" type="button" data-toggle="collapse" data-target="#geotom-time-picker" aria-expanded="false" aria-controls="geotom-time-picker">
+        Change
+      </button>
+    </div>
+    <div id="geotom-time-picker" class="collapse{% if geotom_time_error %} show{% endif %} mb-2">
+      <div class="card card-body geotom-observer-panel geotom-time-panel">
+        {% if geotom_time_error %}
+        <div class="alert alert-warning py-2 mb-2">{{ geotom_time_error }}</div>
+        {% endif %}
+        <form method="get" action="" class="form-inline geotom-time-form">
+          <input type="hidden" name="name" value="{{ filter_values.name }}">
+          <input type="hidden" name="norad_id" value="{{ filter_values.norad_id }}">
+          <input type="hidden" name="object_class" value="{{ filter_values.object_class }}">
+          {% if filter_values.visible_only %}
+          <input type="hidden" name="visible_only" value="1">
+          {% endif %}
+          <input type="hidden" name="observer" value="{{ geotom_observer.key }}">
+          <input type="hidden" name="lat" value="{{ geotom_observer.input_lat }}">
+          <input type="hidden" name="lon" value="{{ geotom_observer.input_lon }}">
+          <input type="hidden" name="elev" value="{{ geotom_observer.input_elev }}">
+          <label for="id_time_utc" class="mr-2 mb-0">UTC</label>
+          <input id="id_time_utc" type="datetime-local" step="1" name="time_utc" class="form-control form-control-sm mr-2" value="{{ geotom_generated_utc_input|default_if_none:'' }}">
+          <button type="submit" class="btn btn-primary btn-sm mr-2">Apply</button>
+          <a href="?name={{ filter_values.name|urlencode }}&norad_id={{ filter_values.norad_id|urlencode }}&object_class={{ filter_values.object_class|urlencode }}{% if filter_values.visible_only %}&visible_only=1{% endif %}&observer={{ geotom_observer.key|urlencode }}&lat={{ geotom_observer.input_lat|urlencode }}&lon={{ geotom_observer.input_lon|urlencode }}&elev={{ geotom_observer.input_elev|urlencode }}" class="btn btn-outline-secondary btn-sm">Now</a>
+        </form>
+      </div>
     </div>
     <div class="row">
       <div class="col-md-12">
@@ -39,6 +67,7 @@
           <input type="hidden" name="name" value="{{ filter_values.name }}">
           <input type="hidden" name="norad_id" value="{{ filter_values.norad_id }}">
           <input type="hidden" name="object_class" value="{{ filter_values.object_class }}">
+          <input type="hidden" name="time_utc" value="{{ geotom_generated_utc_input }}">
           <div class="form-row">
             <div class="form-group col-md-3">
               <label for="id_observer">Preset</label>
@@ -133,6 +162,7 @@
       <input type="hidden" name="lat" value="{{ geotom_observer.input_lat }}">
       <input type="hidden" name="lon" value="{{ geotom_observer.input_lon }}">
       <input type="hidden" name="elev" value="{{ geotom_observer.input_elev }}">
+      <input type="hidden" name="time_utc" value="{{ geotom_generated_utc_input }}">
       <div class="form-group">
         <label for="id_name">Name</label>
         <input id="id_name" class="form-control" type="text" name="name" value="{{ filter_values.name }}">
@@ -154,7 +184,7 @@
           Visible Only
         </button>
         {% if filter_values.visible_only %}
-        <a href="?name={{ filter_values.name|urlencode }}&norad_id={{ filter_values.norad_id|urlencode }}&object_class={{ filter_values.object_class|urlencode }}&observer={{ geotom_observer.key|urlencode }}&lat={{ geotom_observer.input_lat|urlencode }}&lon={{ geotom_observer.input_lon|urlencode }}&elev={{ geotom_observer.input_elev|urlencode }}" class="btn btn-outline-secondary">Show All</a>
+        <a href="?name={{ filter_values.name|urlencode }}&norad_id={{ filter_values.norad_id|urlencode }}&object_class={{ filter_values.object_class|urlencode }}&observer={{ geotom_observer.key|urlencode }}&lat={{ geotom_observer.input_lat|urlencode }}&lon={{ geotom_observer.input_lon|urlencode }}&elev={{ geotom_observer.input_elev|urlencode }}&time_utc={{ geotom_generated_utc_input|urlencode }}" class="btn btn-outline-secondary">Show All</a>
         {% endif %}
       </div>
       {% if filter_values.visible_only %}
@@ -201,9 +231,30 @@
   }
 
   .geotom-generated-time {
-    clear: both;
     color: #c7d7ec;
     font-size: 0.95rem;
+  }
+
+  .geotom-generated-time-wrap {
+    clear: both;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .geotom-time-toggle {
+    padding-top: 0.1rem;
+    padding-bottom: 0.1rem;
+    line-height: 1.2;
+  }
+
+  .geotom-time-panel {
+    max-width: 540px;
+  }
+
+  .geotom-time-form {
+    gap: 0.35rem;
   }
 
   .geotom-observer-toggle {
@@ -293,6 +344,38 @@
       margin-top: 8px;
     }
   }
+
+  table.dataTable thead th.sorting,
+  table.dataTable thead th.sorting_asc,
+  table.dataTable thead th.sorting_desc {
+    position: relative;
+    padding-right: 1.4rem;
+    cursor: pointer;
+  }
+
+  table.dataTable thead th.sorting::after {
+    content: '⇅';
+    position: absolute;
+    right: 0.45rem;
+    color: #9aa0a6;
+    font-size: 0.85rem;
+  }
+
+  table.dataTable thead th.sorting_asc::after {
+    content: '▲';
+    position: absolute;
+    right: 0.45rem;
+    color: #2b9ecb;
+    font-size: 0.75rem;
+  }
+
+  table.dataTable thead th.sorting_desc::after {
+    content: '▼';
+    position: absolute;
+    right: 0.45rem;
+    color: #2b9ecb;
+    font-size: 0.75rem;
+  }
 </style>
 <script>
   (function() {
@@ -316,9 +399,9 @@
 <script>
   $(document).ready(function() {
     $('#geotom-table').DataTable({
-      order: [[0, 'asc']],
+      order: [[3, 'desc']],
       pageLength: 50,
-      columnDefs: [{ targets: 9, orderable: false }]
+      columnDefs: [{ targets: 10, orderable: false }]
     });
   });
 </script>
