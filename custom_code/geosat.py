@@ -70,7 +70,30 @@ def geosat_alt_az(
     if tle is None:
         return None
 
-    name, line1, line2 = tle
+    return geosat_alt_az_from_tle(
+        tle_name=tle[0],
+        tle_line1=tle[1],
+        tle_line2=tle[2],
+        observer_lat_deg=observer_lat_deg,
+        observer_lon_deg=observer_lon_deg,
+        observer_elevation_m=observer_elevation_m,
+        when_utc=when_utc,
+    )
+
+
+def geosat_alt_az_from_tle(
+    tle_name: str,
+    tle_line1: str,
+    tle_line2: str,
+    observer_lat_deg: float = WARSAW_LAT_DEG,
+    observer_lon_deg: float = WARSAW_LON_DEG,
+    observer_elevation_m: float = WARSAW_ELEVATION_M,
+    when_utc: Optional[datetime] = None,
+):
+    if not tle_line1 or not tle_line2:
+        return None
+
+    name, line1, line2 = tle_name or "", tle_line1, tle_line2
     instant = _coerce_utc_datetime(when_utc)
 
     satellite = EarthSatellite(line1, line2, name, _TS)

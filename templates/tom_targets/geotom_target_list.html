@@ -133,9 +133,16 @@
             <td>{{ row.ra_icrf_sex }}</td>
             <td>{{ row.dec_sex }}</td>
             <td>{% if row.estimated_vmag is not None %}{{ row.estimated_vmag|floatformat:2 }}{% else %}-{% endif %}</td>
-            <td>{{ row.target.modified }}</td>
-            <td>
+            <td class="geotom-updated-cell">
+              <div>{{ row.target.modified|date:"Y-m-d" }}</div>
+              <div>{{ row.target.modified|date:"H:i" }}</div>
+            </td>
+            <td class="geotom-action-cell">
               {% if user.is_authenticated %}
+              <form method="post" action="{% url 'geotom-refresh-single-tle' row.target.id %}" onsubmit="return confirm('Refresh TLE for {{ row.target.name }} (NORAD {{ row.target.norad_id }})?');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-info">Refresh TLE</button>
+              </form>
               <form method="post" action="{% url 'geotom-delete-sat' row.target.id %}" onsubmit="return confirm('Delete {{ row.target.name }} (NORAD {{ row.target.norad_id }})?');">
                 {% csrf_token %}
                 <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
@@ -327,6 +334,27 @@
     height: 100% !important;
   }
 
+  .geotom-action-cell {
+    min-width: 140px;
+    white-space: nowrap;
+  }
+
+  .geotom-action-cell form {
+    display: block;
+    margin-right: 0;
+    margin-bottom: 0.35rem;
+  }
+
+  .geotom-action-cell .btn {
+    white-space: nowrap;
+    width: 100%;
+  }
+
+  .geotom-updated-cell {
+    min-width: 105px;
+    white-space: nowrap;
+  }
+
   @media (max-width: 1199px) {
     .targets-layout {
       flex-wrap: wrap;
@@ -401,7 +429,11 @@
     $('#geotom-table').DataTable({
       order: [[3, 'desc']],
       pageLength: 50,
-      columnDefs: [{ targets: 10, orderable: false }]
+      autoWidth: false,
+      columnDefs: [
+        { targets: 9, width: '105px' },
+        { targets: 10, orderable: false, width: '140px' }
+      ]
     });
   });
 </script>

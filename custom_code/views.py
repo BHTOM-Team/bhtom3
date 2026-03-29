@@ -34,6 +34,7 @@ from custom_code.geosat import (
     altaz_to_hadec_point,
     convert_altaz_curve_to_hadec,
     geosat_alt_az,
+    geosat_alt_az_from_tle,
     sun_visibility_curve,
 )
 from custom_code.data_services.geosat_dataservice import GeoSatDataService
@@ -41,6 +42,30 @@ from custom_code.tasks import enqueue_target_dataservices_update
 
 
 logger = logging.getLogger(__name__)
+
+
+def _refresh_geotarget_from_service(target, service):
+    payload = service.query_by_norad_id(target.norad_id)
+    object_type, is_debris = service.classify_object_type(payload['name'], payload.get('object_type', ''))
+    GeoTarget.objects.filter(pk=target.pk).update(
+        name=payload['name'],
+        intldes=payload.get('intldes', target.intldes),
+        source=payload.get('source', target.source or 'manual'),
+        object_type=object_type,
+        is_debris=is_debris,
+        tle_name=payload['tle_name'],
+        tle_line1=payload['tle_line1'],
+        tle_line2=payload['tle_line2'],
+        epoch_jd=payload['epoch_jd'],
+        inclination_deg=payload['inclination_deg'],
+        eccentricity=payload['eccentricity'],
+        raan_deg=payload['raan_deg'],
+        arg_perigee_deg=payload['arg_perigee_deg'],
+        mean_anomaly_deg=payload['mean_anomaly_deg'],
+        mean_motion_rev_per_day=payload['mean_motion_rev_per_day'],
+        bstar=payload['bstar'],
+        modified=datetime.now(timezone.utc),
+    )
 
 
 def _parse_alias_payload(payload):
@@ -424,8 +449,10 @@ class GeoTomTargetListView(ListView):
         geotom_rows = []
         for target in object_list:
             row = {"target": target}
-            sat = geosat_alt_az(
-                norad_id=target.norad_id,
+            sat = geosat_alt_az_from_tle(
+                tle_name=target.tle_name or target.name,
+                tle_line1=target.tle_line1,
+                tle_line2=target.tle_line2,
                 observer_lat_deg=observer['lat_deg'],
                 observer_lon_deg=observer['lon_deg'],
                 observer_elevation_m=observer['elevation_m'],
@@ -582,25 +609,7 @@ class GeoTomRefreshTleView(LoginRequiredMixin, View):
         failed = 0
         for target in GeoTarget.objects.all().iterator():
             try:
-                payload = service.query_by_norad_id(target.norad_id)
-                object_type, is_debris = service.classify_object_type(target.name, target.object_type)
-                GeoTarget.objects.filter(pk=target.pk).update(
-                    name=payload['name'],
-                    source=target.source or 'manual',
-                    object_type=object_type,
-                    is_debris=is_debris,
-                    tle_name=payload['tle_name'],
-                    tle_line1=payload['tle_line1'],
-                    tle_line2=payload['tle_line2'],
-                    epoch_jd=payload['epoch_jd'],
-                    inclination_deg=payload['inclination_deg'],
-                    eccentricity=payload['eccentricity'],
-                    raan_deg=payload['raan_deg'],
-                    arg_perigee_deg=payload['arg_perigee_deg'],
-                    mean_anomaly_deg=payload['mean_anomaly_deg'],
-                    mean_motion_rev_per_day=payload['mean_motion_rev_per_day'],
-                    bstar=payload['bstar'],
-                )
+                _refresh_geotarget_from_service(target, service)
                 updated += 1
             except Exception:
                 failed += 1
@@ -609,6 +618,24 @@ class GeoTomRefreshTleView(LoginRequiredMixin, View):
             messages.warning(request, f'Refreshed TLE for {updated} satellites, {failed} failed.')
         else:
             messages.success(request, f'Refreshed TLE for {updated} satellites.')
+        return HttpResponseRedirect(reverse_lazy('geotom-list'))
+
+
+class GeoTomRefreshSingleTleView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        pk = kwargs.get('pk')
+        target = GeoTarget.objects.filter(pk=pk).first()
+        if target is None:
+            messages.warning(request, 'Satellite not found.')
+            return HttpResponseRedirect(reverse_lazy('geotom-list'))
+
+        service = GeoSatDataService()
+        try:
+            _refresh_geotarget_from_service(target, service)
+        except Exception as exc:
+            messages.warning(request, f'Could not refresh TLE for {target.name} (NORAD {target.norad_id}): {exc}')
+        else:
+            messages.success(request, f'Refreshed TLE for {target.name} (NORAD {target.norad_id}).')
         return HttpResponseRedirect(reverse_lazy('geotom-list'))
 
 
