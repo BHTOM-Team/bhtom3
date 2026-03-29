@@ -323,6 +323,7 @@ class GeoTomTargetListView(ListView):
         'ostrowik': {'name': 'Ostrowik', 'lat_deg': 52.087981, 'lon_deg': 21.41614, 'elevation_m': 120.0},
         'bialkow': {'name': 'Bialkow', 'lat_deg': 51.47425, 'lon_deg': 16.657822, 'elevation_m': 130.0},
         'bolecina': {'name': 'Bolecina', 'lat_deg': 49.819827, 'lon_deg': 19.370521, 'elevation_m': 398.0},
+        'moletai': {'name': 'Moletai', 'lat_deg': 55.3189, 'lon_deg': 25.5633, 'elevation_m': 200.0},
         'piwnice': {'name': 'Piwnice', 'lat_deg': 53.09546, 'lon_deg': 18.56406, 'elevation_m': 87.0},
         'lasilla': {'name': 'La Silla', 'lat_deg': -29.2567, 'lon_deg': -70.7346, 'elevation_m': 2400.0},
     }
