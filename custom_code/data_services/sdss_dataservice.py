@@ -80,7 +80,6 @@ class SDSSDataService(DataService):
         dec = query_parameters.get('dec')
         radius_arcsec = float(query_parameters.get('radius_arcsec') or 10.0)
 
-        print(f"RA: {ra}, DEC: {dec}, RAD: {radius_arcsec}")
         source_origin = None
         sdss_phot_df = None
         sdss_spec_df = None
