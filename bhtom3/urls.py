@@ -16,6 +16,7 @@ Including another URLconf
 from django.urls import path, include
 
 from custom_code.views import (
+    Bhtom2DataProductUploadView,
     BhtomCatalogQueryView,
     Bhtom2TargetListView,
     BhtomTargetCreateView,
@@ -35,6 +36,7 @@ urlpatterns = [
     path('catalogs/query/', BhtomCatalogQueryView.as_view(), name='catalog-query-override'),
     path('targets/', Bhtom2TargetListView.as_view(), name='targets-list-override'),
     path('targets/create/', BhtomTargetCreateView.as_view(), name='targets-create-override'),
+    path('dataproducts/data/upload/', Bhtom2DataProductUploadView.as_view(), name='dataproducts-upload-override'),
     path('targets/<int:pk>/update/', BhtomTargetUpdateView.as_view(), name='targets-update-override'),
     path('targets/<int:pk>/', BhtomTargetDetailView.as_view(), name='targets-detail-override'),
     path('geotom/', GeoTomTargetListView.as_view(), name='geotom-list'),

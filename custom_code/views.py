@@ -1,8 +1,10 @@
 from io import StringIO
 import json
 import logging
+import requests
 from datetime import datetime, timezone
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from django.contrib import messages
 from django.conf import settings
@@ -39,6 +41,7 @@ from custom_code.geosat import (
 )
 from custom_code.data_services.geosat_dataservice import GeoSatDataService
 from custom_code.tasks import enqueue_target_dataservices_update
+from tom_dataproducts.views import DataProductUploadView
 
 
 logger = logging.getLogger(__name__)
@@ -287,6 +290,94 @@ class BhtomTargetDetailView(TargetDetailView):
         other_names.sort(key=lambda row: (row['source_name'].lower(), row['name'].lower()))
         context['target_other_names'] = other_names
         return context
+
+
+class Bhtom2DataProductUploadView(DataProductUploadView):
+    def form_valid(self, form):
+        dp_type = form.cleaned_data['data_product_type']
+        if dp_type != 'fits_file':
+            return super().form_valid(form)
+
+        target = form.cleaned_data['target']
+        if not target:
+            observation_record = form.cleaned_data['observation_record']
+            target = observation_record.target
+
+        upload_service_url = getattr(settings, 'BHTOM2_UPLOAD_SERVICE_URL', '').rstrip('/')
+        if not upload_service_url:
+            messages.error(self.request, 'BHTOM2 upload service URL is not configured.')
+            return redirect(form.cleaned_data.get('referrer', '/'))
+
+        bhtom2_target_name = (self.request.POST.get('bhtom2_target_name') or target.name).strip()
+        observatory_oname = (self.request.POST.get('observatory_oname') or '').strip()
+        bhtom2_user_id = (self.request.POST.get('bhtom2_user_id') or '').strip()
+        bhtom2_token = (self.request.POST.get('bhtom2_token') or '').strip()
+        calibration_filter = (self.request.POST.get('calibration_filter') or 'GaiaSP/any').strip()
+        dry_run = self.request.POST.get('bhtom2_dry_run') == 'on'
+        comment = (self.request.POST.get('bhtom2_comment') or '').strip()
+        fits_file = self.request.FILES.get('files')
+
+        if not bhtom2_target_name:
+            messages.error(self.request, 'Target is required for FITS upload.')
+            return redirect(form.cleaned_data.get('referrer', '/'))
+        if not fits_file:
+            messages.error(self.request, 'Choose a FITS file to upload.')
+            return redirect(form.cleaned_data.get('referrer', '/'))
+        if not observatory_oname:
+            messages.error(self.request, 'Observatory/Camera ONAME is required for FITS upload.')
+            return redirect(form.cleaned_data.get('referrer', '/'))
+        if not bhtom2_user_id:
+            messages.error(self.request, 'BHTOM2 user ID is required for FITS upload.')
+            return redirect(form.cleaned_data.get('referrer', '/'))
+        if not bhtom2_token:
+            messages.error(self.request, 'BHTOM2 token is required for FITS upload.')
+            return redirect(form.cleaned_data.get('referrer', '/'))
+
+        post_data = {
+            'target': bhtom2_target_name,
+            'data_product_type': 'fits_file',
+            'observatory': observatory_oname,
+            'filter': calibration_filter,
+            'comment': comment,
+            'dry_run': dry_run,
+            'no_plot': False,
+        }
+        headers = {
+            'Authorization': f'Token {bhtom2_token}',
+            'Correlation-ID': str(uuid4()),
+        }
+        files = {'file_0': (fits_file.name, fits_file, fits_file.content_type or 'application/octet-stream')}
+
+        try:
+            response = requests.post(
+                f'{upload_service_url}/upload/',
+                data=post_data,
+                files=files,
+                headers=headers,
+                timeout=120,
+            )
+        except requests.RequestException as exc:
+            logger.exception('BHTOM2 FITS upload failed for target %s', target.pk)
+            messages.error(self.request, f'Unable to reach the BHTOM2 upload service: {exc}')
+            return redirect(form.cleaned_data.get('referrer', '/'))
+
+        if response.status_code == 201:
+            messages.success(
+                self.request,
+                f'FITS upload sent to BHTOM2 for target {target.name} using user ID {bhtom2_user_id}.'
+            )
+            return redirect(form.cleaned_data.get('referrer', '/'))
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+
+        error_message = payload.get('detail') or payload.get('non_field_errors') or response.text or 'Unknown error.'
+        if isinstance(error_message, list):
+            error_message = '; '.join(str(item) for item in error_message)
+        messages.error(self.request, f'BHTOM2 upload rejected the FITS file: {error_message}')
+        return redirect(form.cleaned_data.get('referrer', '/'))
 
 
 class BhtomCatalogQueryView(FormView):

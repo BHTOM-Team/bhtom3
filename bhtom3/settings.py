@@ -23,6 +23,8 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 secret = dotenv_values(os.path.join(BASE_DIR, 'env/.bhtom.env'))
 
+BHTOM2_UPLOAD_SERVICE_URL = secret.get('BHTOM2_UPLOAD_SERVICE_URL', secret.get('UPLOAD_SERVICE_URL', ''))
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.1/howto/deployment/checklist/
 

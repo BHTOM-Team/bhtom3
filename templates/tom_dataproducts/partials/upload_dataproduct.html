@@ -1,0 +1,116 @@
+{% load bootstrap4 static %}
+<h4>Upload a data product</h4>
+<p>
+  For example CSVs, see the <a href="{% static 'tom_dataproducts/photometry_sample.csv' %}">photometry</a> and
+  <a href="{% static 'tom_dataproducts/spectrum_sample.csv' %}">spectroscopy</a> sample files.
+</p>
+<form method="POST" action="{% url 'dataproducts-upload-override' %}" enctype="multipart/form-data">
+  {% csrf_token %}
+  {% for hidden in data_product_form.hidden_fields %}
+    {{ hidden }}
+  {% endfor %}
+  {% bootstrap_field data_product_form.files %}
+  {% bootstrap_field data_product_form.data_product_type %}
+
+  <div id="bhtom2-fits-fields" style="display: none;">
+    <hr>
+    <h5>BHTOM2 FITS Upload</h5>
+    <div class="form-group">
+      <label for="id_bhtom2_target_name">Target</label>
+      <input
+        type="text"
+        name="bhtom2_target_name"
+        id="id_bhtom2_target_name"
+        class="form-control"
+        value="{% if data_product_form.initial.target %}{{ data_product_form.initial.target.name }}{% endif %}"
+      >
+    </div>
+    <div class="form-group">
+      <label for="id_observatory_oname">Observatory/Camera ONAME</label>
+      <input type="text" name="observatory_oname" id="id_observatory_oname" class="form-control">
+    </div>
+    <div class="form-group">
+      <label for="id_bhtom2_user_id">BHTOM2 user ID</label>
+      <input type="text" name="bhtom2_user_id" id="id_bhtom2_user_id" class="form-control" value="{{ bhtom3_user_id }}">
+    </div>
+    <div class="form-group">
+      <label for="id_bhtom2_token">BHTOM2 token</label>
+      <input type="password" name="bhtom2_token" id="id_bhtom2_token" class="form-control">
+    </div>
+    <div class="form-group">
+      <label for="id_calibration_filter">Calibration filter</label>
+      <select name="calibration_filter" id="id_calibration_filter" class="form-control">
+        <option value="no">Auto</option>
+        <option value="2MASS/J">2MASS/J</option>
+        <option value="2MASS/H">2MASS/H</option>
+        <option value="2MASS/K">2MASS/K</option>
+        <option value="2MASS/any">2MASS/any</option>
+        <option value="GaiaSP/u">GaiaSP/u</option>
+        <option value="GaiaSP/g">GaiaSP/g</option>
+        <option value="GaiaSP/r">GaiaSP/r</option>
+        <option value="GaiaSP/i">GaiaSP/i</option>
+        <option value="GaiaSP/z">GaiaSP/z</option>
+        <option value="GaiaSP/U">GaiaSP/U</option>
+        <option value="GaiaSP/B">GaiaSP/B</option>
+        <option value="GaiaSP/V">GaiaSP/V</option>
+        <option value="GaiaSP/R">GaiaSP/R</option>
+        <option value="GaiaSP/I">GaiaSP/I</option>
+        <option value="GaiaSP/any" selected>GaiaSP/any</option>
+        <option value="GaiaSP/ugriz">GaiaSP/ugriz</option>
+        <option value="GaiaSP/UBVRI">GaiaSP/UBVRI</option>
+        <option value="GaiaDR3/any">GaiaDR3/any</option>
+        <option value="GaiaDR3/G">GaiaDR3/G</option>
+        <option value="GaiaDR3/GBP">GaiaDR3/GBP</option>
+        <option value="GaiaDR3/GRP">GaiaDR3/GRP</option>
+      </select>
+    </div>
+    <div class="form-group form-check">
+      <input type="checkbox" name="bhtom2_dry_run" id="id_bhtom2_dry_run" class="form-check-input">
+      <label class="form-check-label" for="id_bhtom2_dry_run">Dry Run</label>
+    </div>
+    <div class="form-group">
+      <label for="id_bhtom2_comment">Comment</label>
+      <textarea name="bhtom2_comment" id="id_bhtom2_comment" rows="3" class="form-control"></textarea>
+    </div>
+  </div>
+
+  {% if data_product_form.groups %}
+    {% bootstrap_field data_product_form.groups %}
+  {% endif %}
+
+  {% buttons %}
+  <input type="submit" class="btn btn-primary" value="Upload" name="upload_dataproduct_form">
+  {% endbuttons %}
+</form>
+
+<script>
+  function toggleBhtom2FitsFields() {
+    const fitsRadio = document.getElementById('id_data_product_type_2');
+    const fitsFields = document.getElementById('bhtom2-fits-fields');
+    const targetName = document.getElementById('id_bhtom2_target_name');
+    const oname = document.getElementById('id_observatory_oname');
+    const userId = document.getElementById('id_bhtom2_user_id');
+    const token = document.getElementById('id_bhtom2_token');
+    const filter = document.getElementById('id_calibration_filter');
+
+    const isFits = fitsRadio && fitsRadio.checked;
+    fitsFields.style.display = isFits ? 'block' : 'none';
+
+    for (const field of [targetName, oname, userId, token, filter]) {
+      if (!field) continue;
+      if (isFits) {
+        field.setAttribute('required', 'required');
+      } else {
+        field.removeAttribute('required');
+      }
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const radios = document.querySelectorAll('input[name="data_product_type"]');
+    radios.forEach(function(radio) {
+      radio.addEventListener('change', toggleBhtom2FitsFields);
+    });
+    toggleBhtom2FitsFields();
+  });
+</script>
