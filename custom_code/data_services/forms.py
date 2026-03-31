@@ -219,3 +219,19 @@ class SimbadQueryForm(BaseQueryForm):
             raise forms.ValidationError('Provide RA+Dec.')
         cleaned['radius_arcsec'] = 3.0
         return cleaned
+
+class SDSSQueryForm(BaseQueryForm):
+    ra = forms.FloatField(required=False, label='RA (deg)')
+    dec = forms.FloatField(required=False, label='Dec (deg)')
+    radius_arcsec = forms.FloatField(required=False, initial=10.0, min_value=0.05, label='Search radius (arcsec)')
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
+    include_spectroscopy = forms.BooleanField(required=False, initial=True, label='Include spectra')
+
+    def clean(self):
+        cleaned = super().clean()
+        has_coords = cleaned.get('ra') is not None and cleaned.get('dec') is not None
+        if not has_coords:
+            raise forms.ValidationError('Provide Gaia source_id or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 10.0
+        return cleaned
