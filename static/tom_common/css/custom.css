@@ -7,8 +7,20 @@ body {
   padding: 3rem 1.5rem;
 }
 
-.navbar-brand > img {
-  max-height: 25px;
+.navbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.navbar-brand > img,
+.navbar-brand .navbar-logo {
+  height: 40px;
+  width: auto;
+  max-height: none;
+  max-width: none;
+  flex: 0 0 auto;
+  object-fit: contain;
 }
 
 .input-group-text {
