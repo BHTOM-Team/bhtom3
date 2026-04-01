@@ -4,6 +4,7 @@ from django import forms
 from django.forms import inlineformset_factory
 
 from tom_catalogs.harvester import get_service_classes
+from tom_targets.forms import NonSiderealTargetCreateForm, SiderealTargetCreateForm
 from tom_targets.models import Target, TargetName
 
 from custom_code.models import TargetAliasInfo
@@ -64,6 +65,12 @@ class BhtomCatalogQueryForm(forms.Form):
     ra = forms.FloatField(required=False, label='RA (deg)')
     dec = forms.FloatField(required=False, label='Dec (deg)')
     radius_arcsec = forms.FloatField(required=False, min_value=0.1, initial=3.0, label='Search radius (arcsec)')
+    recommended_observing_strategy = forms.CharField(
+        label='Recommended observing strategy',
+        min_length=4,
+        widget=forms.Textarea(attrs={'rows': 3}),
+        help_text='This will be saved as the first comment on the created target.',
+    )
 
     def clean(self):
         cleaned = super().clean()
@@ -96,3 +103,21 @@ class BhtomCatalogQueryForm(forms.Form):
     def serialize_alias_payload(target):
         aliases = getattr(target, 'extra_aliases', None) or []
         return json.dumps(aliases) if aliases else ''
+
+
+class BhtomSiderealTargetCreateForm(SiderealTargetCreateForm):
+    recommended_observing_strategy = forms.CharField(
+        label='Recommended observing strategy',
+        min_length=4,
+        widget=forms.Textarea(attrs={'rows': 3}),
+        help_text='This will be saved as the first comment on the created target.',
+    )
+
+
+class BhtomNonSiderealTargetCreateForm(NonSiderealTargetCreateForm):
+    recommended_observing_strategy = forms.CharField(
+        label='Recommended observing strategy',
+        min_length=4,
+        widget=forms.Textarea(attrs={'rows': 3}),
+        help_text='This will be saved as the first comment on the created target.',
+    )

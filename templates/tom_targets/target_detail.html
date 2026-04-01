@@ -97,6 +97,9 @@
           <a class="nav-link active" id="photometry-tab" href="#photometry" role="tab" data-toggle="tab">Photometry</a>
         </li>
         <li class="nav-item">
+          <a class="nav-link" id="photometry-data-tab" href="#photometry-data" role="tab" data-toggle="tab">Photometry Data</a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link" id="spectroscopy-tab" href="#spectroscopy" role="tab" data-toggle="tab">Spectroscopy</a>
         </li>
       <li class="nav-item">
@@ -115,8 +118,10 @@
     <div class="tab-content">
         <div class="tab-pane active" id="photometry">
           {% custom_photometry_for_target target %}
+        </div>
+        <div class="tab-pane" id="photometry-data">
           {% get_photometry_data object %}
-          </div>
+        </div>
         <div class="tab-pane" id="spectroscopy">
           {% custom_spectroscopy_for_target target %}
         </div>

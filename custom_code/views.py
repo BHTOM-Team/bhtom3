@@ -11,6 +11,7 @@ from django.conf import settings
 from django.contrib.auth import logout
 from django.contrib.auth.models import Group
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.sites.shortcuts import get_current_site
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.http import HttpResponseRedirect
@@ -21,6 +22,7 @@ from django.views import View
 from django.urls import reverse, reverse_lazy
 from django.db.models import Q
 from django.db import transaction
+from django_comments.models import Comment
 
 from tom_common.hints import add_hint
 from tom_common.hooks import run_hook
@@ -30,7 +32,13 @@ from tom_targets.models import Target
 from tom_targets.views import TargetCreateView, TargetDetailView, TargetListView, TargetUpdateView
 
 from custom_code.filters import BhtomTargetFilterSet
-from custom_code.forms import BhtomCatalogQueryForm, BhtomTargetNamesFormset, GeoTomAddSatForm
+from custom_code.forms import (
+    BhtomCatalogQueryForm,
+    BhtomNonSiderealTargetCreateForm,
+    BhtomSiderealTargetCreateForm,
+    BhtomTargetNamesFormset,
+    GeoTomAddSatForm,
+)
 from custom_code.models import GeoTarget
 from custom_code.geosat import (
     altaz_to_hadec_point,
@@ -132,6 +140,15 @@ def _guess_alias_source(alias_name, url=''):
     return 'Other'
 
 
+def _build_recommended_observing_strategy_comment(user, strategy):
+    full_name = user.get_full_name().strip() or user.get_username()
+    username = user.get_username()
+    return (
+        f'Created by: {full_name} ({username})\n'
+        f'Recommended observing strategy: {strategy.strip()}'
+    )
+
+
 def _hours_to_hms(hours_value):
     if hours_value is None:
         return "-"
@@ -209,6 +226,13 @@ class Bhtom2TargetListView(TargetListView):
 
 
 class BhtomTargetCreateView(TargetCreateView):
+    def get_form_class(self):
+        target_type = self.get_target_type()
+        self.initial['type'] = target_type
+        if target_type == Target.SIDEREAL:
+            return BhtomSiderealTargetCreateForm
+        return BhtomNonSiderealTargetCreateForm
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         alias_payload = _parse_alias_payload(self.request.GET.get('alias_payload'))
@@ -238,6 +262,17 @@ class BhtomTargetCreateView(TargetCreateView):
         if extra.is_valid() and names.is_valid():
             extra.save()
             names.save()
+            Comment.objects.create(
+                content_object=self.object,
+                site=get_current_site(self.request),
+                user=self.request.user,
+                user_name=self.request.user.get_full_name().strip() or self.request.user.get_username(),
+                user_email=self.request.user.email or '',
+                comment=_build_recommended_observing_strategy_comment(
+                    self.request.user,
+                    form.cleaned_data['recommended_observing_strategy'],
+                ),
+            )
             run_hook('target_post_save', target=self.object, created=True)
             return redirect(self.get_success_url())
         form.add_error(None, extra.errors)
@@ -397,6 +432,9 @@ class BhtomCatalogQueryView(FormView):
         target_params = self.target.as_dict()
         target_params['names'] = ','.join(
             alias['name'] for alias in getattr(self.target, 'extra_aliases', []) if alias.get('name')
+        )
+        target_params['recommended_observing_strategy'] = (
+            self.request.POST.get('recommended_observing_strategy', '').strip()
         )
         alias_payload = BhtomCatalogQueryForm.serialize_alias_payload(self.target)
         if alias_payload:
