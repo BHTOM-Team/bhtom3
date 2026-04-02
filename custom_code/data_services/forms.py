@@ -250,3 +250,18 @@ class PTFQueryForm(BaseQueryForm):
         if cleaned.get('radius_arcsec') is None:
             cleaned['radius_arcsec'] = 3.0
         return cleaned
+
+class LCOSpectraQueryForm(BaseQueryForm):
+    ra = forms.FloatField(required=False, label='RA (deg)')
+    dec = forms.FloatField(required=False, label='Dec (deg)')
+    radius_arcmin = forms.FloatField(required=False, initial=5.0, min_value=0.01, label='Search radius (arcsec)')
+    include_spectroscopy = forms.BooleanField(required=False, initial=True, label='Include spectroscopy')
+
+    def clean(self):
+        cleaned = super().clean()
+        has_coords = cleaned.get('ra') is not None and cleaned.get('dec') is not None
+        if not has_coords:
+            raise forms.ValidationError('Provide RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 5.0
+        return cleaned
