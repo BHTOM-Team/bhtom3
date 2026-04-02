@@ -7,7 +7,11 @@
     <div>
       <a href="{% url 'targets:detail' target.id %}"
          class="font-weight-bold text-decoration-none"
-         title="Detail for {{ target.name }}">
+         title="Detail for {{ target.name }}"
+         style="
+           overflow: hidden;
+           word-break: break-all;
+         ">
         {{ target.name }}
       </a>
     </div>
