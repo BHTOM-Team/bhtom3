@@ -23,6 +23,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.neowise_dataservice.NeoWISEDataService'},
             {'class': f'{self.name}.data_services.simbad_dataservice.SimbadDataService'},
             {'class': f'{self.name}.data_services.photometric_classification_dataservice.PhotometricClassificationDataService'},
+            {'class': f'{self.name}.data_services.ptf_dataservice.PTFDataService'},
         ]
 
     def ready(self):
