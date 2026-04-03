@@ -17,7 +17,7 @@ from django.core.management import call_command
 from django.http import HttpResponseRedirect
 from django.shortcuts import redirect
 from django.shortcuts import resolve_url
-from django.views.generic import FormView, ListView, RedirectView
+from django.views.generic import FormView, ListView, RedirectView, TemplateView
 from django.views import View
 from django.urls import reverse, reverse_lazy
 from django.db.models import Q
@@ -53,6 +53,10 @@ from tom_dataproducts.views import DataProductUploadView
 
 
 logger = logging.getLogger(__name__)
+
+
+class BhtomPallasView(TemplateView):
+    template_name = 'tom_common/bhtom_pallas.html'
 
 
 def _refresh_geotarget_from_service(target, service):
