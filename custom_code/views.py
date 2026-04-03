@@ -17,6 +17,7 @@ from django.core.management import call_command
 from django.http import HttpResponseRedirect
 from django.shortcuts import redirect
 from django.shortcuts import resolve_url
+from django.shortcuts import render
 from django.views.generic import FormView, ListView, RedirectView, TemplateView
 from django.views import View
 from django.urls import reverse, reverse_lazy
@@ -49,10 +50,13 @@ from custom_code.geosat import (
 )
 from custom_code.data_services.geosat_dataservice import GeoSatDataService
 from custom_code.tasks import enqueue_target_dataservices_update
+from custom_code.bhtom_catalogs.harvesters import gaia_alerts as gaia_alerts_harvester
 from tom_dataproducts.views import DataProductUploadView
 
 
 logger = logging.getLogger(__name__)
+GAIA_ALERTS_CATALOG_RESULTS_SESSION_KEY = 'gaia_alerts_catalog_results'
+GAIA_ALERTS_CATALOG_FORM_SESSION_KEY = 'gaia_alerts_catalog_form_data'
 
 
 class BhtomPallasView(TemplateView):
@@ -151,6 +155,28 @@ def _build_recommended_observing_strategy_comment(user, strategy):
         f'Created by: {full_name} ({username})\n'
         f'Recommended observing strategy: {strategy.strip()}'
     )
+
+
+def _build_gaia_alerts_catalog_target(row):
+    target = Target()
+    target.name = str(row.get('#Name') or row.get('Name') or '').strip() or 'GaiaAlerts'
+    target.type = 'SIDEREAL'
+    target.ra = gaia_alerts_harvester._to_float(row.get('RaDeg'))
+    target.dec = gaia_alerts_harvester._to_float(row.get('DecDeg'))
+    target.description = str(row.get('Comment') or '').strip()
+    return target
+
+
+def _build_gaia_alerts_catalog_result_row(index, row):
+    name = str(row.get('#Name') or row.get('Name') or '').strip()
+    return {
+        'id': index,
+        'name': name,
+        'ra': gaia_alerts_harvester._to_float(row.get('RaDeg')),
+        'dec': gaia_alerts_harvester._to_float(row.get('DecDeg')),
+        'comment': str(row.get('Comment') or '').strip(),
+        'url': f'https://gsaweb.ast.cam.ac.uk/alerts/alert/{name}' if name else gaia_alerts_harvester.GAIA_ALERTS_CSV_URL,
+    }
 
 
 def _hours_to_hms(hours_value):
@@ -423,7 +449,25 @@ class BhtomCatalogQueryView(FormView):
     form_class = BhtomCatalogQueryForm
     template_name = 'tom_catalogs/query_form.html'
 
+    def _render_gaia_alerts_results(self, form, matches):
+        self.request.session[GAIA_ALERTS_CATALOG_RESULTS_SESSION_KEY] = matches
+        self.request.session[GAIA_ALERTS_CATALOG_FORM_SESSION_KEY] = {
+            'term': (form.cleaned_data.get('term') or '').strip(),
+        }
+        context = self.get_context_data(form=form)
+        context.update({
+            'data_service': 'Gaia Alerts',
+            'query': (form.cleaned_data.get('term') or '').strip(),
+            'results': [_build_gaia_alerts_catalog_result_row(index, row) for index, row in enumerate(matches)],
+        })
+        return render(self.request, 'tom_catalogs/gaia_alerts_query_result.html', context)
+
     def form_valid(self, form):
+        if form.cleaned_data.get('service') == 'Gaia Alerts':
+            matches = gaia_alerts_harvester.get_all(form.cleaned_data.get('term'))
+            if len(matches) > 1:
+                return self._render_gaia_alerts_results(form, matches)
+
         try:
             self.target = form.get_target()
         except MissingDataException:
@@ -437,13 +481,46 @@ class BhtomCatalogQueryView(FormView):
         target_params['names'] = ','.join(
             alias['name'] for alias in getattr(self.target, 'extra_aliases', []) if alias.get('name')
         )
-        target_params['recommended_observing_strategy'] = (
-            self.request.POST.get('recommended_observing_strategy', '').strip()
-        )
         alias_payload = BhtomCatalogQueryForm.serialize_alias_payload(self.target)
         if alias_payload:
             target_params['alias_payload'] = alias_payload
         return reverse('targets:create') + '?' + urlencode(target_params)
+
+
+class BhtomCatalogGaiaAlertsCreateView(LoginRequiredMixin, View):
+    @staticmethod
+    def _build_create_url(row):
+        target = _build_gaia_alerts_catalog_target(row)
+        return reverse('targets:create') + '?' + urlencode(target.as_dict())
+
+    def post(self, request, *args, **kwargs):
+        stored_results = request.session.get(GAIA_ALERTS_CATALOG_RESULTS_SESSION_KEY) or []
+        stored_form_data = request.session.get(GAIA_ALERTS_CATALOG_FORM_SESSION_KEY) or {}
+        selected_result = request.POST.get('selected_result')
+
+        if not stored_results:
+            messages.error(request, 'Gaia Alerts query results expired. Run the catalog query again.')
+            return redirect(reverse('tom_catalogs:query'))
+        if selected_result in (None, ''):
+            messages.warning(request, 'Please select one Gaia Alerts result.')
+            context = {
+                'data_service': 'Gaia Alerts',
+                'query': stored_form_data.get('term', ''),
+                'results': [
+                    _build_gaia_alerts_catalog_result_row(index, row) for index, row in enumerate(stored_results)
+                ],
+            }
+            return render(request, 'tom_catalogs/gaia_alerts_query_result.html', context)
+
+        try:
+            row = stored_results[int(selected_result)]
+        except (TypeError, ValueError, IndexError):
+            messages.error(request, 'Selected Gaia Alerts result is invalid. Run the catalog query again.')
+            return redirect(reverse('tom_catalogs:query'))
+
+        request.session.pop(GAIA_ALERTS_CATALOG_RESULTS_SESSION_KEY, None)
+        request.session.pop(GAIA_ALERTS_CATALOG_FORM_SESSION_KEY, None)
+        return redirect(self._build_create_url(row))
 
 
 class GeoTomTargetListView(ListView):

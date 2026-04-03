@@ -38,7 +38,8 @@ def _to_rows(csv_text):
         for key, value in row.items():
             if key is None:
                 continue
-            normalized[key.strip()] = value.strip() if isinstance(value, str) else value
+            cleaned_key = key.strip().lstrip('\ufeff')
+            normalized[cleaned_key] = value.strip() if isinstance(value, str) else value
         if normalized:
             rows.append(normalized)
     return rows
@@ -53,6 +54,25 @@ def _gaia_alerts_error(mag):
     else:
         exponent = 0.26 * mag - 6.26
     return 10 ** exponent
+
+
+def _normalize_alert_name(value):
+    return str(value or '').strip()
+
+
+def _row_alert_name(row):
+    return _normalize_alert_name(row.get('#Name') or row.get('Name'))
+
+
+def _bare_alert_name(value):
+    normalized = _normalize_alert_name(value)
+    if normalized.lower().startswith('gaia'):
+        return normalized[4:]
+    return normalized
+
+
+def _lightcurve_url(alert_name):
+    return f'{GAIA_ALERTS_BASE_URL}/alerts/alert/{alert_name}/lightcurve.csv'
 
 
 class GaiaAlertsDataService(DataService):
@@ -83,51 +103,68 @@ class GaiaAlertsDataService(DataService):
         radius_arcsec = float(query_parameters.get('radius_arcsec') or 5.0)
 
         alerts_rows = self._fetch_alerts_rows()
-        alert_row = None
+        alert_rows = []
 
         if alert_name:
-            alert_row = self._find_by_name(alerts_rows, alert_name)
+            alert_rows = self._find_by_name(alerts_rows, alert_name)
 
-        if alert_row is None and ra is not None and dec is not None:
+        if not alert_rows and ra is not None and dec is not None:
             alert_row = self._find_by_cone(alerts_rows, float(ra), float(dec), radius_arcsec)
+            if alert_row is not None:
+                alert_rows = [alert_row]
 
-        phot_rows = []
+        photometry_by_name = {}
+        lightcurve_urls = {}
         lightcurve_url = None
-        if alert_row and query_parameters.get('include_photometry', True):
-            selected_name = alert_row.get('#Name')
+        if len(alert_rows) == 1 and query_parameters.get('include_photometry', True):
+            selected_name = _row_alert_name(alert_rows[0])
             if selected_name:
-                lightcurve_url = f'{GAIA_ALERTS_BASE_URL}/alerts/alert/{selected_name}/lightcurve.csv'
+                lightcurve_url = _lightcurve_url(selected_name)
+                lightcurve_urls[selected_name] = lightcurve_url
                 try:
-                    phot_rows = self._fetch_lightcurve_rows(lightcurve_url)
+                    photometry_by_name[selected_name] = self._fetch_lightcurve_rows(lightcurve_url)
                 except Exception as exc:
                     logger.warning('Gaia Alerts lightcurve unavailable for %s: %s', selected_name, exc)
 
-        self.query_results = {'alert': alert_row, 'lightcurve_rows': phot_rows, 'lightcurve_url': lightcurve_url}
+        self.query_results = {
+            'alerts': alert_rows,
+            'lightcurve_rows_by_name': photometry_by_name,
+            'lightcurve_urls': lightcurve_urls,
+            'lightcurve_url': lightcurve_url,
+        }
         return self.query_results
 
     def query_targets(self, query_parameters, **kwargs):
         data = self.query_service(query_parameters, **kwargs)
-        alert = data.get('alert')
-        if not alert:
+        alerts = data.get('alerts') or []
+        if not alerts:
             return []
 
-        alert_name = alert.get('#Name')
-        ra = _to_float(alert.get('RaDeg'))
-        dec = _to_float(alert.get('DecDeg'))
-        if not alert_name or ra is None or dec is None:
-            return []
+        target_results = []
+        lightcurve_rows_by_name = data.get('lightcurve_rows_by_name') or {}
+        lightcurve_urls = data.get('lightcurve_urls') or {}
+        for alert in alerts:
+            alert_name = _row_alert_name(alert)
+            ra = _to_float(alert.get('RaDeg'))
+            dec = _to_float(alert.get('DecDeg'))
+            if not alert_name or ra is None or dec is None:
+                continue
 
-        target_result = {
-            'name': alert_name,
-            'ra': ra,
-            'dec': dec,
-            'aliases': [alert_name],
-            'reduced_datums': {
-                'photometry': self._build_photometry_datums(data.get('lightcurve_rows', [])),
-            },
-            'source_location': data.get('lightcurve_url'),
-        }
-        return [target_result]
+            target_result = {
+                'name': alert_name,
+                'ra': ra,
+                'dec': dec,
+                'aliases': [alert_name],
+                'source_location': lightcurve_urls.get(alert_name) or self.info_url,
+            }
+            photometry_rows = lightcurve_rows_by_name.get(alert_name)
+            if photometry_rows is not None:
+                target_result['reduced_datums'] = {
+                    'photometry': self._build_photometry_datums(photometry_rows),
+                }
+            target_results.append(target_result)
+
+        return target_results
 
     def create_target_from_query(self, target_result, **kwargs):
         return Target(
@@ -191,12 +228,33 @@ class GaiaAlertsDataService(DataService):
         return rows
 
     def _find_by_name(self, rows, alert_name):
-        alert_name_lower = alert_name.lower()
+        search_value = _normalize_alert_name(alert_name)
+        if not search_value:
+            return []
+
+        search_lower = search_value.lower()
+        prefixed_lower = search_lower if search_lower.startswith('gaia') else f'gaia{search_lower}'
+
+        exact_matches = []
+        prefix_matches = []
+        contains_matches = []
         for row in rows:
-            name = (row.get('#Name') or '').strip()
-            if name.lower() == alert_name_lower:
-                return row
-        return None
+            full_name = _row_alert_name(row)
+            if not full_name:
+                continue
+            full_lower = full_name.lower()
+            bare_lower = _bare_alert_name(full_name).lower()
+
+            if full_lower == search_lower or full_lower == prefixed_lower or bare_lower == search_lower:
+                exact_matches.append(row)
+                continue
+            if bare_lower.startswith(search_lower) or full_lower.startswith(search_lower) or full_lower.startswith(prefixed_lower):
+                prefix_matches.append(row)
+                continue
+            if search_lower in bare_lower or search_lower in full_lower:
+                contains_matches.append(row)
+
+        return exact_matches or prefix_matches or contains_matches
 
     def _find_by_cone(self, rows, ra_deg, dec_deg, radius_arcsec):
         center = SkyCoord(ra_deg, dec_deg, unit='deg')

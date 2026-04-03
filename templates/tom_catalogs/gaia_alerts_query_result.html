@@ -1,0 +1,35 @@
+{% extends 'tom_common/base.html' %}
+{% block title %}Gaia Alerts Query Result{% endblock %}
+{% block content %}
+<h2>Gaia Alerts Query Result{% if query %} for {{ query }}{% endif %}</h2>
+<form method="POST" action="{% url 'catalog-gaia-alerts-create' %}">
+  {% csrf_token %}
+  <div class="mb-3">
+    <input type="submit" value="Continue to Target Form" class="btn btn-primary"/>
+  </div>
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>Select</th>
+        <th>Name</th>
+        <th>RA</th>
+        <th>Dec</th>
+        <th>Comment</th>
+        <th>View</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for result in results %}
+      <tr>
+        <td><input type="radio" name="selected_result" value="{{ result.id }}"/></td>
+        <td>{{ result.name }}</td>
+        <td>{% if result.ra is not None %}{{ result.ra|floatformat:6 }}{% endif %}</td>
+        <td>{% if result.dec is not None %}{{ result.dec|floatformat:6 }}{% endif %}</td>
+        <td>{{ result.comment }}</td>
+        <td><a href="{{ result.url }}" target="_blank" rel="noopener noreferrer">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</form>
+{% endblock %}

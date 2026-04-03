@@ -31,7 +31,8 @@ def _fetch_alert_rows():
         for key, value in row.items():
             if key is None:
                 continue
-            normalized[key.strip()] = value.strip() if isinstance(value, str) else value
+            cleaned_key = key.strip().lstrip('\ufeff')
+            normalized[cleaned_key] = value.strip() if isinstance(value, str) else value
         if normalized:
             rows.append(normalized)
     return rows
@@ -40,12 +41,25 @@ def _fetch_alert_rows():
 def _find_by_name(rows, name):
     term = str(name).strip().lower()
     if not term:
-        return None
+        return []
+    prefixed_term = term if term.startswith('gaia') else f'gaia{term}'
+    exact_matches = []
+    prefix_matches = []
+    contains_matches = []
     for row in rows:
-        candidate = str(row.get('#Name', '')).strip().lower()
-        if candidate == term:
-            return row
-    return None
+        candidate = str(row.get('#Name') or row.get('Name') or '').strip().lower()
+        if not candidate:
+            continue
+        candidate_bare = candidate[4:] if candidate.startswith('gaia') else candidate
+        if candidate == term or candidate == prefixed_term or candidate_bare == term:
+            exact_matches.append(row)
+            continue
+        if candidate.startswith(term) or candidate.startswith(prefixed_term) or candidate_bare.startswith(term):
+            prefix_matches.append(row)
+            continue
+        if term in candidate or term in candidate_bare:
+            contains_matches.append(row)
+    return exact_matches or prefix_matches or contains_matches
 
 
 def _cone_search(rows, ra_deg, dec_deg, radius_arcsec):
@@ -75,7 +89,7 @@ def get(term):
     # Primary mode for catalog search: Gaia Alerts name, e.g. "Gaia21eeo".
     by_name = _find_by_name(rows, term)
     if by_name:
-        return by_name
+        return by_name[0]
 
     # Optional mode: "ra dec radius_arcsec"
     parts = re.split(r'[\s,]+', str(term).strip())
@@ -90,6 +104,28 @@ def get(term):
             pass
 
     return {}
+
+
+def get_all(term):
+    rows = _fetch_alert_rows()
+
+    by_name = _find_by_name(rows, term)
+    if by_name:
+        return by_name
+
+    parts = re.split(r'[\s,]+', str(term).strip())
+    if len(parts) == 3:
+        try:
+            ra = float(parts[0])
+            dec = float(parts[1])
+            radius_arcsec = float(parts[2])
+            if radius_arcsec > 0:
+                row = _cone_search(rows, ra, dec, radius_arcsec)
+                return [row] if row else []
+        except (TypeError, ValueError):
+            pass
+
+    return []
 
 
 class GaiaAlertsHarvester(AbstractHarvester):

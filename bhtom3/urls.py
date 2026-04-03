@@ -17,6 +17,7 @@ from django.urls import path, include
 
 from custom_code.views import (
     Bhtom2DataProductUploadView,
+    BhtomCatalogGaiaAlertsCreateView,
     BhtomCatalogQueryView,
     Bhtom2TargetListView,
     BhtomTargetCreateView,
@@ -35,6 +36,7 @@ from custom_code.views import (
 urlpatterns = [
     path('accounts/logout/', LegacyLogoutView.as_view(), name='logout'),
     path('catalogs/query/', BhtomCatalogQueryView.as_view(), name='catalog-query-override'),
+    path('catalogs/query/gaia-alerts/create/', BhtomCatalogGaiaAlertsCreateView.as_view(), name='catalog-gaia-alerts-create'),
     path('targets/', Bhtom2TargetListView.as_view(), name='targets-list-override'),
     path('targets/create/', BhtomTargetCreateView.as_view(), name='targets-create-override'),
     path('dataproducts/data/upload/', Bhtom2DataProductUploadView.as_view(), name='dataproducts-upload-override'),

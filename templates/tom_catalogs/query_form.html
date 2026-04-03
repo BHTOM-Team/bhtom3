@@ -3,7 +3,7 @@
 {% block title %}Look Up Object{% endblock %}
 {% block content %}
 <h3>Search Catalogs for a Target</h3>
-<p class="text-muted">SIMBAD uses an RA/Dec cone search with a fixed radius of 3 arcsec.</p>
+<p class="text-muted">Select service to query from. You can query either by object name (can be partial) or its coordinates.</p>
 <form action="{% url 'tom_catalogs:query' %}" method="POST">
   {% csrf_token %}
   {% bootstrap_form form %}

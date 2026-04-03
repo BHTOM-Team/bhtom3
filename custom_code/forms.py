@@ -65,12 +65,6 @@ class BhtomCatalogQueryForm(forms.Form):
     ra = forms.FloatField(required=False, label='RA (deg)')
     dec = forms.FloatField(required=False, label='Dec (deg)')
     radius_arcsec = forms.FloatField(required=False, min_value=0.1, initial=3.0, label='Search radius (arcsec)')
-    recommended_observing_strategy = forms.CharField(
-        label='Recommended observing strategy',
-        min_length=4,
-        widget=forms.Textarea(attrs={'rows': 3}),
-        help_text='This will be saved as the first comment on the created target.',
-    )
 
     def clean(self):
         cleaned = super().clean()

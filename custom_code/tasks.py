@@ -28,6 +28,23 @@ def _normalize_alias_result(alias):
     return {'name': name, 'url': '', 'source_name': ''}
 
 
+def _resolve_alias_url(alias_data, result, service):
+    explicit_url = str(alias_data.get('url') or '').strip()
+    if explicit_url:
+        return explicit_url
+
+    result_url = str((result or {}).get('source_location') or '').strip()
+    if result_url:
+        return result_url
+
+    query_results = getattr(service, 'query_results', None) or {}
+    query_url = str(query_results.get('source_location') or '').strip()
+    if query_url:
+        return query_url
+
+    return str(getattr(service, 'info_url', '') or '').strip()
+
+
 def _count_returned_reduced_datums(reduced_datums):
     if not reduced_datums:
         return 0
@@ -160,7 +177,7 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
 
     if not target_results:
         logger.info(
-            'Data service "%s" finished for target %s: no match (results=0, aliases_found=0, aliases_added=0, datapoints_returned=0, datapoints_added=0).',
+            'Data service "%s" finished for target %s: no match (results=0, aliases_found=0, aliases_added=0, alias_urls_updated=0, datapoints_returned=0, datapoints_added=0).',
             service_name,
             target.name,
         )
@@ -168,6 +185,7 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
 
     aliases_added = 0
     aliases_found = 0
+    alias_urls_updated = 0
     datapoints_returned = 0
     datapoints_added = 0
     for result in target_results:
@@ -182,12 +200,14 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
                 continue
             aliases_found += 1
             alias_obj, created = target.aliases.get_or_create(name=alias_data['name'])
+            alias_url = _resolve_alias_url(alias_data, result, service)
             source_name = alias_data['source_name'] or service_name
-            if alias_data['url'] or source_name:
+            if alias_url or source_name:
                 TargetAliasInfo.objects.update_or_create(
                     target_name=alias_obj,
-                    defaults={'url': alias_data['url'], 'source_name': source_name},
+                    defaults={'url': alias_url, 'source_name': source_name},
                 )
+                alias_urls_updated += 1
             if created:
                 aliases_added += 1
         reduced_datums = result.get('reduced_datums')
@@ -208,12 +228,13 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
                 )
 
     logger.info(
-        'Data service "%s" finished for target %s: success (results=%s, aliases_found=%s, aliases_added=%s, datapoints_returned=%s, datapoints_added=%s).',
+        'Data service "%s" finished for target %s: success (results=%s, aliases_found=%s, aliases_added=%s, alias_urls_updated=%s, datapoints_returned=%s, datapoints_added=%s).',
         service_name,
         target.name,
         len(target_results),
         aliases_found,
         aliases_added,
+        alias_urls_updated,
         datapoints_returned,
         datapoints_added,
     )

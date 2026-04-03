@@ -41,7 +41,11 @@ class LSSTQueryForm(BaseQueryForm):
 
 
 class GaiaAlertsQueryForm(BaseQueryForm):
-    alert_name = forms.CharField(required=False, label='Gaia Alerts name')
+    alert_name = forms.CharField(
+        required=False,
+        label='Gaia Alerts name',
+        help_text='You can enter either the full name, e.g. Gaia24amo, or just 24amo.',
+    )
     ra = forms.FloatField(required=False, label='RA (deg)')
     dec = forms.FloatField(required=False, label='Dec (deg)')
     radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, label='Search radius (arcsec)')
