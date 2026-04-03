@@ -1,5 +1,5 @@
 {% extends 'tom_common/base.html' %}
-{% block title %}BHTOM-PALLAS{% endblock %}
+{% block title %}BHTOM-PALLAS Ephemeris{% endblock %}
 {% block content %}
 <div style="margin: -0.5rem -15px 0; padding: 0 15px 3rem; background-color: #182431; background-image:
   radial-gradient(circle at 12% 18%, rgba(214,229,242,0.045) 0, rgba(214,229,242,0.045) 8px, transparent 9px),
@@ -22,7 +22,7 @@
     </div>
   </div>
   <div class="row mx-0">
-    <div class="col-12 px-4">
+    <div class="col-12 px-4 pb-4">
       <ul class="nav nav-tabs border-0 mb-4">
         <li class="nav-item">
           <a class="nav-link {% if bhtom_pallas_active_tab == 'overview' %}active{% endif %}" href="{% url 'bhtom-pallas' %}" style="background-color: {% if bhtom_pallas_active_tab == 'overview' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Overview</a>
@@ -31,10 +31,56 @@
           <a class="nav-link {% if bhtom_pallas_active_tab == 'ephemeris' %}active{% endif %}" href="{% url 'bhtom-pallas-ephemeris' %}" style="background-color: {% if bhtom_pallas_active_tab == 'ephemeris' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Ephemeris</a>
         </li>
       </ul>
-      <div class="pb-4" style="max-width: 56rem;">
-        <p class="mb-3">BHTOM-PALLAS is the small-bodies workspace within BHTOM for asteroid and comet support tools.</p>
-        <p class="mb-0">Use the Ephemeris tab to query JPL Horizons and inspect a short geocentric ephemeris table for a named object.</p>
+      <form method="get" class="form-inline mb-3">
+        <label for="id_target" class="mr-2">Object Name</label>
+        <input id="id_target" type="text" name="target" class="form-control mr-2 mb-2 mb-sm-0" value="{{ target_query }}" placeholder="e.g. Ceres">
+        <label for="id_location" class="mr-2 ml-sm-3">Location Code</label>
+        <input id="id_location" type="text" name="location" class="form-control mr-2 mb-2 mb-sm-0" value="{{ location_query }}" placeholder="e.g. 500">
+        <select id="id_location_preset" name="location_preset" class="form-control mr-2 mb-2 mb-sm-0" onchange="if (this.value) { document.getElementById('id_location').value = this.value; }">
+          <option value="">Common codes...</option>
+          {% for choice in observatory_choices %}
+          <option value="{{ choice.code }}"{% if location_preset == choice.code %} selected{% endif %}>{{ choice.display }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-light">Search</button>
+      </form>
+
+      {% if ephemeris_error %}
+      <div class="alert alert-warning" role="alert">
+        {{ ephemeris_error }}
       </div>
+      {% endif %}
+
+      {% if ephemeris_rows %}
+      <div class="mb-2 text-light">
+        Ephemeris generated at: {{ ephemeris_generated_at|date:"Y-m-d H:i:s" }} UTC
+      </div>
+      <div class="mb-3 text-light">
+        Location used: {{ resolved_location }}{% if resolved_location_label %} &mdash; {{ resolved_location_label }}{% endif %}
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-dark table-striped mb-0">
+          <thead>
+            <tr>
+              <th>Datetime</th>
+              <th>RA</th>
+              <th>DEC</th>
+              <th>V</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in ephemeris_rows %}
+            <tr>
+              <td>{{ row.datetime }}</td>
+              <td>{{ row.ra }}</td>
+              <td>{{ row.dec }}</td>
+              <td>{{ row.vmag }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>

@@ -2,10 +2,12 @@ from io import StringIO
 import json
 import logging
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from uuid import uuid4
 
+from astroquery.jplhorizons import Horizons
+from astroquery.mpc import MPC
 from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth import logout
@@ -293,8 +295,141 @@ def _match_public_upload_choice(choices, submitted_value):
     return None
 
 
-class BhtomPallasView(TemplateView):
-    template_name = 'tom_common/bhtom_pallas.html'
+class BhtomPallasBaseMixin:
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({
+            'bhtom_pallas_active_tab': getattr(self, 'bhtom_pallas_active_tab', 'overview'),
+        })
+        return context
+
+
+class BhtomPallasView(BhtomPallasBaseMixin, TemplateView):
+    template_name = 'tom_common/bhtom_pallas_overview.html'
+    bhtom_pallas_active_tab = 'overview'
+
+
+class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
+    template_name = 'tom_common/bhtom_pallas_ephemeris.html'
+    bhtom_pallas_active_tab = 'ephemeris'
+    OBSERVATORY_CHOICES = [
+        {'code': '500', 'label': 'Geocentric', 'display': 'Geocentric (500)'},
+        {'code': '568', 'label': 'Mauna Kea', 'display': 'Mauna Kea (568)'},
+        {'code': '675', 'label': 'Palomar Mountain', 'display': 'Palomar Mountain (675)'},
+        {'code': 'W84', 'label': 'Cerro Tololo-DECam', 'display': 'Cerro Tololo-DECam (W84)'},
+        {'code': 'G37', 'label': 'Lowell Discovery Telescope', 'display': 'Lowell Discovery Telescope (G37)'},
+        {'code': 'I41', 'label': 'ZTF / Palomar Schmidt', 'display': 'ZTF / Palomar Schmidt (I41)'},
+        {'code': 'F51', 'label': 'Pan-STARRS 1, Haleakala', 'display': 'Pan-STARRS 1, Haleakala (F51)'},
+        {'code': 'T08', 'label': 'ATLAS-MLO, Mauna Loa', 'display': 'ATLAS-MLO, Mauna Loa (T08)'},
+    ]
+
+    @classmethod
+    def _dropdown_location_label(cls, code):
+        for choice in cls.OBSERVATORY_CHOICES:
+            if choice['code'].lower() == str(code).lower():
+                return choice['label']
+        return None
+
+    @classmethod
+    def _resolve_location_label(cls, code):
+        code = str(code).strip()
+        dropdown_label = cls._dropdown_location_label(code)
+        if dropdown_label:
+            return dropdown_label
+
+        try:
+            location = MPC.get_observatory_location(code)
+        except Exception as exc:
+            logger.warning('Could not resolve MPC observatory code %s: %s', code, exc)
+            return 'Custom / unresolved code'
+
+        if location is None:
+            return 'Custom / unresolved code'
+
+        # astroquery return shapes may differ across versions; prefer an explicit name field when present.
+        if isinstance(location, tuple):
+            if len(location) >= 4 and location[3]:
+                return str(location[3])
+            return 'Custom / unresolved code'
+
+        if isinstance(location, dict):
+            for key in ('name', 'observatory_name', 'observatory'):
+                value = location.get(key)
+                if value:
+                    return str(value)
+
+        for attr in ('name', 'observatory_name', 'observatory'):
+            value = getattr(location, attr, None)
+            if value:
+                return str(value)
+
+        if hasattr(location, 'colnames'):
+            for key in ('name', 'observatory_name', 'observatory'):
+                if key in location.colnames and len(location):
+                    value = location[key][0]
+                    if value:
+                        return str(value)
+
+        return 'Custom / unresolved code'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        target_query = (self.request.GET.get('target') or '').strip()
+        location_query = (self.request.GET.get('location') or '').strip()
+        location_preset = (self.request.GET.get('location_preset') or '').strip()
+        resolved_location = location_query or location_preset or '500'
+        context.update({
+            'target_query': target_query,
+            'location_query': location_query,
+            'location_preset': location_preset,
+            'resolved_location': resolved_location,
+            'resolved_location_label': '',
+            'observatory_choices': self.OBSERVATORY_CHOICES,
+            'ephemeris_rows': [],
+            'ephemeris_error': '',
+            'ephemeris_generated_at': None,
+        })
+
+        if not target_query:
+            return context
+
+        start_time = datetime.now(timezone.utc)
+        stop_time = start_time + timedelta(days=1)
+        epochs = {
+            'start': start_time.strftime('%Y-%m-%d %H:%M'),
+            'stop': stop_time.strftime('%Y-%m-%d %H:%M'),
+            'step': '1h',
+        }
+
+        try:
+            generated_at = datetime.now(timezone.utc)
+            table = Horizons(id=target_query, location=resolved_location, epochs=epochs).ephemerides()
+            context['ephemeris_rows'] = [
+                {
+                    'datetime': str(row['datetime_str']),
+                    'ra': row['RA'],
+                    'dec': row['DEC'],
+                    'vmag': row['V'],
+                }
+                for row in table[:25]
+            ]
+            context['ephemeris_generated_at'] = generated_at
+            context['resolved_location_label'] = self._resolve_location_label(resolved_location)
+            if not context['ephemeris_rows']:
+                context['ephemeris_error'] = f'No ephemeris results were returned for "{target_query}" at location "{resolved_location}".'
+        except Exception as exc:
+            logger.warning(
+                'BHTOM-PALLAS Horizons lookup failed for target %s at location %s: %s',
+                target_query,
+                resolved_location,
+                exc,
+            )
+            context['ephemeris_error'] = (
+                f'Could not retrieve JPL Horizons ephemeris for "{target_query}" '
+                f'using location "{resolved_location}". Check that the observatory/location code is valid.'
+            )
+
+        return context
 
 
 def _refresh_geotarget_from_service(target, service):
