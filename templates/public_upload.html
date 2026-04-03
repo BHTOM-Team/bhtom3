@@ -1,0 +1,254 @@
+{% extends 'tom_common/base.html' %}
+{% load bootstrap4 %}
+
+{% block title %}Public Upload{% endblock %}
+
+{% block content %}
+  <div class="row">
+    <div class="col-lg-8">
+      <h2>Public FITS Upload</h2>
+      <p class="text-muted">
+        Standalone single-file FITS upload for BHTOM2. Target, observer, and observatory are loaded from BHTOM2 through
+        local search endpoints.
+      </p>
+
+      {% if public_upload_requires_password and not public_upload_has_access %}
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <h4 class="card-title">Public Upload Access</h4>
+            <p class="text-muted">This page is public, but uploading is protected by a shared password.</p>
+            <form method="post" novalidate>
+              {% csrf_token %}
+              {% bootstrap_field access_form.password show_help=False %}
+              <button type="submit" class="btn btn-primary">Unlock Upload Form</button>
+            </form>
+          </div>
+        </div>
+      {% else %}
+
+      {% if not bhtom2_api_ready %}
+        <div class="alert alert-warning">
+          BHTOM2 API lookup is not configured yet. Set `BHTOM2_API_BASE_URL` and `BHTOM2_API_TOKEN` in secret config.
+        </div>
+      {% endif %}
+
+      <form method="post" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger">
+            {% for error in form.non_field_errors %}
+              <div>{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="form-group position-relative public-upload-typeahead">
+          <label for="{{ form.target.id_for_label }}">Target</label>
+          <div class="input-group">
+            <input
+              type="text"
+              name="{{ form.target.html_name }}"
+              id="{{ form.target.id_for_label }}"
+              class="form-control{% if form.target.errors %} is-invalid{% endif %}"
+              value="{{ form.target.value|default_if_none:'' }}"
+              autocomplete="off"
+              data-autocomplete-url="{{ public_upload_targets_url }}"
+              data-empty-text="No matching targets found."
+              required
+            >
+            <div class="input-group-append">
+              <button class="btn btn-outline-secondary public-upload-load" type="button">
+                <span class="spinner-border spinner-border-sm mr-2 d-none" role="status" aria-hidden="true"></span>
+                <span class="public-upload-load-label">Load list</span>
+              </button>
+            </div>
+          </div>
+          <div class="invalid-feedback">
+            {% for error in form.target.errors %}{{ error }}{% endfor %}
+          </div>
+          <small class="form-text text-muted">You can type the target name directly or load the BHTOM2 list.</small>
+          <div class="list-group position-absolute w-100 d-none public-upload-results" style="z-index: 10;"></div>
+        </div>
+
+        <div class="form-group position-relative public-upload-typeahead">
+          <label for="{{ form.observer.id_for_label }}">Observer</label>
+          <input
+            type="text"
+            name="{{ form.observer.html_name }}"
+            id="{{ form.observer.id_for_label }}"
+            class="form-control{% if form.observer.errors %} is-invalid{% endif %}"
+            value="{{ form.observer.value|default_if_none:'' }}"
+            autocomplete="off"
+            required
+          >
+          <div class="invalid-feedback">
+            {% for error in form.observer.errors %}{{ error }}{% endfor %}
+          </div>
+          <small class="form-text text-muted">Enter the BHTOM2 username directly.</small>
+        </div>
+
+        <div class="form-group">
+          {% bootstrap_field form.token show_help=False %}
+        </div>
+
+        <div class="form-group position-relative public-upload-typeahead">
+          <label for="{{ form.observatory.id_for_label }}">Observatory</label>
+          <div class="input-group">
+            <input
+              type="text"
+              name="{{ form.observatory.html_name }}"
+              id="{{ form.observatory.id_for_label }}"
+              class="form-control{% if form.observatory.errors %} is-invalid{% endif %}"
+              value="{{ form.observatory.value|default_if_none:'' }}"
+              autocomplete="off"
+              data-autocomplete-url="{{ public_upload_observatories_url }}"
+              data-empty-text="No matching observatories found."
+              required
+            >
+            <div class="input-group-append">
+              <button class="btn btn-outline-secondary public-upload-load" type="button">
+                <span class="spinner-border spinner-border-sm mr-2 d-none" role="status" aria-hidden="true"></span>
+                <span class="public-upload-load-label">Load list</span>
+              </button>
+            </div>
+          </div>
+          <div class="invalid-feedback">
+            {% for error in form.observatory.errors %}{{ error }}{% endfor %}
+          </div>
+          <small class="form-text text-muted">Enter the observatory ONAME directly, or load the list shown as Observatory (ONAME).</small>
+          <div class="list-group position-absolute w-100 d-none public-upload-results" style="z-index: 10;"></div>
+        </div>
+
+        <div class="form-group">
+          {% bootstrap_field form.calibration_filter show_help=False %}
+        </div>
+
+        <div class="form-group">
+          {% bootstrap_field form.comment show_help=False %}
+        </div>
+
+        <div class="form-group">
+          {% bootstrap_field form.fits_file show_help=False %}
+        </div>
+
+        <button type="submit" class="btn btn-primary">Upload FITS</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}
+
+{% block javascript %}
+      {{ block.super }}
+  <script>
+    (function() {
+      function setButtonState(button, state) {
+        if (!button) return;
+        const spinner = button.querySelector('.spinner-border');
+        const label = button.querySelector('.public-upload-load-label');
+
+        button.classList.remove('btn-outline-secondary', 'btn-success');
+        button.disabled = false;
+        if (spinner) spinner.classList.add('d-none');
+
+        if (state === 'loading') {
+          button.classList.add('btn-outline-secondary');
+          button.disabled = true;
+          if (spinner) spinner.classList.remove('d-none');
+          if (label) label.textContent = 'Loading...';
+          return;
+        }
+
+        if (state === 'loaded') {
+          button.classList.add('btn-success');
+          if (label) label.textContent = 'Loaded';
+          return;
+        }
+
+        button.classList.add('btn-outline-secondary');
+        if (label) label.textContent = 'Load list';
+      }
+
+      function debounce(fn, wait) {
+        let timeoutId = null;
+        return function() {
+          const args = arguments;
+          const context = this;
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(function() {
+            fn.apply(context, args);
+          }, wait);
+        };
+      }
+
+      function renderResults(container, input, results, emptyText) {
+        container.innerHTML = '';
+        const items = results.length ? results : [{label: emptyText, value: '', disabled: true}];
+
+        items.forEach(function(item) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'list-group-item list-group-item-action';
+          button.textContent = item.label;
+          if (item.disabled) {
+            button.disabled = true;
+          } else {
+            button.addEventListener('click', function() {
+              input.value = item.value || item.label;
+              container.classList.add('d-none');
+            });
+          }
+          container.appendChild(button);
+        });
+
+        container.classList.remove('d-none');
+      }
+
+      async function fetchResults(input, container, loadButton) {
+        const query = input.value.trim();
+        const url = new URL(input.dataset.autocompleteUrl, window.location.origin);
+        url.searchParams.set('q', query);
+        setButtonState(loadButton, 'loading');
+
+        try {
+          const response = await fetch(url.toString(), {
+            headers: {'X-Requested-With': 'XMLHttpRequest'}
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            setButtonState(loadButton, 'idle');
+            renderResults(container, input, [], payload.error || 'Lookup failed.');
+            return;
+          }
+          setButtonState(loadButton, 'loaded');
+          renderResults(container, input, payload.results || [], input.dataset.emptyText);
+        } catch (error) {
+          setButtonState(loadButton, 'idle');
+          renderResults(container, input, [], 'Lookup failed.');
+        }
+      }
+
+      document.querySelectorAll('.public-upload-typeahead').forEach(function(wrapper) {
+        const input = wrapper.querySelector('input');
+        const container = wrapper.querySelector('.public-upload-results');
+        const loadButton = wrapper.querySelector('.public-upload-load');
+        const debouncedFetch = debounce(function() {
+          fetchResults(input, container, loadButton);
+        }, 200);
+
+        input.addEventListener('input', debouncedFetch);
+        if (loadButton) {
+          loadButton.addEventListener('click', function() {
+            fetchResults(input, container, loadButton);
+          });
+        }
+        input.addEventListener('blur', function() {
+          setTimeout(function() {
+            container.classList.add('d-none');
+          }, 150);
+        });
+      });
+    })();
+  </script>
+{% endblock %}

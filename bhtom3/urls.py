@@ -30,6 +30,10 @@ from custom_code.views import (
     GeoTomRefreshSingleTleView,
     GeoTomTargetListView,
     LegacyLogoutView,
+    PublicUploadObservatoriesView,
+    PublicUploadObserversView,
+    PublicUploadTargetsView,
+    PublicUploadView,
     UpdateReducedDataAndDataServicesView,
 )
 
@@ -40,6 +44,10 @@ urlpatterns = [
     path('targets/', Bhtom2TargetListView.as_view(), name='targets-list-override'),
     path('targets/create/', BhtomTargetCreateView.as_view(), name='targets-create-override'),
     path('dataproducts/data/upload/', Bhtom2DataProductUploadView.as_view(), name='dataproducts-upload-override'),
+    path('public_upload/', PublicUploadView.as_view(), name='public-upload'),
+    path('public_upload/api/targets/', PublicUploadTargetsView.as_view(), name='public-upload-targets'),
+    path('public_upload/api/observers/', PublicUploadObserversView.as_view(), name='public-upload-observers'),
+    path('public_upload/api/observatories/', PublicUploadObservatoriesView.as_view(), name='public-upload-observatories'),
     path('targets/<int:pk>/update/', BhtomTargetUpdateView.as_view(), name='targets-update-override'),
     path('targets/<int:pk>/', BhtomTargetDetailView.as_view(), name='targets-detail-override'),
     path('geotom/', GeoTomTargetListView.as_view(), name='geotom-list'),

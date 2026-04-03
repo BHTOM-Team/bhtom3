@@ -24,6 +24,10 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 secret = dotenv_values(os.path.join(BASE_DIR, 'env/.bhtom.env'))
 
 BHTOM2_UPLOAD_SERVICE_URL = secret.get('BHTOM2_UPLOAD_SERVICE_URL', secret.get('UPLOAD_SERVICE_URL', ''))
+BHTOM2_API_BASE_URL = secret.get('BHTOM2_API_BASE_URL', '')
+BHTOM2_API_TOKEN = secret.get('BHTOM2_API_TOKEN', '')
+BHTOM2_API_TIMEOUT = int(secret.get('BHTOM2_API_TIMEOUT', '30'))
+PUBLIC_UPLOAD_PASSWORD = secret.get('PUBLIC_UPLOAD_PASSWORD', '')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.1/howto/deployment/checklist/

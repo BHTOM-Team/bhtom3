@@ -115,3 +115,53 @@ class BhtomNonSiderealTargetCreateForm(NonSiderealTargetCreateForm):
         widget=forms.Textarea(attrs={'rows': 3}),
         help_text='This will be saved as the first comment on the created target.',
     )
+
+
+PUBLIC_UPLOAD_FILTER_CHOICES = [
+    ('2MASS/J', '2MASS/J'),
+    ('2MASS/H', '2MASS/H'),
+    ('2MASS/K', '2MASS/K'),
+    ('2MASS/any', '2MASS/any'),
+    ('GaiaSP/u', 'GaiaSP/u'),
+    ('GaiaSP/g', 'GaiaSP/g'),
+    ('GaiaSP/r', 'GaiaSP/r'),
+    ('GaiaSP/i', 'GaiaSP/i'),
+    ('GaiaSP/z', 'GaiaSP/z'),
+    ('GaiaSP/U', 'GaiaSP/U'),
+    ('GaiaSP/B', 'GaiaSP/B'),
+    ('GaiaSP/V', 'GaiaSP/V'),
+    ('GaiaSP/R', 'GaiaSP/R'),
+    ('GaiaSP/I', 'GaiaSP/I'),
+    ('GaiaSP/any', 'GaiaSP/any'),
+    ('GaiaSP/ugriz', 'GaiaSP/ugriz'),
+    ('GaiaSP/UBVRI', 'GaiaSP/UBVRI'),
+    ('GaiaDR3/any', 'GaiaDR3/any'),
+    ('GaiaDR3/G', 'GaiaDR3/G'),
+    ('GaiaDR3/GBP', 'GaiaDR3/GBP'),
+    ('GaiaDR3/GRP', 'GaiaDR3/GRP'),
+]
+
+
+class PublicFitsUploadForm(forms.Form):
+    target = forms.CharField(max_length=255)
+    observer = forms.CharField(max_length=255)
+    token = forms.CharField(widget=forms.PasswordInput(render_value=True))
+    observatory = forms.CharField(max_length=255, label='Observatory')
+    calibration_filter = forms.ChoiceField(
+        label='Filter',
+        choices=PUBLIC_UPLOAD_FILTER_CHOICES,
+        initial='GaiaSP/any',
+    )
+    comment = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 3}))
+    fits_file = forms.FileField(label='FITS file')
+
+    def clean_fits_file(self):
+        fits_file = self.cleaned_data['fits_file']
+        filename = (fits_file.name or '').lower()
+        if not filename.endswith(('.fits', '.fit', '.fts', '.fz')):
+            raise forms.ValidationError('Upload a FITS file.')
+        return fits_file
+
+
+class PublicUploadAccessForm(forms.Form):
+    password = forms.CharField(widget=forms.PasswordInput(), strip=False)
