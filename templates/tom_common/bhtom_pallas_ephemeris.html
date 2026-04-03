@@ -42,7 +42,18 @@
           <option value="{{ choice.code }}"{% if location_preset == choice.code %} selected{% endif %}>{{ choice.display }}</option>
           {% endfor %}
         </select>
-        <button type="submit" class="btn btn-light">Search</button>
+        <div class="w-100 mt-3">
+          <div class="mb-2">Columns</div>
+          <div class="d-flex flex-wrap align-items-center">
+            {% for field in field_choices %}
+            <div class="form-check mr-4 mb-2" style="min-height: 1.5rem;">
+              <input class="form-check-input" type="checkbox" name="fields" id="id_field_{{ field.id }}" value="{{ field.id }}"{% if field.id in selected_field_ids %} checked{% endif %}>
+              <label class="form-check-label" for="id_field_{{ field.id }}">{{ field.label }}</label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <button type="submit" class="btn btn-light mt-2">Search</button>
       </form>
 
       {% if ephemeris_error %}
@@ -58,23 +69,26 @@
       <div class="mb-3 text-light">
         Location used: {{ resolved_location }}{% if resolved_location_label %} &mdash; {{ resolved_location_label }}{% endif %}
       </div>
-      <div class="table-responsive">
-        <table class="table table-sm table-dark table-striped mb-0">
+      <div class="mb-2" id="ephemeris-top-scrollbar" style="display: none; height: 16px; padding: 3px 4px; background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;">
+        <div id="ephemeris-top-scrollbar-track" style="position: relative; width: 100%; height: 8px; background-color: rgba(255,255,255,0.08); border-radius: 999px; cursor: pointer;">
+          <div id="ephemeris-top-scrollbar-thumb" style="position: absolute; left: 0; top: 0; height: 8px; min-width: 36px; background-color: rgba(220,220,220,0.65); border-radius: 999px;"></div>
+        </div>
+      </div>
+      <div class="table-responsive" id="ephemeris-table-scroll" style="overflow-x: auto;">
+        <table id="ephemeris-table" class="table table-sm table-dark table-striped mb-0" style="min-width: max-content;">
           <thead>
             <tr>
-              <th>Datetime</th>
-              <th>RA</th>
-              <th>DEC</th>
-              <th>V</th>
+              {% for field in selected_fields %}
+              <th>{{ field.label }}</th>
+              {% endfor %}
             </tr>
           </thead>
           <tbody>
             {% for row in ephemeris_rows %}
             <tr>
-              <td>{{ row.datetime }}</td>
-              <td>{{ row.ra }}</td>
-              <td>{{ row.dec }}</td>
-              <td>{{ row.vmag }}</td>
+              {% for cell in row.cells %}
+              <td>{{ cell }}</td>
+              {% endfor %}
             </tr>
             {% endfor %}
           </tbody>
@@ -84,4 +98,87 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block javascript %}
+{{ block.super }}
+<script>
+  (function() {
+    const topScrollbar = document.getElementById('ephemeris-top-scrollbar');
+    const topTrack = document.getElementById('ephemeris-top-scrollbar-track');
+    const topThumb = document.getElementById('ephemeris-top-scrollbar-thumb');
+    const tableScroll = document.getElementById('ephemeris-table-scroll');
+    const table = document.getElementById('ephemeris-table');
+    if (!topScrollbar || !topTrack || !topThumb || !tableScroll || !table) {
+      return;
+    }
+
+    let dragging = false;
+    let dragStartX = 0;
+    let dragStartLeft = 0;
+
+    const getMaxScroll = () => Math.max(0, table.scrollWidth - tableScroll.clientWidth);
+    const getTrackWidth = () => topTrack.clientWidth;
+
+    const syncThumb = () => {
+      const maxScroll = getMaxScroll();
+      if (maxScroll <= 0) {
+        topScrollbar.style.display = 'none';
+        return;
+      }
+      topScrollbar.style.display = 'block';
+      const trackWidth = getTrackWidth();
+      const thumbWidth = Math.max(36, (tableScroll.clientWidth / table.scrollWidth) * trackWidth);
+      const maxThumbLeft = Math.max(0, trackWidth - thumbWidth);
+      const thumbLeft = maxScroll ? (tableScroll.scrollLeft / maxScroll) * maxThumbLeft : 0;
+      topThumb.style.width = thumbWidth + 'px';
+      topThumb.style.left = thumbLeft + 'px';
+    };
+
+    const setScrollFromThumbLeft = (thumbLeft) => {
+      const trackWidth = getTrackWidth();
+      const thumbWidth = topThumb.offsetWidth;
+      const maxThumbLeft = Math.max(0, trackWidth - thumbWidth);
+      const clampedThumbLeft = Math.min(Math.max(0, thumbLeft), maxThumbLeft);
+      const maxScroll = getMaxScroll();
+      const scrollLeft = maxThumbLeft ? (clampedThumbLeft / maxThumbLeft) * maxScroll : 0;
+      tableScroll.scrollLeft = scrollLeft;
+      syncThumb();
+    };
+
+    topTrack.addEventListener('click', (event) => {
+      if (event.target === topThumb) {
+        return;
+      }
+      const rect = topTrack.getBoundingClientRect();
+      setScrollFromThumbLeft(event.clientX - rect.left - (topThumb.offsetWidth / 2));
+    });
+
+    tableScroll.addEventListener('scroll', () => {
+      syncThumb();
+    });
+
+    topThumb.addEventListener('mousedown', (event) => {
+      dragging = true;
+      dragStartX = event.clientX;
+      dragStartLeft = topThumb.offsetLeft;
+      event.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (event) => {
+      if (!dragging) {
+        return;
+      }
+      setScrollFromThumbLeft(dragStartLeft + (event.clientX - dragStartX));
+    });
+
+    document.addEventListener('mouseup', () => {
+      dragging = false;
+    });
+
+    window.addEventListener('load', syncThumb);
+    window.addEventListener('resize', syncThumb);
+    syncThumb();
+  })();
+</script>
 {% endblock %}

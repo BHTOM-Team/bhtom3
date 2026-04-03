@@ -312,6 +312,21 @@ class BhtomPallasView(BhtomPallasBaseMixin, TemplateView):
 class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
     template_name = 'tom_common/bhtom_pallas_ephemeris.html'
     bhtom_pallas_active_tab = 'ephemeris'
+    FIELD_CHOICES = [
+        {'id': 'datetime', 'label': 'Datetime', 'column': 'datetime_str', 'quantity': None, 'default': True},
+        {'id': 'ra', 'label': 'RA', 'column': 'RA', 'quantity': '1', 'default': True},
+        {'id': 'dec', 'label': 'DEC', 'column': 'DEC', 'quantity': '1', 'default': True},
+        {'id': 'vmag', 'label': 'V magnitude', 'column': 'V', 'quantity': '9', 'default': False},
+        {'id': 'ra_rate', 'label': 'RA rate', 'column': 'RA_rate', 'quantity': '3', 'default': False},
+        {'id': 'dec_rate', 'label': 'DEC rate', 'column': 'DEC_rate', 'quantity': '3', 'default': False},
+        {'id': 'airmass', 'label': 'Airmass', 'column': 'airmass', 'quantity': '8', 'default': False},
+        {'id': 'heliocentric_distance', 'label': 'Heliocentric distance', 'column': 'r', 'quantity': '19', 'default': False},
+        {'id': 'geocentric_distance', 'label': 'Geocentric distance', 'column': 'delta', 'quantity': '20', 'default': False},
+        {'id': 'elongation', 'label': 'Elongation', 'column': 'elong', 'quantity': '23', 'default': False},
+        {'id': 'phase_angle', 'label': 'Phase angle', 'column': 'alpha', 'quantity': '24', 'default': False},
+        {'id': 'galactic_longitude', 'label': 'Galactic longitude', 'column': 'GlxLon', 'quantity': '33', 'default': False},
+        {'id': 'galactic_latitude', 'label': 'Galactic latitude', 'column': 'GlxLat', 'quantity': '33', 'default': False},
+    ]
     OBSERVATORY_CHOICES = [
         {'code': '500', 'label': 'Geocentric', 'display': 'Geocentric (500)'},
         {'code': '568', 'label': 'Mauna Kea', 'display': 'Mauna Kea (568)'},
@@ -372,18 +387,45 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
 
         return 'Custom / unresolved code'
 
+    @classmethod
+    def _selected_field_ids(cls, request):
+        selected = set(request.GET.getlist('fields'))
+        if not selected:
+            selected = {field['id'] for field in cls.FIELD_CHOICES if field.get('default')}
+        return [field['id'] for field in cls.FIELD_CHOICES if field['id'] in selected]
+
+    @classmethod
+    def _selected_fields(cls, field_ids):
+        return [field for field in cls.FIELD_CHOICES if field['id'] in field_ids]
+
+    @classmethod
+    def _quantities_for_fields(cls, fields):
+        quantities = []
+        for field in fields:
+            quantity = field.get('quantity')
+            if quantity and quantity not in quantities:
+                quantities.append(quantity)
+        if not quantities:
+            quantities.append('1')
+        return ','.join(quantities)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         target_query = (self.request.GET.get('target') or '').strip()
         location_query = (self.request.GET.get('location') or '').strip()
         location_preset = (self.request.GET.get('location_preset') or '').strip()
         resolved_location = location_query or location_preset or '500'
+        selected_field_ids = self._selected_field_ids(self.request)
+        selected_fields = self._selected_fields(selected_field_ids)
         context.update({
             'target_query': target_query,
             'location_query': location_query,
             'location_preset': location_preset,
             'resolved_location': resolved_location,
             'resolved_location_label': '',
+            'field_choices': self.FIELD_CHOICES,
+            'selected_field_ids': selected_field_ids,
+            'selected_fields': selected_fields,
             'observatory_choices': self.OBSERVATORY_CHOICES,
             'ephemeris_rows': [],
             'ephemeris_error': '',
@@ -403,16 +445,21 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
 
         try:
             generated_at = datetime.now(timezone.utc)
-            table = Horizons(id=target_query, location=resolved_location, epochs=epochs).ephemerides()
-            context['ephemeris_rows'] = [
-                {
-                    'datetime': str(row['datetime_str']),
-                    'ra': row['RA'],
-                    'dec': row['DEC'],
-                    'vmag': row['V'],
-                }
-                for row in table[:25]
-            ]
+            quantities = self._quantities_for_fields(selected_fields)
+            table = Horizons(
+                id=target_query,
+                location=resolved_location,
+                epochs=epochs,
+            ).ephemerides(quantities=quantities)
+            context['ephemeris_rows'] = []
+            for row in table[:25]:
+                cells = []
+                for field in selected_fields:
+                    value = row[field['column']]
+                    if field['column'] == 'datetime_str':
+                        value = str(value)
+                    cells.append(value)
+                context['ephemeris_rows'].append({'cells': cells})
             context['ephemeris_generated_at'] = generated_at
             context['resolved_location_label'] = self._resolve_location_label(resolved_location)
             if not context['ephemeris_rows']:
