@@ -1,6 +1,7 @@
 from io import StringIO
 import json
 import logging
+import re
 import requests
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -409,9 +410,158 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
             quantities.append('1')
         return ','.join(quantities)
 
+    @staticmethod
+    def _is_comet_like_identifier(query):
+        normalized = query.strip().upper()
+        return bool(
+            re.match(r'^\d+[PD]$', normalized) or
+            re.match(r'^\d+[PD]/', normalized) or
+            re.match(r'^[PCDXA]/', normalized)
+        )
+
+    @classmethod
+    def _target_attempts(cls, query):
+        normalized = ' '.join(str(query).strip().split())
+        normalized = re.sub(r'\s*/\s*', '/', normalized)
+        normalized_without_parens = re.sub(r'\s*\([^)]*\)\s*$', '', normalized).strip()
+        attempts = []
+
+        def add(identifier, id_type):
+            candidate = str(identifier).strip()
+            key = (candidate, id_type)
+            if candidate and key not in {(item['id'], item['id_type']) for item in attempts}:
+                attempts.append({'id': candidate, 'id_type': id_type})
+
+        add(normalized, None)
+        add(normalized, 'smallbody')
+        if normalized_without_parens != normalized:
+            add(normalized_without_parens, None)
+            add(normalized_without_parens, 'smallbody')
+
+        numbered_name = re.match(r'^(\d+)\s+(.+)$', normalized)
+        if numbered_name:
+            number_part = numbered_name.group(1)
+            name_part = numbered_name.group(2).strip()
+            add(number_part, 'smallbody')
+            add(number_part, None)
+            add(name_part, 'asteroid_name')
+            add(name_part, 'name')
+
+        if normalized.isdigit():
+            add(normalized, 'smallbody')
+            add(normalized, 'designation')
+
+        if cls._is_comet_like_identifier(normalized):
+            add(normalized_without_parens, 'designation')
+            add(normalized, 'designation')
+            add(normalized, 'comet_name')
+
+            numbered_comet = re.match(r'^(\d+[PD])(?:/(.+))?$', normalized_without_parens, re.IGNORECASE)
+            if numbered_comet:
+                designation_part = numbered_comet.group(1)
+                comet_name_part = (numbered_comet.group(2) or '').strip()
+                add(designation_part, 'designation')
+                add(designation_part, 'smallbody')
+                add(designation_part, None)
+                if comet_name_part:
+                    add(comet_name_part, 'comet_name')
+                    add(comet_name_part, 'name')
+
+            designation_comet = re.match(r'^([PCDXA]/[^()]+?)(?:\s*\(([^)]+)\))?$', normalized, re.IGNORECASE)
+            if designation_comet:
+                designation_part = designation_comet.group(1).strip()
+                comet_name_part = (designation_comet.group(2) or '').strip()
+                add(designation_part, 'designation')
+                add(designation_part, 'smallbody')
+                if comet_name_part:
+                    add(comet_name_part, 'comet_name')
+                    add(comet_name_part, 'name')
+
+        if re.match(r'^[A-Za-z][A-Za-z0-9 .()_-]*$', normalized):
+            add(normalized, 'comet_name')
+            add(normalized, 'asteroid_name')
+            add(normalized, 'name')
+
+        return attempts
+
+    @staticmethod
+    def _is_ambiguous_horizons_error(message):
+        lowered = message.lower()
+        return any(token in lowered for token in (
+            'ambiguous',
+            'multiple matches',
+            'matches more than one',
+            'matching bodies',
+            'multiple major-bodies match',
+        ))
+
+    @classmethod
+    def _parse_horizons_ambiguity_matches(cls, message):
+        matches = []
+        seen = set()
+        for line in str(message).splitlines():
+            match = re.match(r'^\s*(\d+)\s+(.*\S)\s*$', line)
+            if not match:
+                continue
+            record_id = match.group(1)
+            description = match.group(2).strip()
+            if record_id in seen:
+                continue
+            seen.add(record_id)
+            matches.append({
+                'record_id': record_id,
+                'label': f'{record_id} - {description}',
+            })
+        return matches
+
+    @classmethod
+    def _query_horizons_ephemerides(cls, target_query, location, epochs, quantities, target_record=''):
+        errors = []
+        ambiguous_error = None
+        target_record = str(target_record or '').strip()
+
+        if target_record:
+            return Horizons(
+                id=target_record,
+                id_type=None,
+                location=location,
+                epochs=epochs,
+            ).ephemerides(quantities=quantities)
+
+        for attempt in cls._target_attempts(target_query):
+            try:
+                table = Horizons(
+                    id=attempt['id'],
+                    id_type=attempt['id_type'],
+                    location=location,
+                    epochs=epochs,
+                ).ephemerides(quantities=quantities)
+                return table
+            except Exception as exc:
+                message = str(exc).strip() or exc.__class__.__name__
+                errors.append(f"{attempt['id']} [{attempt['id_type'] or 'default'}]: {message}")
+                if cls._is_ambiguous_horizons_error(message) and ambiguous_error is None:
+                    ambiguous_error = message
+
+        if ambiguous_error:
+            matches = cls._parse_horizons_ambiguity_matches(ambiguous_error)
+            raise ValueError(json.dumps({
+                'kind': 'ambiguity',
+                'message': (
+                    f'Object identifier "{target_query}" matches multiple JPL Horizons targets. '
+                    'Select one of the returned records below.'
+                ),
+                'matches': matches,
+            }))
+
+        raise ValueError(
+            f'JPL Horizons could not resolve "{target_query}" as a unique small-body identifier.'
+        )
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         target_query = (self.request.GET.get('target') or '').strip()
+        target_record = (self.request.GET.get('target_record') or '').strip()
         location_query = (self.request.GET.get('location') or '').strip()
         location_preset = (self.request.GET.get('location_preset') or '').strip()
         resolved_location = location_query or location_preset or '500'
@@ -419,6 +569,7 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
         selected_fields = self._selected_fields(selected_field_ids)
         context.update({
             'target_query': target_query,
+            'target_record': target_record,
             'location_query': location_query,
             'location_preset': location_preset,
             'resolved_location': resolved_location,
@@ -427,12 +578,14 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
             'selected_field_ids': selected_field_ids,
             'selected_fields': selected_fields,
             'observatory_choices': self.OBSERVATORY_CHOICES,
+            'ambiguity_matches': [],
             'ephemeris_rows': [],
             'ephemeris_error': '',
             'ephemeris_generated_at': None,
+            'resolved_target_name': '',
         })
 
-        if not target_query:
+        if not target_query and not target_record:
             return context
 
         start_time = datetime.now(timezone.utc)
@@ -446,11 +599,13 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
         try:
             generated_at = datetime.now(timezone.utc)
             quantities = self._quantities_for_fields(selected_fields)
-            table = Horizons(
-                id=target_query,
+            table = self._query_horizons_ephemerides(
+                target_query=target_query,
                 location=resolved_location,
                 epochs=epochs,
-            ).ephemerides(quantities=quantities)
+                quantities=quantities,
+                target_record=target_record,
+            )
             context['ephemeris_rows'] = []
             for row in table[:25]:
                 cells = []
@@ -462,19 +617,36 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
                 context['ephemeris_rows'].append({'cells': cells})
             context['ephemeris_generated_at'] = generated_at
             context['resolved_location_label'] = self._resolve_location_label(resolved_location)
+            if len(table) and 'targetname' in table.colnames:
+                context['resolved_target_name'] = str(table[0]['targetname'])
             if not context['ephemeris_rows']:
                 context['ephemeris_error'] = f'No ephemeris results were returned for "{target_query}" at location "{resolved_location}".'
         except Exception as exc:
             logger.warning(
                 'BHTOM-PALLAS Horizons lookup failed for target %s at location %s: %s',
-                target_query,
+                target_record or target_query,
                 resolved_location,
                 exc,
             )
-            context['ephemeris_error'] = (
-                f'Could not retrieve JPL Horizons ephemeris for "{target_query}" '
-                f'using location "{resolved_location}". Check that the observatory/location code is valid.'
-            )
+            message = str(exc).strip()
+            if message.startswith('{'):
+                try:
+                    payload = json.loads(message)
+                except ValueError:
+                    payload = {}
+                if payload.get('kind') == 'ambiguity':
+                    context['ephemeris_error'] = payload.get('message') or 'Multiple JPL Horizons matches were returned.'
+                    context['ambiguity_matches'] = payload.get('matches') or []
+                else:
+                    context['ephemeris_error'] = message
+            elif message:
+                context['ephemeris_error'] = message
+            else:
+                lookup_target = target_record or target_query
+                context['ephemeris_error'] = (
+                    f'Could not retrieve JPL Horizons ephemeris for "{lookup_target}" '
+                    f'using location "{resolved_location}". Check that the observatory/location code is valid.'
+                )
 
         return context
 

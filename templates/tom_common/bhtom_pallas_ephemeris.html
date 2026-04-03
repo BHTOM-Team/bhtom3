@@ -32,6 +32,7 @@
         </li>
       </ul>
       <form method="get" class="form-inline mb-3">
+        <input type="hidden" name="target_record" value="">
         <label for="id_target" class="mr-2">Object Name</label>
         <input id="id_target" type="text" name="target" class="form-control mr-2 mb-2 mb-sm-0" value="{{ target_query }}" placeholder="e.g. Ceres">
         <label for="id_location" class="mr-2 ml-sm-3">Location Code</label>
@@ -62,10 +63,33 @@
       </div>
       {% endif %}
 
+      {% if ambiguity_matches %}
+      <form method="get" class="form-inline mb-3">
+        <input type="hidden" name="target" value="{{ target_query }}">
+        <input type="hidden" name="location" value="{{ location_query }}">
+        <input type="hidden" name="location_preset" value="{{ location_preset }}">
+        {% for field_id in selected_field_ids %}
+        <input type="hidden" name="fields" value="{{ field_id }}">
+        {% endfor %}
+        <label for="id_target_record" class="mr-2">Choose Match</label>
+        <select id="id_target_record" name="target_record" class="form-control mr-2 mb-2 mb-sm-0">
+          {% for match in ambiguity_matches %}
+          <option value="{{ match.record_id }}"{% if target_record == match.record_id %} selected{% endif %}>{{ match.label }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-light">Use Selected Match</button>
+      </form>
+      {% endif %}
+
       {% if ephemeris_rows %}
       <div class="mb-2 text-light">
         Ephemeris generated at: {{ ephemeris_generated_at|date:"Y-m-d H:i:s" }} UTC
       </div>
+      {% if resolved_target_name %}
+      <div class="mb-2 text-light">
+        Target resolved as: {{ resolved_target_name }}
+      </div>
+      {% endif %}
       <div class="mb-3 text-light">
         Location used: {{ resolved_location }}{% if resolved_location_label %} &mdash; {{ resolved_location_label }}{% endif %}
       </div>
