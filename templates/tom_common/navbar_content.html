@@ -12,6 +12,9 @@
 <li class="nav-item {% if request.resolver_match.url_name == 'geotom-list' or request.resolver_match.url_name == 'geotom-add-sat' %}active{% endif %}">
     <a class="nav-link" href="{% url 'geotom-list' %}">GeoTOM</a>
 </li>
+<li class="nav-item">
+    <a class="nav-link" href="#">BHTOM-PALLAS</a>
+</li>
 <li class="nav-item {% if request.resolver_match.namespace == 'alerts' %}active{% endif %}">
     <a class="nav-link" href="{% url 'alerts:list' %}">Alerts</a>
 </li>
