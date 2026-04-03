@@ -72,8 +72,8 @@ class BhtomCatalogQueryForm(forms.Form):
         term = (cleaned.get('term') or '').strip()
         has_coords = cleaned.get('ra') is not None and cleaned.get('dec') is not None
         if service == 'Simbad':
-            if not has_coords:
-                raise forms.ValidationError('Provide SIMBAD RA+Dec.')
+            if not term and not has_coords:
+                raise forms.ValidationError('Provide SIMBAD object name or RA+Dec.')
             cleaned['radius_arcsec'] = 3.0
         elif not term:
             raise forms.ValidationError('Provide a search term.')
@@ -84,7 +84,7 @@ class BhtomCatalogQueryForm(forms.Form):
         service = service_class()
         if self.cleaned_data['service'] == 'Simbad':
             service.query(
-                '',
+                self.cleaned_data.get('term') or '',
                 ra=self.cleaned_data.get('ra'),
                 dec=self.cleaned_data.get('dec'),
                 radius_arcsec=3.0,

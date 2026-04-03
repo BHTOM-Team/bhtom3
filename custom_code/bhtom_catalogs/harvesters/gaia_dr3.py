@@ -96,6 +96,27 @@ def cone_search(coordinates, radius):
         return {}
 
 
+def cone_search_all(coordinates, radius, limit=100):
+    try:
+        ra_deg = float(coordinates.ra.deg)
+        dec_deg = float(coordinates.dec.deg)
+        radius_deg = float(radius.deg)
+        box_prefilter = _build_box_prefilter(ra_deg, dec_deg, radius_deg)
+        query = (
+            f'SELECT TOP {int(limit)} source_id, ra, dec, parallax, pmra, pmdec, has_xp_sampled, '
+            f'       DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) AS dist '
+            'FROM gaiadr3.gaia_source '
+            f'WHERE {box_prefilter} '
+            f'  AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) <= {radius_deg} '
+            'ORDER BY dist ASC'
+        )
+        result = Gaia.launch_job(query).get_results()
+        return [_row_to_dict(row) for row in result]
+    except Exception as exc:
+        logger.error('Error when running Gaia DR3 multi cone search: %s', exc)
+        return []
+
+
 def get(term):
     term_str = str(term).strip()
     catalog_data = search_term_in_gaia(term_str)
@@ -117,6 +138,28 @@ def get(term):
 
     coordinates = SkyCoord(ra=ra, dec=dec, unit='deg')
     return cone_search(coordinates, Angle(radius_arcsec, unit='arcsec'))
+
+
+def get_all(term):
+    term_str = str(term).strip()
+    catalog_data = search_term_in_gaia(term_str)
+    if catalog_data:
+        return [catalog_data]
+
+    parts = re.split(r'[\s,]+', term_str)
+    if len(parts) != 3:
+        return []
+    try:
+        ra = float(parts[0])
+        dec = float(parts[1])
+        radius_arcsec = float(parts[2])
+    except (TypeError, ValueError):
+        return []
+    if radius_arcsec <= 0:
+        return []
+
+    coordinates = SkyCoord(ra=ra, dec=dec, unit='deg')
+    return cone_search_all(coordinates, Angle(radius_arcsec, unit='arcsec'))
 
 
 class GaiaDR3Harvester(AbstractHarvester):

@@ -1,8 +1,8 @@
 {% extends 'tom_common/base.html' %}
-{% block title %}Gaia Alerts Query Result{% endblock %}
+{% block title %}Catalog Query Result{% endblock %}
 {% block content %}
-<h2>Gaia Alerts Query Result{% if query %} for {{ query }}{% endif %}</h2>
-<form method="POST" action="{% url 'catalog-gaia-alerts-create' %}">
+<h2>{{ data_service }} Query Result{% if query %} for {{ query }}{% endif %}</h2>
+<form method="POST" action="{% url 'catalog-select-result' %}">
   {% csrf_token %}
   <div class="mb-3">
     <input type="submit" value="Continue to Target Form" class="btn btn-primary"/>
@@ -14,7 +14,7 @@
         <th>Name</th>
         <th>RA</th>
         <th>Dec</th>
-        <th>Comment</th>
+        <th>Summary</th>
         <th>View</th>
       </tr>
     </thead>
@@ -25,8 +25,12 @@
         <td>{{ result.name }}</td>
         <td>{% if result.ra is not None %}{{ result.ra|floatformat:6 }}{% endif %}</td>
         <td>{% if result.dec is not None %}{{ result.dec|floatformat:6 }}{% endif %}</td>
-        <td>{{ result.comment }}</td>
-        <td><a href="{{ result.url }}" target="_blank" rel="noopener noreferrer">View</a></td>
+        <td>{{ result.summary }}</td>
+        <td>
+          {% if result.url %}
+          <a href="{{ result.url }}" target="_blank" rel="noopener noreferrer">View</a>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

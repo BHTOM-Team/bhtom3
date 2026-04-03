@@ -51,12 +51,14 @@ from custom_code.geosat import (
 from custom_code.data_services.geosat_dataservice import GeoSatDataService
 from custom_code.tasks import enqueue_target_dataservices_update
 from custom_code.bhtom_catalogs.harvesters import gaia_alerts as gaia_alerts_harvester
+from custom_code.bhtom_catalogs.harvesters import gaia_dr3 as gaia_dr3_harvester
+from custom_code.bhtom_catalogs.harvesters import simbad as simbad_harvester
 from tom_dataproducts.views import DataProductUploadView
 
 
 logger = logging.getLogger(__name__)
-GAIA_ALERTS_CATALOG_RESULTS_SESSION_KEY = 'gaia_alerts_catalog_results'
-GAIA_ALERTS_CATALOG_FORM_SESSION_KEY = 'gaia_alerts_catalog_form_data'
+CATALOG_RESULTS_SESSION_KEY = 'catalog_query_results'
+CATALOG_FORM_SESSION_KEY = 'catalog_query_form_data'
 
 
 class BhtomPallasView(TemplateView):
@@ -167,15 +169,53 @@ def _build_gaia_alerts_catalog_target(row):
     return target
 
 
-def _build_gaia_alerts_catalog_result_row(index, row):
-    name = str(row.get('#Name') or row.get('Name') or '').strip()
+def _get_catalog_matches(service_name, cleaned_data):
+    term = (cleaned_data.get('term') or '').strip()
+    if service_name == 'Gaia Alerts':
+        return gaia_alerts_harvester.get_all(term)
+    if service_name == 'Gaia DR3':
+        return gaia_dr3_harvester.get_all(term)
+    if service_name == 'Simbad':
+        return simbad_harvester.get_all(
+            cleaned_data.get('ra'),
+            cleaned_data.get('dec'),
+            3.0,
+            cleaned_data.get('term') or '',
+        )
+    return []
+
+
+def _build_catalog_target_from_match(service_name, match):
+    if service_name == 'Gaia Alerts':
+        return _build_gaia_alerts_catalog_target(match)
+    if service_name == 'Gaia DR3':
+        harvester = gaia_dr3_harvester.GaiaDR3Harvester()
+        harvester.catalog_data = match
+        return harvester.to_target()
+    if service_name == 'Simbad':
+        return simbad_harvester.target_from_result(match)
+    raise ValueError(f'Unsupported catalog multi-match service: {service_name}')
+
+
+def _build_catalog_result_row(service_name, index, match):
+    target = _build_catalog_target_from_match(service_name, match)
+    if service_name == 'Gaia Alerts':
+        view_url = f'https://gsaweb.ast.cam.ac.uk/alerts/alert/{target.name}' if target.name else gaia_alerts_harvester.GAIA_ALERTS_CSV_URL
+        summary = str(match.get('Comment') or '').strip()
+    elif service_name == 'Simbad':
+        view_url = simbad_harvester._simbad_url(target.ra, target.dec)
+        summary = str(match.get('main_id') or '').strip()
+    else:
+        view_url = ''
+        summary = str(match.get('source_id') or match.get('SOURCE_ID') or '').strip()
+
     return {
         'id': index,
-        'name': name,
-        'ra': gaia_alerts_harvester._to_float(row.get('RaDeg')),
-        'dec': gaia_alerts_harvester._to_float(row.get('DecDeg')),
-        'comment': str(row.get('Comment') or '').strip(),
-        'url': f'https://gsaweb.ast.cam.ac.uk/alerts/alert/{name}' if name else gaia_alerts_harvester.GAIA_ALERTS_CSV_URL,
+        'name': target.name,
+        'ra': target.ra,
+        'dec': target.dec,
+        'summary': summary,
+        'url': view_url,
     }
 
 
@@ -449,24 +489,25 @@ class BhtomCatalogQueryView(FormView):
     form_class = BhtomCatalogQueryForm
     template_name = 'tom_catalogs/query_form.html'
 
-    def _render_gaia_alerts_results(self, form, matches):
-        self.request.session[GAIA_ALERTS_CATALOG_RESULTS_SESSION_KEY] = matches
-        self.request.session[GAIA_ALERTS_CATALOG_FORM_SESSION_KEY] = {
+    def _render_catalog_results(self, form, matches):
+        service_name = form.cleaned_data.get('service')
+        self.request.session[CATALOG_RESULTS_SESSION_KEY] = matches
+        self.request.session[CATALOG_FORM_SESSION_KEY] = {
+            'service': service_name,
             'term': (form.cleaned_data.get('term') or '').strip(),
         }
         context = self.get_context_data(form=form)
         context.update({
-            'data_service': 'Gaia Alerts',
+            'data_service': service_name,
             'query': (form.cleaned_data.get('term') or '').strip(),
-            'results': [_build_gaia_alerts_catalog_result_row(index, row) for index, row in enumerate(matches)],
+            'results': [_build_catalog_result_row(service_name, index, row) for index, row in enumerate(matches)],
         })
-        return render(self.request, 'tom_catalogs/gaia_alerts_query_result.html', context)
+        return render(self.request, 'tom_catalogs/query_result.html', context)
 
     def form_valid(self, form):
-        if form.cleaned_data.get('service') == 'Gaia Alerts':
-            matches = gaia_alerts_harvester.get_all(form.cleaned_data.get('term'))
-            if len(matches) > 1:
-                return self._render_gaia_alerts_results(form, matches)
+        matches = _get_catalog_matches(form.cleaned_data.get('service'), form.cleaned_data)
+        if len(matches) > 1:
+            return self._render_catalog_results(form, matches)
 
         try:
             self.target = form.get_target()
@@ -487,40 +528,41 @@ class BhtomCatalogQueryView(FormView):
         return reverse('targets:create') + '?' + urlencode(target_params)
 
 
-class BhtomCatalogGaiaAlertsCreateView(LoginRequiredMixin, View):
+class BhtomCatalogSelectResultView(LoginRequiredMixin, View):
     @staticmethod
-    def _build_create_url(row):
-        target = _build_gaia_alerts_catalog_target(row)
+    def _build_create_url(service_name, row):
+        target = _build_catalog_target_from_match(service_name, row)
         return reverse('targets:create') + '?' + urlencode(target.as_dict())
 
     def post(self, request, *args, **kwargs):
-        stored_results = request.session.get(GAIA_ALERTS_CATALOG_RESULTS_SESSION_KEY) or []
-        stored_form_data = request.session.get(GAIA_ALERTS_CATALOG_FORM_SESSION_KEY) or {}
+        stored_results = request.session.get(CATALOG_RESULTS_SESSION_KEY) or []
+        stored_form_data = request.session.get(CATALOG_FORM_SESSION_KEY) or {}
         selected_result = request.POST.get('selected_result')
+        service_name = stored_form_data.get('service', '')
 
         if not stored_results:
-            messages.error(request, 'Gaia Alerts query results expired. Run the catalog query again.')
+            messages.error(request, 'Catalog query results expired. Run the catalog query again.')
             return redirect(reverse('tom_catalogs:query'))
         if selected_result in (None, ''):
-            messages.warning(request, 'Please select one Gaia Alerts result.')
+            messages.warning(request, 'Please select one result.')
             context = {
-                'data_service': 'Gaia Alerts',
+                'data_service': service_name,
                 'query': stored_form_data.get('term', ''),
                 'results': [
-                    _build_gaia_alerts_catalog_result_row(index, row) for index, row in enumerate(stored_results)
+                    _build_catalog_result_row(service_name, index, row) for index, row in enumerate(stored_results)
                 ],
             }
-            return render(request, 'tom_catalogs/gaia_alerts_query_result.html', context)
+            return render(request, 'tom_catalogs/query_result.html', context)
 
         try:
             row = stored_results[int(selected_result)]
         except (TypeError, ValueError, IndexError):
-            messages.error(request, 'Selected Gaia Alerts result is invalid. Run the catalog query again.')
+            messages.error(request, 'Selected result is invalid. Run the catalog query again.')
             return redirect(reverse('tom_catalogs:query'))
 
-        request.session.pop(GAIA_ALERTS_CATALOG_RESULTS_SESSION_KEY, None)
-        request.session.pop(GAIA_ALERTS_CATALOG_FORM_SESSION_KEY, None)
-        return redirect(self._build_create_url(row))
+        request.session.pop(CATALOG_RESULTS_SESSION_KEY, None)
+        request.session.pop(CATALOG_FORM_SESSION_KEY, None)
+        return redirect(self._build_create_url(service_name, row))
 
 
 class GeoTomTargetListView(ListView):

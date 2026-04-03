@@ -5,6 +5,7 @@ from astropy.coordinates import SkyCoord
 from astropy.table import Row, Table
 from astroquery.simbad import Simbad
 from tom_catalogs.harvester import AbstractHarvester
+from tom_targets.models import Target
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,13 @@ def _main_id_from_row(row: Row) -> str:
     return _decode_identifier(value)
 
 
+def _target_name_from_main_id(main_id: str) -> str:
+    value = str(main_id or '').strip()
+    if value.upper().startswith('NAME '):
+        value = value[5:].strip()
+    return value.replace(' ', '_')
+
+
 def _simbad_url(ra: float, dec: float) -> str:
     if ra is None or dec is None:
         return ''
@@ -66,6 +74,69 @@ def _pick_best_row(table: Table, query_ra: float, query_dec: float) -> Row:
     return best_row
 
 
+def _row_to_dict(row: Row):
+    data = {}
+    for key in row.colnames:
+        value = row[key]
+        if hasattr(value, 'mask') and bool(value.mask):
+            data[key] = None
+        elif isinstance(value, bytes):
+            data[key] = value.decode('utf-8').strip()
+        else:
+            data[key] = value.item() if hasattr(value, 'item') else value
+    return data
+
+
+def _query_name(search_term: str):
+    simbad = Simbad()
+    simbad.add_votable_fields('propermotions', 'parallax')
+    return simbad.query_object(search_term)
+
+
+def _query_name_wildcard(search_term: str):
+    simbad = Simbad()
+    simbad.add_votable_fields('propermotions', 'parallax')
+    return simbad.query_object(f'*{search_term}*', wildcard=True)
+
+
+def get_all(ra=None, dec=None, radius_arcsec=3.0, term=''):
+    search_term = str(term or '').strip()
+    if search_term:
+        exact = _query_name(search_term)
+        if exact is not None and len(exact) > 0:
+            return [_row_to_dict(row) for row in exact]
+
+        wildcard = _query_name_wildcard(search_term)
+        if wildcard is None or len(wildcard) == 0:
+            return []
+        return [_row_to_dict(row) for row in wildcard]
+
+    if ra is None or dec is None:
+        return []
+
+    simbad = Simbad()
+    simbad.add_votable_fields('propermotions', 'parallax')
+    coord = SkyCoord(float(ra), float(dec), unit='deg')
+    table = simbad.query_region(coord, radius=float(radius_arcsec) * u.arcsec)
+    if table is None or len(table) == 0:
+        return []
+    return [_row_to_dict(row) for row in table]
+
+
+def target_from_result(result):
+    target = Target()
+    main_id = _decode_identifier(result.get('main_id'))
+    target.type = 'SIDEREAL'
+    target.ra = _clean_number(result.get('ra'))
+    target.dec = _clean_number(result.get('dec'))
+    target.pm_ra = _clean_number(result.get('pmra'))
+    target.pm_dec = _clean_number(result.get('pmdec'))
+    target.parallax = _clean_number(result.get('plx_value'))
+    target.name = _target_name_from_main_id(main_id) if main_id else 'SIMBAD'
+    target.extra_aliases = [{'name': main_id, 'url': _simbad_url(target.ra, target.dec), 'source_name': 'Simbad'}] if main_id else []
+    return target
+
+
 class SimbadHarvester(AbstractHarvester):
     name = 'Simbad'
 
@@ -77,6 +148,12 @@ class SimbadHarvester(AbstractHarvester):
 
     def query(self, term='', ra=None, dec=None, radius_arcsec=None):
         self.catalog_data = None
+        search_term = str(term or '').strip()
+        if search_term:
+            self.catalog_data = self.simbad.query_object(search_term)
+            if self.catalog_data is None or len(self.catalog_data) == 0:
+                self.catalog_data = self.simbad.query_object(f'*{search_term}*', wildcard=True)
+            return
         if ra is None or dec is None:
             return
         self.query_ra = float(ra)
@@ -86,7 +163,10 @@ class SimbadHarvester(AbstractHarvester):
 
     def to_target(self):
         target = super().to_target()
-        row = _pick_best_row(self.catalog_data, self.query_ra, self.query_dec)
+        if self.query_ra is not None and self.query_dec is not None:
+            row = _pick_best_row(self.catalog_data, self.query_ra, self.query_dec)
+        else:
+            row = self.catalog_data[0]
         main_id = _main_id_from_row(row)
         target.type = 'SIDEREAL'
         target.ra = _clean_number(row['ra']) if 'ra' in row.colnames else self.query_ra
@@ -94,7 +174,7 @@ class SimbadHarvester(AbstractHarvester):
         target.pm_ra = _clean_number(row['pmra']) if 'pmra' in row.colnames else None
         target.pm_dec = _clean_number(row['pmdec']) if 'pmdec' in row.colnames else None
         target.parallax = _clean_number(row['plx_value']) if 'plx_value' in row.colnames else None
-        target.name = main_id.replace(' ', '') if main_id else 'SIMBAD'
+        target.name = _target_name_from_main_id(main_id) if main_id else 'SIMBAD'
         target.extra_aliases = [{'name': main_id, 'url': _simbad_url(target.ra, target.dec), 'source_name': self.name}] if main_id else []
         logger.info(
             'SIMBAD harvester mapped row with columns=%s main_id=%s ra=%s dec=%s',
