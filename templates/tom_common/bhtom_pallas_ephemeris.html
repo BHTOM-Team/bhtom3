@@ -37,10 +37,14 @@
         <input id="id_target" type="text" name="target" class="form-control mr-2 mb-2 mb-sm-0" value="{{ target_query }}" placeholder="e.g. Ceres">
         <label for="id_location" class="mr-2 ml-sm-3">Location Code</label>
         <input id="id_location" type="text" name="location" class="form-control mr-2 mb-2 mb-sm-0" value="{{ location_query }}" placeholder="e.g. 500">
-        <select id="id_location_preset" name="location_preset" class="form-control mr-2 mb-2 mb-sm-0" onchange="if (this.value) { document.getElementById('id_location').value = this.value; }">
+        <select id="id_location_preset" name="location_preset" class="form-control mr-2 mb-2 mb-sm-0" style="width: 220px;" onchange="if (this.value) { document.getElementById('id_location').value = this.value; }">
           <option value="">Common codes...</option>
-          {% for choice in observatory_choices %}
-          <option value="{{ choice.code }}"{% if location_preset == choice.code %} selected{% endif %}>{{ choice.display }}</option>
+          {% for group in observatory_groups %}
+          <optgroup label="{{ group.label }}">
+            {% for choice in group.choices %}
+            <option value="{{ choice.code }}"{% if location_preset == choice.code %} selected{% endif %}>{{ choice.display }}</option>
+            {% endfor %}
+          </optgroup>
           {% endfor %}
         </select>
         <div class="w-100 mt-3">
@@ -84,6 +88,9 @@
       {% if ephemeris_rows %}
       <div class="mb-2 text-light">
         Ephemeris generated at: {{ ephemeris_generated_at|date:"Y-m-d H:i:s" }} UTC
+      </div>
+      <div class="mb-2" style="color: rgba(255,255,255,0.72); font-size: 0.95rem;">
+        Ephemeris values are retrieved from NASA JPL Horizons via astroquery.
       </div>
       {% if resolved_target_name %}
       <div class="mb-2 text-light">

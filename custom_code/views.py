@@ -328,22 +328,69 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
         {'id': 'galactic_longitude', 'label': 'Galactic longitude', 'column': 'GlxLon', 'quantity': '33', 'default': False},
         {'id': 'galactic_latitude', 'label': 'Galactic latitude', 'column': 'GlxLat', 'quantity': '33', 'default': False},
     ]
-    OBSERVATORY_CHOICES = [
-        {'code': '500', 'label': 'Geocentric', 'display': 'Geocentric (500)'},
-        {'code': '568', 'label': 'Mauna Kea', 'display': 'Mauna Kea (568)'},
-        {'code': '675', 'label': 'Palomar Mountain', 'display': 'Palomar Mountain (675)'},
-        {'code': 'W84', 'label': 'Cerro Tololo-DECam', 'display': 'Cerro Tololo-DECam (W84)'},
-        {'code': 'G37', 'label': 'Lowell Discovery Telescope', 'display': 'Lowell Discovery Telescope (G37)'},
-        {'code': 'I41', 'label': 'ZTF / Palomar Schmidt', 'display': 'ZTF / Palomar Schmidt (I41)'},
-        {'code': 'F51', 'label': 'Pan-STARRS 1, Haleakala', 'display': 'Pan-STARRS 1, Haleakala (F51)'},
-        {'code': 'T08', 'label': 'ATLAS-MLO, Mauna Loa', 'display': 'ATLAS-MLO, Mauna Loa (T08)'},
+    OBSERVATORY_GROUPS = [
+        {
+            'label': 'ATLAS',
+            'choices': [
+                {'code': 'T08', 'label': 'ATLAS Haleakala', 'display': 'T08 — ATLAS Haleakala'},
+                {'code': 'T05', 'label': 'ATLAS Mauna Loa', 'display': 'T05 — ATLAS Mauna Loa'},
+                {'code': 'M22', 'label': 'ATLAS Sutherland', 'display': 'M22 — ATLAS Sutherland'},
+                {'code': 'W68', 'label': 'ATLAS Rio Hurtado', 'display': 'W68 — ATLAS Rio Hurtado'},
+                {'code': 'R17', 'label': 'ATLAS Tenerife', 'display': 'R17 — ATLAS Tenerife'},
+            ],
+        },
+        {
+            'label': 'ZTF',
+            'choices': [
+                {'code': 'I41', 'label': 'ZTF, Palomar', 'display': 'I41 — ZTF, Palomar'},
+            ],
+        },
+        {
+            'label': 'LCO',
+            'choices': [
+                {'code': 'F65', 'label': 'LCO Haleakala, Faulkes Telescope North', 'display': 'F65 — LCO Haleakala, Faulkes Telescope North'},
+                {'code': 'T04', 'label': 'LCO Haleakala, Clamshell #1', 'display': 'T04 — LCO Haleakala, Clamshell #1'},
+                {'code': 'T03', 'label': 'LCO Haleakala, Clamshell #2', 'display': 'T03 — LCO Haleakala, Clamshell #2'},
+                {'code': 'V37', 'label': 'LCO McDonald, 1m A', 'display': 'V37 — LCO McDonald, 1m A'},
+                {'code': 'V39', 'label': 'LCO McDonald, 1m B', 'display': 'V39 — LCO McDonald, 1m B'},
+                {'code': 'V38', 'label': 'LCO McDonald, Aqawan A #1', 'display': 'V38 — LCO McDonald, Aqawan A #1'},
+                {'code': 'V45', 'label': 'LCO McDonald, Aqawan B #1', 'display': 'V45 — LCO McDonald, Aqawan B #1'},
+                {'code': 'V47', 'label': 'LCO McDonald, Aqawan B #2', 'display': 'V47 — LCO McDonald, Aqawan B #2'},
+                {'code': 'W85', 'label': 'LCO Cerro Tololo, 1m A', 'display': 'W85 — LCO Cerro Tololo, 1m A'},
+                {'code': 'W86', 'label': 'LCO Cerro Tololo, 1m B', 'display': 'W86 — LCO Cerro Tololo, 1m B'},
+                {'code': 'W87', 'label': 'LCO Cerro Tololo, 1m C', 'display': 'W87 — LCO Cerro Tololo, 1m C'},
+                {'code': 'W89', 'label': 'LCO Cerro Tololo, Aqawan A #1', 'display': 'W89 — LCO Cerro Tololo, Aqawan A #1'},
+                {'code': 'W79', 'label': 'LCO Cerro Tololo, Aqawan B #1', 'display': 'W79 — LCO Cerro Tololo, Aqawan B #1'},
+                {'code': 'K91', 'label': 'LCO Sutherland, 1m A', 'display': 'K91 — LCO Sutherland, 1m A'},
+                {'code': 'K92', 'label': 'LCO Sutherland, 1m B', 'display': 'K92 — LCO Sutherland, 1m B'},
+                {'code': 'K93', 'label': 'LCO Sutherland, 1m C', 'display': 'K93 — LCO Sutherland, 1m C'},
+                {'code': 'L09', 'label': 'LCO Sutherland, Aqawan A #1', 'display': 'L09 — LCO Sutherland, Aqawan A #1'},
+                {'code': 'Q58', 'label': 'LCO Siding Spring, Clamshell #1', 'display': 'Q58 — LCO Siding Spring, Clamshell #1'},
+                {'code': 'Q59', 'label': 'LCO Siding Spring, Clamshell #2', 'display': 'Q59 — LCO Siding Spring, Clamshell #2'},
+                {'code': 'Q63', 'label': 'LCO Siding Spring, 1m A', 'display': 'Q63 — LCO Siding Spring, 1m A'},
+                {'code': 'Q64', 'label': 'LCO Siding Spring, 1m B', 'display': 'Q64 — LCO Siding Spring, 1m B'},
+                {'code': 'E10', 'label': 'LCO Siding Spring, Faulkes Telescope South', 'display': 'E10 — LCO Siding Spring, Faulkes Telescope South'},
+                {'code': 'Z31', 'label': 'LCO Tenerife, 1m A', 'display': 'Z31 — LCO Tenerife, 1m A'},
+                {'code': 'Z24', 'label': 'LCO Tenerife, 1m B', 'display': 'Z24 — LCO Tenerife, 1m B'},
+                {'code': 'Z21', 'label': 'LCO Tenerife, Aqawan A #1', 'display': 'Z21 — LCO Tenerife, Aqawan A #1'},
+                {'code': 'Z17', 'label': 'LCO Tenerife, Aqawan A #2', 'display': 'Z17 — LCO Tenerife, Aqawan A #2'},
+            ],
+        },
+        {
+            'label': 'Other',
+            'choices': [
+                {'code': '060', 'label': 'Warsaw-Ostrowik', 'display': '060 — Warsaw-Ostrowik'},
+                {'code': '950', 'label': 'La Palma', 'display': '950 — La Palma'},
+            ],
+        },
     ]
 
     @classmethod
     def _dropdown_location_label(cls, code):
-        for choice in cls.OBSERVATORY_CHOICES:
-            if choice['code'].lower() == str(code).lower():
-                return choice['label']
+        for group in cls.OBSERVATORY_GROUPS:
+            for choice in group['choices']:
+                if choice['code'].lower() == str(code).lower():
+                    return choice['label']
         return None
 
     @classmethod
@@ -577,7 +624,7 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
             'field_choices': self.FIELD_CHOICES,
             'selected_field_ids': selected_field_ids,
             'selected_fields': selected_fields,
-            'observatory_choices': self.OBSERVATORY_CHOICES,
+            'observatory_groups': self.OBSERVATORY_GROUPS,
             'ambiguity_matches': [],
             'ephemeris_rows': [],
             'ephemeris_error': '',
