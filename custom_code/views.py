@@ -313,20 +313,181 @@ class BhtomPallasView(BhtomPallasBaseMixin, TemplateView):
 class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
     template_name = 'tom_common/bhtom_pallas_ephemeris.html'
     bhtom_pallas_active_tab = 'ephemeris'
+    FULL_OBSERVER_QUANTITIES = ','.join(str(index) for index in range(1, 44))
+    DEFAULT_VISIBLE_FIELD_IDS = [
+        'datetime',
+        'ra',
+        'dec',
+        'visual_mag',
+        'airmass',
+        'heliocentric_distance',
+        'geocentric_distance',
+        'phase_angle',
+    ]
+    FIELD_DEFINITIONS = {
+        'datetime': 'epoch (str, `Date__(UT)__HR:MN:SC.fff`)',
+        'ra': 'target RA (float, deg, `DEC_(XXX)`)',
+        'dec': 'target DEC (float, deg, `DEC_(XXX)`)',
+        'ra_app': 'target apparent RA (float, deg, `R.A._(a-app)`)',
+        'dec_app': 'target apparent DEC (float, deg, `DEC_(a-app)`) ',
+        'visual_mag': 'V magnitude (float, mag, `APmag`); comet Total magnitude (float, mag, `T-mag`); comet Nucleus magnitude (float, mag, `N-mag`)',
+        'ra_rate': 'target rate RA (float, arcsec/hr, `RA*cosD`)',
+        'dec_rate': 'target DEC rate (float, arcsec/hr, `d(DEC)/dt`)',
+        'azimuth': 'Azimuth (float, deg, EoN, `Azi_(a-app)`)',
+        'elevation': 'Elevation (float, deg, `Elev_(a-app)`)',
+        'azimuth_rate': 'Azimuth rate (float, arcsec/minute, `dAZ*cosE`)',
+        'elevation_rate': 'Elevation rate (float, arcsec/minute, `d(ELV)/dt`)',
+        'sat_x': 'satellite X position (arcsec, `X_(sat-prim)`)',
+        'sat_y': 'satellite Y position (arcsec, `Y_(sat-prim)`)',
+        'sat_pang': 'satellite position angle (deg, `SatPANG`)',
+        'sidereal_time': 'local apparent sidereal time (str, `L_Ap_Sid_Time`)',
+        'airmass': 'target optical airmass (float, `a-mass`)',
+        'extinction': 'V-mag extinction (float, mag, `mag_ex`)',
+        'illumination': 'fraction of illumination (float, percent, `Illu%`)',
+        'illumination_defect': 'defect of illumination (float, arcsec, `Dec_illu`)',
+        'sat_sep': 'target-primary angular separation (float, arcsec, `ang-sep`)',
+        'sat_vis': 'target-primary visibility (str, `v`)',
+        'angular_width': 'angular width of target (float, arcsec, `Ang-diam`)',
+        'observer_sub_lon': 'apparent planetodetic longitude (float, deg, `ObsSub-LON`)',
+        'observer_sub_lat': 'apparent planetodetic latitude (float, deg, `ObsSub-LAT`)',
+        'subsolar_lon': 'subsolar planetodetic longitude (float, deg, `SunSub-LON`)',
+        'subsolar_lat': 'subsolar planetodetic latitude (float, deg, `SunSub-LAT`)',
+        'subsolar_angle': 'target sub-solar point position angle (float, deg, `SN.ang`)',
+        'subsolar_distance': 'target sub-solar point position angle distance (float, arcsec, `SN.dist`)',
+        'north_pole_angle': "target's North Pole position angle (float, deg, `NP.ang`)",
+        'north_pole_distance': "target's North Pole position angle distance (float, arcsec, `NP.dist`)",
+        'heliocentric_ecl_lon': 'heliocentric ecliptic longitude (float, deg, `hEcl-Lon`)',
+        'heliocentric_ecl_lat': 'heliocentric ecliptic latitude (float, deg, `hEcl-Lat`)',
+        'observer_ecl_lon': 'observer-centric ecliptic longitude (float, deg, `ObsEcLon`)',
+        'observer_ecl_lat': 'observer-centric ecliptic latitude (float, deg, `ObsEcLat`)',
+        'heliocentric_distance': 'heliocentric distance (float, au, `r`)',
+        'heliocentric_radial_rate': 'heliocentric radial rate (float, km/s, `rdot`)',
+        'geocentric_distance': 'distance from observer (float, au, `delta`)',
+        'geocentric_radial_rate': 'observer-centric radial rate (float, km/s, `deldot`)',
+        'lighttime': 'one-way light time (float, min, `1-way_LT`)',
+        'velocity_sun': 'target center velocity wrt Sun (float, km/s, `VmagSn`)',
+        'velocity_observer': 'target center velocity wrt Observer (float, km/s, `VmagOb`)',
+        'elongation': 'solar elongation (float, deg, `S-O-T`)',
+        'elongation_flag': 'apparent position relative to Sun (str, `/r`)',
+        'phase_angle': 'solar phase angle (float, deg, `S-T-O`)',
+        'lunar_elongation': 'apparent lunar elongation angle wrt target (float, deg, `T-O-M`)',
+        'lunar_illumination': 'lunar illumination percentage (float, percent, `MN_Illu%`)',
+        'interfering_body_elong': 'apparent interfering body elongation angle wrt target (float, deg, `T-O-I`)',
+        'interfering_body_illum': 'interfering body illumination percentage (float, percent, `IB_Illu%`)',
+        'satellite_phase_angle': 'observer-primary-target angle (float, deg, `O-P-T`)',
+        'orbital_plane_angle': 'orbital plane angle (float, deg, `PlAng`)',
+        'sun_target_pa': '-Sun vector PA (float, deg, EoN, `PsAng`)',
+        'velocity_pa': '-velocity vector PA (float, deg, EoN, `PsAMV`)',
+        'constellation': 'constellation ID containing target (str, `Cnst`)',
+        'tdb_minus_ut': 'difference between TDB and UT (float, seconds, `TDB-UT`)',
+        'north_pole_ra': "target's North Pole RA (float, deg, `N.Pole-RA`)",
+        'north_pole_dec': "target's North Pole DEC (float, deg, `N.Pole-DC`)",
+        'galactic_longitude': 'galactic longitude (float, deg, `GlxLon`)',
+        'galactic_latitude': 'galactic latitude (float, deg, `GlxLat`)',
+        'solar_time': 'local apparent solar time (str, `L_Ap_SOL_Time`)',
+        'earth_lighttime': 'observer lighttime from center of Earth (float, minutes, `399_ins_LT`)',
+        'ra_3sigma': '3 sigma positional uncertainty in RA (float, arcsec, `RA_3sigma`)',
+        'dec_3sigma': '3 sigma positional uncertainty in DEC (float, arcsec, `DEC_3sigma`)',
+        'smaa_3sigma': '3 sigma positional uncertainty ellipse semi-major axis (float, arcsec, `SMAA_3sig`)',
+        'smia_3sigma': '3 sigma positional uncertainty ellipse semi-minor axis (float, arcsec, `SMIA_3sig`)',
+        'theta_3sigma': 'position uncertainty ellipse position angle (float, deg, `Theta`)',
+        'area_3sigma': '3 sigma positional uncertainty ellipse area (float, arcsec^2, `Area_3sig`)',
+        'rss_3sigma': '3 sigma positional uncertainty ellipse root-sum-square (float, arcsec, `POS_3sigma`)',
+        'range_3sigma': '3 sigma range uncertainty (float, km, `RNG_3sigma`)',
+        'range_rate_3sigma': '3 sigma range rate uncertainty (float, km/second, `RNGRT_3sigma`)',
+        'sband_3sigma': '3 sigma Doppler radar uncertainties at S-band (float, Hertz, `DOP_S_3sig`)',
+        'xband_3sigma': '3 sigma Doppler radar uncertainties at X-band (float, Hertz, `DOP_X_3sig`)',
+        'doppdelay_3sigma': '3 sigma Doppler radar round-trip delay uncertainty (float, second, `RT_delay_3sig`)',
+        'true_anomaly': 'True Anomaly (float, deg, `Tru_Anom`)',
+        'hour_angle': 'local apparent hour angle (float, hour, `L_Ap_Hour_Ang`)',
+        'true_phase_angle': 'true phase angle (float, deg, `phi`)',
+        'pab_lon': 'phase angle bisector longitude (float, deg, `PAB-LON`)',
+        'pab_lat': 'phase angle bisector latitude (float, deg, `PAB-LAT`)',
+    }
     FIELD_CHOICES = [
         {'id': 'datetime', 'label': 'Datetime', 'column': 'datetime_str', 'quantity': None, 'default': True},
         {'id': 'ra', 'label': 'RA', 'column': 'RA', 'quantity': '1', 'default': True},
         {'id': 'dec', 'label': 'DEC', 'column': 'DEC', 'quantity': '1', 'default': True},
-        {'id': 'vmag', 'label': 'V magnitude', 'column': 'V', 'quantity': '9', 'default': False},
+        {'id': 'ra_app', 'label': 'Apparent RA', 'column': 'RA_app', 'quantity': 'ALL', 'default': False},
+        {'id': 'dec_app', 'label': 'Apparent DEC', 'column': 'DEC_app', 'quantity': 'ALL', 'default': False},
+        {'id': 'visual_mag', 'label': 'Visual mag. & surface brightness', 'quantity': '9', 'default': True},
         {'id': 'ra_rate', 'label': 'RA rate', 'column': 'RA_rate', 'quantity': '3', 'default': False},
         {'id': 'dec_rate', 'label': 'DEC rate', 'column': 'DEC_rate', 'quantity': '3', 'default': False},
-        {'id': 'airmass', 'label': 'Airmass', 'column': 'airmass', 'quantity': '8', 'default': False},
-        {'id': 'heliocentric_distance', 'label': 'Heliocentric distance', 'column': 'r', 'quantity': '19', 'default': False},
-        {'id': 'geocentric_distance', 'label': 'Geocentric distance', 'column': 'delta', 'quantity': '20', 'default': False},
+        {'id': 'azimuth', 'label': 'Azimuth', 'column': 'AZ', 'quantity': 'ALL', 'default': False},
+        {'id': 'elevation', 'label': 'Elevation', 'column': 'EL', 'quantity': 'ALL', 'default': False},
+        {'id': 'azimuth_rate', 'label': 'Azimuth rate', 'column': 'AZ_rate', 'quantity': 'ALL', 'default': False},
+        {'id': 'elevation_rate', 'label': 'Elevation rate', 'column': 'EL_rate', 'quantity': 'ALL', 'default': False},
+        {'id': 'sat_x', 'label': 'Satellite X', 'column': 'sat_X', 'quantity': 'ALL', 'default': False},
+        {'id': 'sat_y', 'label': 'Satellite Y', 'column': 'sat_Y', 'quantity': 'ALL', 'default': False},
+        {'id': 'sat_pang', 'label': 'Satellite P.A.', 'column': 'sat_PANG', 'quantity': 'ALL', 'default': False},
+        {'id': 'sidereal_time', 'label': 'Sidereal time', 'column': 'siderealtime', 'quantity': '7', 'default': False},
+        {'id': 'airmass', 'label': 'Airmass', 'column': 'airmass', 'quantity': '8', 'default': True},
+        {'id': 'extinction', 'label': 'V-mag extinction', 'column': 'magextinct', 'quantity': '8', 'default': False},
+        {'id': 'illumination', 'label': 'Illumination', 'column': 'illumination', 'quantity': 'ALL', 'default': False},
+        {'id': 'illumination_defect', 'label': 'Illumination defect', 'column': 'illum_defect', 'quantity': 'ALL', 'default': False},
+        {'id': 'sat_sep', 'label': 'Target-primary separation', 'column': 'sat_sep', 'quantity': 'ALL', 'default': False},
+        {'id': 'sat_vis', 'label': 'Target-primary visibility', 'column': 'sat_vis', 'quantity': 'ALL', 'default': False},
+        {'id': 'angular_width', 'label': 'Angular width', 'column': 'ang_width', 'quantity': 'ALL', 'default': False},
+        {'id': 'observer_sub_lon', 'label': 'Observer sub-longitude', 'column': 'PDObsLon', 'quantity': 'ALL', 'default': False},
+        {'id': 'observer_sub_lat', 'label': 'Observer sub-latitude', 'column': 'PDObsLat', 'quantity': 'ALL', 'default': False},
+        {'id': 'subsolar_lon', 'label': 'Subsolar longitude', 'column': 'PDSunLon', 'quantity': 'ALL', 'default': False},
+        {'id': 'subsolar_lat', 'label': 'Subsolar latitude', 'column': 'PDSunLat', 'quantity': 'ALL', 'default': False},
+        {'id': 'subsolar_angle', 'label': 'Subsolar angle', 'column': 'SubSol_ang', 'quantity': 'ALL', 'default': False},
+        {'id': 'subsolar_distance', 'label': 'Subsolar distance', 'column': 'SubSol_dist', 'quantity': 'ALL', 'default': False},
+        {'id': 'north_pole_angle', 'label': 'North pole angle', 'column': 'NPole_ang', 'quantity': 'ALL', 'default': False},
+        {'id': 'north_pole_distance', 'label': 'North pole distance', 'column': 'NPole_dist', 'quantity': 'ALL', 'default': False},
+        {'id': 'heliocentric_ecl_lon', 'label': 'Heliocentric ecl. lon', 'column': 'EclLon', 'quantity': 'ALL', 'default': False},
+        {'id': 'heliocentric_ecl_lat', 'label': 'Heliocentric ecl. lat', 'column': 'EclLat', 'quantity': 'ALL', 'default': False},
+        {'id': 'observer_ecl_lon', 'label': 'Observer ecl. lon', 'column': 'ObsEclLon', 'quantity': 'ALL', 'default': False},
+        {'id': 'observer_ecl_lat', 'label': 'Observer ecl. lat', 'column': 'ObsEclLat', 'quantity': 'ALL', 'default': False},
+        {'id': 'heliocentric_distance', 'label': 'Heliocentric distance', 'column': 'r', 'quantity': '19', 'default': True},
+        {'id': 'heliocentric_radial_rate', 'label': 'Heliocentric radial rate', 'column': 'r_rate', 'quantity': '19', 'default': False},
+        {'id': 'geocentric_distance', 'label': 'Geocentric distance', 'column': 'delta', 'quantity': '20', 'default': True},
+        {'id': 'geocentric_radial_rate', 'label': 'Geocentric radial rate', 'column': 'delta_rate', 'quantity': '20', 'default': False},
+        {'id': 'lighttime', 'label': 'One-way light time', 'column': 'lighttime', 'quantity': '20', 'default': False},
+        {'id': 'velocity_sun', 'label': 'Velocity wrt Sun', 'column': 'vel_sun', 'quantity': 'ALL', 'default': False},
+        {'id': 'velocity_observer', 'label': 'Velocity wrt observer', 'column': 'vel_obs', 'quantity': 'ALL', 'default': False},
         {'id': 'elongation', 'label': 'Elongation', 'column': 'elong', 'quantity': '23', 'default': False},
-        {'id': 'phase_angle', 'label': 'Phase angle', 'column': 'alpha', 'quantity': '24', 'default': False},
+        {'id': 'elongation_flag', 'label': 'Elongation flag', 'column': 'elongFlag', 'quantity': '23', 'default': False},
+        {'id': 'phase_angle', 'label': 'Phase angle', 'column': 'alpha', 'quantity': '24', 'default': True},
+        {'id': 'lunar_elongation', 'label': 'Lunar elongation', 'column': 'lunar_elong', 'quantity': 'ALL', 'default': False},
+        {'id': 'lunar_illumination', 'label': 'Lunar illumination', 'column': 'lunar_illum', 'quantity': 'ALL', 'default': False},
+        {'id': 'interfering_body_elong', 'label': 'Interfering-body elong.', 'column': 'IB_elong', 'quantity': 'ALL', 'default': False},
+        {'id': 'interfering_body_illum', 'label': 'Interfering-body illum.', 'column': 'IB_illum', 'quantity': 'ALL', 'default': False},
+        {'id': 'satellite_phase_angle', 'label': 'Observer-primary-target angle', 'column': 'sat_alpha', 'quantity': 'ALL', 'default': False},
+        {'id': 'orbital_plane_angle', 'label': 'Orbital plane angle', 'column': 'OrbPlaneAng', 'quantity': 'ALL', 'default': False},
+        {'id': 'sun_target_pa', 'label': 'Sun vector P.A.', 'column': 'sunTargetPA', 'quantity': 'ALL', 'default': False},
+        {'id': 'velocity_pa', 'label': 'Velocity vector P.A.', 'column': 'velocityPA', 'quantity': 'ALL', 'default': False},
+        {'id': 'constellation', 'label': 'Constellation', 'column': 'constellation', 'quantity': 'ALL', 'default': False},
+        {'id': 'tdb_minus_ut', 'label': 'TDB-UT', 'column': 'TDB-UT', 'quantity': 'ALL', 'default': False},
+        {'id': 'north_pole_ra', 'label': 'North pole RA', 'column': 'NPole_RA', 'quantity': 'ALL', 'default': False},
+        {'id': 'north_pole_dec', 'label': 'North pole DEC', 'column': 'NPole_DEC', 'quantity': 'ALL', 'default': False},
         {'id': 'galactic_longitude', 'label': 'Galactic longitude', 'column': 'GlxLon', 'quantity': '33', 'default': False},
         {'id': 'galactic_latitude', 'label': 'Galactic latitude', 'column': 'GlxLat', 'quantity': '33', 'default': False},
+        {'id': 'solar_time', 'label': 'Solar time', 'column': 'solartime', 'quantity': 'ALL', 'default': False},
+        {'id': 'earth_lighttime', 'label': 'Earth light time', 'column': 'earth_lighttime', 'quantity': 'ALL', 'default': False},
+        {'id': 'ra_3sigma', 'label': 'RA 3-sigma', 'column': 'RA_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'dec_3sigma', 'label': 'DEC 3-sigma', 'column': 'DEC_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'smaa_3sigma', 'label': 'SMAA 3-sigma', 'column': 'SMAA_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'smia_3sigma', 'label': 'SMIA 3-sigma', 'column': 'SMIA_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'theta_3sigma', 'label': 'Theta 3-sigma', 'column': 'Theta_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'area_3sigma', 'label': 'Area 3-sigma', 'column': 'Area_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'rss_3sigma', 'label': 'RSS 3-sigma', 'column': 'RSS_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'range_3sigma', 'label': 'Range 3-sigma', 'column': 'r_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'range_rate_3sigma', 'label': 'Range-rate 3-sigma', 'column': 'r_rate_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'sband_3sigma', 'label': 'S-band 3-sigma', 'column': 'SBand_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'xband_3sigma', 'label': 'X-band 3-sigma', 'column': 'XBand_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'doppdelay_3sigma', 'label': 'Doppler delay 3-sigma', 'column': 'DoppDelay_3sigma', 'quantity': 'ALL', 'default': False},
+        {'id': 'true_anomaly', 'label': 'True anomaly', 'column': 'true_anom', 'quantity': 'ALL', 'default': False},
+        {'id': 'hour_angle', 'label': 'Hour angle', 'column': 'hour_angle', 'quantity': 'ALL', 'default': False},
+        {'id': 'true_phase_angle', 'label': 'True phase angle', 'column': 'alpha_true', 'quantity': 'ALL', 'default': False},
+        {'id': 'pab_lon', 'label': 'PAB longitude', 'column': 'PABLon', 'quantity': 'ALL', 'default': False},
+        {'id': 'pab_lat', 'label': 'PAB latitude', 'column': 'PABLat', 'quantity': 'ALL', 'default': False},
+    ]
+    STEP_UNIT_CHOICES = [
+        {'value': 'm', 'label': 'minutes'},
+        {'value': 'h', 'label': 'hours'},
+        {'value': 'd', 'label': 'days'},
     ]
     OBSERVATORY_GROUPS = [
         {
@@ -438,6 +599,12 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
     @classmethod
     def _selected_field_ids(cls, request):
         selected = set(request.GET.getlist('fields'))
+        if {'vmag', 'apmag', 'tmag', 'nmag'} & selected:
+            selected.discard('vmag')
+            selected.discard('apmag')
+            selected.discard('tmag')
+            selected.discard('nmag')
+            selected.add('visual_mag')
         if not selected:
             selected = {field['id'] for field in cls.FIELD_CHOICES if field.get('default')}
         return [field['id'] for field in cls.FIELD_CHOICES if field['id'] in selected]
@@ -451,11 +618,153 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
         quantities = []
         for field in fields:
             quantity = field.get('quantity')
+            if quantity == 'ALL':
+                return cls.FULL_OBSERVER_QUANTITIES
             if quantity and quantity not in quantities:
                 quantities.append(quantity)
         if not quantities:
             quantities.append('1')
         return ','.join(quantities)
+
+    @classmethod
+    def _quantity_definitions(cls):
+        return [
+            {
+                'id': field['id'],
+                'label': field['label'],
+                'definition': cls.FIELD_DEFINITIONS.get(field['id'], ''),
+            }
+            for field in cls.FIELD_CHOICES
+            if cls.FIELD_DEFINITIONS.get(field['id'], '')
+        ]
+
+    @staticmethod
+    def _field_columns(field):
+        if field.get('columns'):
+            return list(field['columns'])
+        return [field['column']]
+
+    @classmethod
+    def _magnitude_active_fields(cls, table_columns):
+        if 'V' in table_columns:
+            return [{'id': 'apmag', 'label': 'APmag', 'resolved_column': 'V'}]
+        active_fields = []
+        if 'Tmag' in table_columns:
+            active_fields.append({'id': 'tmag', 'label': 'T-mag', 'resolved_column': 'Tmag'})
+        if 'Nmag' in table_columns:
+            active_fields.append({'id': 'nmag', 'label': 'N-mag', 'resolved_column': 'Nmag'})
+        return active_fields
+
+    @classmethod
+    def _resolve_active_fields(cls, selected_fields, table):
+        table_columns = set(getattr(table, 'colnames', []) or [])
+        active_fields = []
+        for field in selected_fields:
+            if field['id'] == 'visual_mag':
+                active_fields.extend(cls._magnitude_active_fields(table_columns))
+                continue
+            matched_column = None
+            for column_name in cls._field_columns(field):
+                if column_name in table_columns:
+                    matched_column = column_name
+                    break
+            if matched_column is not None:
+                field_copy = dict(field)
+                field_copy['resolved_column'] = matched_column
+                active_fields.append(field_copy)
+        return active_fields
+
+    @staticmethod
+    def _cell_value(row, field):
+        column_name = field.get('resolved_column') or field.get('column')
+        if not column_name:
+            return ''
+        try:
+            value = row[column_name]
+        except Exception:
+            return ''
+        if value is None:
+            return ''
+        if column_name == 'datetime_str':
+            return str(value)
+        return value
+
+    @staticmethod
+    def _parse_utc_datetime_input(raw_value, field_label):
+        raw_value = str(raw_value or '').strip()
+        if not raw_value:
+            return None, ''
+
+        normalized = raw_value
+        if normalized.endswith('Z'):
+            normalized = normalized[:-1] + '+00:00'
+        if 'T' in normalized and '+' not in normalized[10:] and normalized.count('-') <= 2:
+            normalized = normalized.replace('T', ' ')
+
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError(f'Invalid {field_label}. Use a valid UTC date-time such as 2026-04-04T12:00:00.') from exc
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+
+        return parsed, raw_value
+
+    @classmethod
+    def _parse_time_span(cls, start_input, stop_input, step_number_input, step_unit_input):
+        start_time, start_raw = cls._parse_utc_datetime_input(start_input, 'start time')
+        stop_time, stop_raw = cls._parse_utc_datetime_input(stop_input, 'stop time')
+        step_number_raw = str(step_number_input or '').strip()
+        step_unit_raw = str(step_unit_input or '').strip().lower()
+
+        now_utc = datetime.now(timezone.utc)
+        if start_time is None:
+            start_time = now_utc - timedelta(days=7)
+            start_raw = ''
+        if stop_time is None:
+            stop_time = now_utc
+            stop_raw = ''
+
+        if stop_time <= start_time:
+            raise ValueError('Invalid time span. Stop time must be later than start time.')
+
+        if not step_number_raw:
+            step_number_raw = '1'
+        if not step_unit_raw:
+            step_unit_raw = 'h'
+
+        if not step_number_raw.isdigit() or int(step_number_raw) <= 0:
+            raise ValueError('Invalid step size. Enter a positive whole number.')
+        if step_unit_raw not in {choice['value'] for choice in cls.STEP_UNIT_CHOICES}:
+            raise ValueError('Invalid step size unit. Choose minutes, hours, or days.')
+
+        step_value = f'{int(step_number_raw)}{step_unit_raw}'
+
+        return {
+            'start_time': start_time,
+            'stop_time': stop_time,
+            'step_size': step_value,
+            'start_input': start_raw,
+            'stop_input': stop_raw,
+            'step_number_input': str(int(step_number_raw)),
+            'step_unit_input': step_unit_raw,
+            'start_used': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'stop_used': stop_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'step_used': step_value,
+        }
+
+    @staticmethod
+    def _default_time_inputs():
+        now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+        return {
+            'start_time_input': (now_utc - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%S'),
+            'stop_time_input': now_utc.strftime('%Y-%m-%dT%H:%M:%S'),
+            'step_size_number_input': '1',
+            'step_size_unit_input': 'h',
+        }
 
     @staticmethod
     def _is_comet_like_identifier(query):
@@ -611,6 +920,11 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
         target_record = (self.request.GET.get('target_record') or '').strip()
         location_query = (self.request.GET.get('location') or '').strip()
         location_preset = (self.request.GET.get('location_preset') or '').strip()
+        start_time_input = (self.request.GET.get('start_time') or '').strip()
+        stop_time_input = (self.request.GET.get('stop_time') or '').strip()
+        step_size_number_input = (self.request.GET.get('step_size_number') or '').strip()
+        step_size_unit_input = (self.request.GET.get('step_size_unit') or '').strip()
+        default_time_inputs = self._default_time_inputs()
         resolved_location = location_query or location_preset or '500'
         selected_field_ids = self._selected_field_ids(self.request)
         selected_fields = self._selected_fields(selected_field_ids)
@@ -619,9 +933,20 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
             'target_record': target_record,
             'location_query': location_query,
             'location_preset': location_preset,
+            'start_time_input': start_time_input or default_time_inputs['start_time_input'],
+            'stop_time_input': stop_time_input or default_time_inputs['stop_time_input'],
+            'step_size_number_input': step_size_number_input or default_time_inputs['step_size_number_input'],
+            'step_size_unit_input': step_size_unit_input or default_time_inputs['step_size_unit_input'],
+            'start_time_used': '',
+            'stop_time_used': '',
+            'step_size_used': '',
             'resolved_location': resolved_location,
             'resolved_location_label': '',
             'field_choices': self.FIELD_CHOICES,
+            'default_field_choices': [field for field in self.FIELD_CHOICES if field['id'] in self.DEFAULT_VISIBLE_FIELD_IDS],
+            'additional_field_choices': [field for field in self.FIELD_CHOICES if field['id'] not in self.DEFAULT_VISIBLE_FIELD_IDS],
+            'quantity_definitions': self._quantity_definitions(),
+            'step_unit_choices': self.STEP_UNIT_CHOICES,
             'selected_field_ids': selected_field_ids,
             'selected_fields': selected_fields,
             'observatory_groups': self.OBSERVATORY_GROUPS,
@@ -635,12 +960,28 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
         if not target_query and not target_record:
             return context
 
-        start_time = datetime.now(timezone.utc)
-        stop_time = start_time + timedelta(days=1)
+        try:
+            time_span = self._parse_time_span(
+                start_time_input,
+                stop_time_input,
+                step_size_number_input,
+                step_size_unit_input,
+            )
+        except ValueError as exc:
+            context['ephemeris_error'] = str(exc)
+            return context
+
+        context['start_time_input'] = time_span['start_input']
+        context['stop_time_input'] = time_span['stop_input']
+        context['step_size_number_input'] = time_span['step_number_input']
+        context['step_size_unit_input'] = time_span['step_unit_input']
+        context['start_time_used'] = time_span['start_used']
+        context['stop_time_used'] = time_span['stop_used']
+        context['step_size_used'] = time_span['step_used']
         epochs = {
-            'start': start_time.strftime('%Y-%m-%d %H:%M'),
-            'stop': stop_time.strftime('%Y-%m-%d %H:%M'),
-            'step': '1h',
+            'start': time_span['start_time'].strftime('%Y-%m-%d %H:%M:%S'),
+            'stop': time_span['stop_time'].strftime('%Y-%m-%d %H:%M:%S'),
+            'step': time_span['step_size'],
         }
 
         try:
@@ -653,14 +994,13 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
                 quantities=quantities,
                 target_record=target_record,
             )
+            active_fields = self._resolve_active_fields(selected_fields, table)
+            context['selected_fields'] = active_fields
             context['ephemeris_rows'] = []
             for row in table[:25]:
                 cells = []
-                for field in selected_fields:
-                    value = row[field['column']]
-                    if field['column'] == 'datetime_str':
-                        value = str(value)
-                    cells.append(value)
+                for field in active_fields:
+                    cells.append(self._cell_value(row, field))
                 context['ephemeris_rows'].append({'cells': cells})
             context['ephemeris_generated_at'] = generated_at
             context['resolved_location_label'] = self._resolve_location_label(resolved_location)

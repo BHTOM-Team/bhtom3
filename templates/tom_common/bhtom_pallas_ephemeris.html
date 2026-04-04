@@ -33,12 +33,12 @@
       </ul>
       <form method="get" class="form-inline mb-3">
         <input type="hidden" name="target_record" value="">
-        <label for="id_target" class="mr-2">Object Name</label>
-        <input id="id_target" type="text" name="target" class="form-control mr-2 mb-2 mb-sm-0" value="{{ target_query }}" placeholder="e.g. Ceres">
-        <label for="id_location" class="mr-2 ml-sm-3">Location Code</label>
-        <input id="id_location" type="text" name="location" class="form-control mr-2 mb-2 mb-sm-0" value="{{ location_query }}" placeholder="e.g. 500">
-        <select id="id_location_preset" name="location_preset" class="form-control mr-2 mb-2 mb-sm-0" style="width: 220px;" onchange="if (this.value) { document.getElementById('id_location').value = this.value; }">
-          <option value="">Common codes...</option>
+        <label for="id_target" class="mr-2">Target name</label>
+        <input id="id_target" type="text" name="target" class="form-control mr-2 mb-2 mb-sm-0" value="{{ target_query }}" placeholder="e.g. Ceres, 67P, 411 Xanthe" style="width: 240px;">
+        <label for="id_location" class="mr-2 ml-sm-3">MPC observatory code</label>
+        <input id="id_location" type="text" name="location" class="form-control mr-2 mb-2 mb-sm-0" value="{{ location_query }}" placeholder="e.g. 500" style="width: 105px;">
+        <select id="id_location_preset" name="location_preset" class="form-control mr-2 mb-2 mb-sm-0" style="width: 220px; color: {% if location_preset %}#495057{% else %}#6c757d{% endif %};" onchange="this.style.color = this.value ? '#495057' : '#6c757d'; if (this.value) { document.getElementById('id_location').value = this.value; }">
+          <option value="">Common observatories...</option>
           {% for group in observatory_groups %}
           <optgroup label="{{ group.label }}">
             {% for choice in group.choices %}
@@ -48,17 +48,55 @@
           {% endfor %}
         </select>
         <div class="w-100 mt-3">
-          <div class="mb-2">Columns</div>
+          <div class="mb-2">Time Span</div>
           <div class="d-flex flex-wrap align-items-center">
-            {% for field in field_choices %}
+            <label for="id_start_time" class="mr-2 mb-2">Start time</label>
+            <input id="id_start_time" type="datetime-local" step="1" name="start_time" class="form-control mr-3 mb-2" value="{{ start_time_input }}" style="width: 250px;">
+            <label for="id_stop_time" class="mr-2 mb-2">Stop time</label>
+            <input id="id_stop_time" type="datetime-local" step="1" name="stop_time" class="form-control mr-3 mb-2" value="{{ stop_time_input }}" style="width: 250px;">
+            <label for="id_step_size_number" class="mr-2 mb-2">Step size</label>
+            <input id="id_step_size_number" type="number" min="1" step="1" name="step_size_number" class="form-control mr-2 mb-2" value="{{ step_size_number_input }}" placeholder="1" style="width: 90px;">
+            <select id="id_step_size_unit" name="step_size_unit" class="form-control mb-2" style="width: 120px; color: {% if step_size_unit_input %}#495057{% else %}#6c757d{% endif %};" onchange="this.style.color = this.value ? '#495057' : '#6c757d';">
+              {% for choice in step_unit_choices %}
+              <option value="{{ choice.value }}"{% if step_size_unit_input == choice.value %} selected{% endif %}>{{ choice.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="w-100 mt-3">
+          <div class="mb-2">Returned quantities</div>
+          <div class="d-flex flex-wrap align-items-center">
+            {% for field in default_field_choices %}
             <div class="form-check mr-4 mb-2" style="min-height: 1.5rem;">
               <input class="form-check-input" type="checkbox" name="fields" id="id_field_{{ field.id }}" value="{{ field.id }}"{% if field.id in selected_field_ids %} checked{% endif %}>
               <label class="form-check-label" for="id_field_{{ field.id }}">{{ field.label }}</label>
             </div>
             {% endfor %}
           </div>
+          <details class="mt-2">
+            <summary style="cursor: pointer; color: rgba(255,255,255,0.88);">Additional quantities</summary>
+            <div class="d-flex flex-wrap align-items-center mt-2">
+              {% for field in additional_field_choices %}
+              <div class="form-check mr-4 mb-2" style="min-height: 1.5rem;">
+                <input class="form-check-input" type="checkbox" name="fields" id="id_field_{{ field.id }}" value="{{ field.id }}"{% if field.id in selected_field_ids %} checked{% endif %}>
+                <label class="form-check-label" for="id_field_{{ field.id }}">{{ field.label }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </details>
+          <details class="mt-2">
+            <summary style="cursor: pointer; color: rgba(255,255,255,0.88);">Quantity definitions</summary>
+            <div class="mt-2">
+              {% for item in quantity_definitions %}
+              <div class="mb-2">
+                <span style="font-weight: 600;">{{ item.label }}</span>
+                <span style="color: rgba(255,255,255,0.78);">: {{ item.definition }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </details>
         </div>
-        <button type="submit" class="btn btn-light mt-2">Search</button>
+        <button type="submit" class="btn btn-light mt-4">Generate Ephemeris</button>
       </form>
 
       {% if ephemeris_error %}
@@ -72,6 +110,10 @@
         <input type="hidden" name="target" value="{{ target_query }}">
         <input type="hidden" name="location" value="{{ location_query }}">
         <input type="hidden" name="location_preset" value="{{ location_preset }}">
+        <input type="hidden" name="start_time" value="{{ start_time_input }}">
+        <input type="hidden" name="stop_time" value="{{ stop_time_input }}">
+        <input type="hidden" name="step_size_number" value="{{ step_size_number_input }}">
+        <input type="hidden" name="step_size_unit" value="{{ step_size_unit_input }}">
         {% for field_id in selected_field_ids %}
         <input type="hidden" name="fields" value="{{ field_id }}">
         {% endfor %}
@@ -88,6 +130,9 @@
       {% if ephemeris_rows %}
       <div class="mb-2 text-light">
         Ephemeris generated at: {{ ephemeris_generated_at|date:"Y-m-d H:i:s" }} UTC
+      </div>
+      <div class="mb-2 text-light">
+        Time span used: {{ start_time_used }} UTC to {{ stop_time_used }} UTC, step {{ step_size_used }}
       </div>
       <div class="mb-2" style="color: rgba(255,255,255,0.72); font-size: 0.95rem;">
         Ephemeris values are retrieved from NASA JPL Horizons via astroquery.
