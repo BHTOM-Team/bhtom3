@@ -30,6 +30,9 @@
         <li class="nav-item">
           <a class="nav-link {% if bhtom_pallas_active_tab == 'ephemeris' %}active{% endif %}" href="{% url 'bhtom-pallas-ephemeris' %}" style="background-color: {% if bhtom_pallas_active_tab == 'ephemeris' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Ephemeris</a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link {% if bhtom_pallas_active_tab == 'photometry' %}active{% endif %}" href="{% url 'bhtom-pallas-photometry' %}" style="background-color: {% if bhtom_pallas_active_tab == 'photometry' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Photometry</a>
+        </li>
       </ul>
       <form method="get" class="form-inline mb-3">
         <input type="hidden" name="target_record" value="">

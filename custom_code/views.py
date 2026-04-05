@@ -310,6 +310,11 @@ class BhtomPallasView(BhtomPallasBaseMixin, TemplateView):
     bhtom_pallas_active_tab = 'overview'
 
 
+class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
+    template_name = 'tom_common/bhtom_pallas_photometry.html'
+    bhtom_pallas_active_tab = 'photometry'
+
+
 class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
     template_name = 'tom_common/bhtom_pallas_ephemeris.html'
     bhtom_pallas_active_tab = 'ephemeris'
