@@ -10,6 +10,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.crts_dataservice.CRTSDataService'},
             {'class': f'{self.name}.data_services.sdss_dataservice.SDSSDataService'},
             {'class': f'{self.name}.data_services.gaia_alerts_dataservice.GaiaAlertsDataService'},
+            {'class': f'{self.name}.data_services.ogle_ews_dataservice.OGLEEWSDataService'},
             {'class': f'{self.name}.data_services.gaia_dr3_dataservice.GaiaDR3DataService'},
             {'class': f'{self.name}.data_services.lsst_dataservice.LSSTDataService'},
             {'class': f'{self.name}.data_services.skymapper_dataservice.SkyMapperDataService'},

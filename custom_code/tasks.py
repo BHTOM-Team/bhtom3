@@ -292,6 +292,11 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         if alert_name:
             query_parameters['alert_name'] = alert_name
 
+    if 'target_name' in form_fields and service_name == 'OGLEEWS':
+        ogle_ews_name = _extract_ogle_ews_name(target)
+        if ogle_ews_name:
+            query_parameters['target_name'] = ogle_ews_name
+
     return query_parameters
 
 
@@ -317,4 +322,12 @@ def _extract_gaia_alerts_name(target):
     for value in _iter_target_names(target):
         if re.match(r'(?i)^gaia\d+[a-z]+$', value):
             return value
+    return None
+
+
+def _extract_ogle_ews_name(target):
+    for value in _iter_target_names(target):
+        match = re.match(r'(?i)^(?:OGLE[-\s]?)?(\d{4}-[A-Z]{3}-\d{4})$', value.strip())
+        if match:
+            return match.group(1).upper()
     return None

@@ -8,13 +8,14 @@
     Please refine the query to reduce the number of results.
   </div>
 {% endif %}
-<form method="POST" action="{% url 'dataservices:create-target' %}">
+<form method="POST" action="{% url 'dataservices:create-target' %}" id="dataservice-query-result-form">
   {% csrf_token %}
   <div class="">
     <input type="hidden" name="data_service" value="{{ data_service }}"/>
     <input type="hidden" name="query_id" value="{{ query.id }}"/>
-    <input type="submit" value="Create Targets" class="btn btn-primary"/>
+    <input type="submit" value="Open Target Create Form" class="btn btn-primary"/>
   </div>
+  <div id="dataservice-query-result-feedback" class="alert alert-warning mt-2 d-none" role="alert"></div>
   {% include query_results_table %}
 </form>
 {% if query_feedback %}
@@ -22,20 +23,112 @@
 {% endif %}
 
 <script>
-  document.getElementById("selectAll").addEventListener("change", function() {
-    document.querySelectorAll(`input[name="selected_results"]`).forEach(item => {
-      item.checked = this.checked;
-    });
-  });
+  (function() {
+    const form = document.getElementById('dataservice-query-result-form');
+    const selectAll = document.getElementById('selectAll');
+    const feedback = document.getElementById('dataservice-query-result-feedback');
+    const selectedResults = () => Array.from(document.querySelectorAll('input[name="selected_results"]'));
 
-  document.querySelectorAll(`input[name="results"]`).forEach(item => {
-    item.addEventListener("change", function() {
-      let selectAllCheckbox = document.getElementById("selectAll");
-      const selectedResultsCheckboxes = document.querySelectorAll(`input[name="selected_results"]`);
-      const allChecked = Array.from(selectedResultsCheckboxes).every(checkbox => checkbox.checked);
-      selectAllCheckbox.checked = allChecked;
+    function setFeedback(message) {
+      if (!feedback) {
+        return;
+      }
+      if (message) {
+        feedback.textContent = message;
+        feedback.classList.remove('d-none');
+      } else {
+        feedback.textContent = '';
+        feedback.classList.add('d-none');
+      }
+    }
+
+    function headerMap(row) {
+      const table = row.closest('table');
+      const headers = Array.from(table.querySelectorAll('thead th')).map((cell) =>
+        (cell.textContent || '').trim().toLowerCase()
+      );
+      return headers;
+    }
+
+    function cellValue(row, labels) {
+      const headers = headerMap(row);
+      const cells = Array.from(row.querySelectorAll('td'));
+      for (const label of labels) {
+        const index = headers.findIndex((header) => header === label || header.includes(label));
+        if (index >= 0 && cells[index]) {
+          return (cells[index].textContent || '').trim();
+        }
+      }
+      return '';
+    }
+
+    function buildCreateUrl(row) {
+      let name = cellValue(row, ['name', 'target', 'object']);
+      const ra = cellValue(row, ['ra']);
+      const dec = cellValue(row, ['dec']);
+      const type = cellValue(row, ['type']).toUpperCase() || 'SIDEREAL';
+      const params = new URLSearchParams();
+
+      if (name) {
+        if ('{{ data_service }}' === 'OGLEEWS' && !name.toUpperCase().startsWith('OGLE-')) {
+          name = `OGLE-${name}`;
+        }
+        params.set('name', name);
+      }
+      if (ra) {
+        params.set('ra', ra);
+      }
+      if (dec) {
+        params.set('dec', dec);
+      }
+      if ('{{ data_service }}' === 'OGLEEWS') {
+        params.set('epoch', '2000.0');
+      }
+      params.set('type', type === 'NON_SIDEREAL' ? 'NON_SIDEREAL' : 'SIDEREAL');
+      return `{% url 'targets:create' %}?${params.toString()}`;
+    }
+
+    if (selectAll) {
+      selectAll.addEventListener('change', function() {
+        selectedResults().forEach((item) => {
+          item.checked = this.checked;
+        });
+      });
+    }
+
+    selectedResults().forEach((item) => {
+      item.addEventListener('change', function() {
+        if (selectAll) {
+          const checkboxes = selectedResults();
+          const allChecked = checkboxes.length > 0 && checkboxes.every((checkbox) => checkbox.checked);
+          selectAll.checked = allChecked;
+        }
+      });
     });
-  });
+
+    if (form) {
+      form.addEventListener('submit', function(event) {
+        const checked = selectedResults().filter((item) => item.checked);
+        if (checked.length !== 1) {
+          event.preventDefault();
+          setFeedback(checked.length < 1 ? 'Select one result to open the target create form.' : 'Select only one result to open the target create form.');
+          return;
+        }
+
+        const row = checked[0].closest('tr');
+        const createUrl = row ? buildCreateUrl(row) : '';
+        if (!createUrl) {
+          event.preventDefault();
+          setFeedback('Could not read the selected result. Please try again.');
+          return;
+        }
+
+        event.preventDefault();
+        setFeedback('');
+        window.location.assign(createUrl);
+      });
+    }
+  })();
 </script>
 
 {% endblock %}

@@ -4,6 +4,17 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from custom_code.data_services.ogle_ews_dataservice import (
+    OGLEEWSDataService,
+    _dec_to_decimal,
+    _normalize_target_name,
+    _ogle_phot_url,
+    _parse_lenses_rows,
+    _parse_photometry_rows,
+    _ra_to_decimal,
+)
+from custom_code.data_services.forms import SimbadQueryForm
+
 
 @override_settings(
     BHTOM2_API_BASE_URL='https://bh-tom2.example',
@@ -83,3 +94,89 @@ class PublicUploadViewTests(TestCase):
         self.assertContains(response, 'Select a target from the BHTOM2 list.')
         self.assertContains(response, 'Select an observer from the BHTOM2 list.')
         self.assertContains(response, 'Select an observatory from the BHTOM2 list.')
+
+
+class OGLEEWSDataServiceTests(TestCase):
+    def test_coordinate_helpers_match_bhtom2_behavior(self):
+        self.assertAlmostEqual(_ra_to_decimal('17:49:39.07'), 267.4127916666667)
+        self.assertAlmostEqual(_dec_to_decimal('-30:27:08.4'), -30.452333333333332)
+
+    def test_parse_lenses_rows_supports_headerless_content(self):
+        rows = _parse_lenses_rows(
+            '\n'.join([
+                '2011-BLG-0001 BLG500.01 129412 17:54:00.05 -29:06:06.0',
+                '2011-BLG-0002 BLG500.08 102027 17:54:44.93 -28:54:13.5',
+            ])
+        )
+
+        self.assertEqual(rows[0]['name'], '2011-BLG-0001')
+        self.assertEqual(rows[0]['field'], 'BLG500.01')
+        self.assertAlmostEqual(rows[0]['ra'], 268.5002083333333)
+        self.assertAlmostEqual(rows[0]['dec'], -29.101666666666667)
+
+    def test_query_targets_by_name_includes_photometry(self):
+        service = OGLEEWSDataService()
+        alert_rows = [{
+            'name': '2011-BLG-0001',
+            'field': 'BLG500.01',
+            'starno': '129412',
+            'ra_text': '17:54:00.05',
+            'dec_text': '-29:06:06.0',
+            'ra': 268.5002083333333,
+            'dec': -29.101666666666667,
+        }]
+        photometry_rows = [
+            {'hjd': 2455260.85336, 'mag': 17.131, 'magerr': 0.015},
+            {'hjd': 2455260.90029, 'mag': 17.130, 'magerr': 9.999},
+        ]
+
+        with patch.object(service, '_fetch_alert_rows', return_value=alert_rows), patch.object(
+            service,
+            '_fetch_photometry_rows',
+            return_value=photometry_rows,
+        ):
+            results = service.query_targets({
+                'target_name': 'OGLE-2011-BLG-0001',
+                'include_photometry': True,
+            })
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], '2011-BLG-0001')
+        self.assertEqual(results[0]['aliases'], ['2011-BLG-0001'])
+        photometry = results[0]['reduced_datums']['photometry']
+        self.assertEqual(len(photometry), 1)
+        self.assertEqual(photometry[0]['value']['filter'], 'OGLE(I)')
+        self.assertEqual(photometry[0]['value']['magnitude'], 17.131)
+
+    def test_ogle_helpers_normalize_names_and_build_urls(self):
+        self.assertEqual(_normalize_target_name('OGLE-2011-BLG-0001'), '2011-BLG-0001')
+        self.assertEqual(
+            _ogle_phot_url('OGLE-2011-BLG-0001'),
+            'https://www.astrouw.edu.pl/ogle/ogle4/ews/2011/blg-0001/phot.dat',
+        )
+        self.assertEqual(
+            _parse_photometry_rows('2455260.85336 17.131 0.015 5.94 1033.0\n')[0],
+            {'hjd': 2455260.85336, 'mag': 17.131, 'magerr': 0.015},
+        )
+
+
+class DataServiceCoordinateFormTests(TestCase):
+    def test_coordinate_form_accepts_decimal_degrees(self):
+        form = SimbadQueryForm(data={'ra': '267.4127916666667', 'dec': '-30.452333333333332'})
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertAlmostEqual(form.cleaned_data['ra'], 267.4127916666667)
+        self.assertAlmostEqual(form.cleaned_data['dec'], -30.452333333333332)
+
+    def test_coordinate_form_accepts_sexagesimal_values(self):
+        form = SimbadQueryForm(data={'ra': '17:49:39.07', 'dec': '-30:27:08.4'})
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertAlmostEqual(form.cleaned_data['ra'], 267.4127916666667)
+        self.assertAlmostEqual(form.cleaned_data['dec'], -30.452333333333332)
+
+    def test_coordinate_form_rejects_invalid_value(self):
+        form = SimbadQueryForm(data={'ra': 'not-a-coordinate', 'dec': '-30:27:08.4'})
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('ra', form.errors)

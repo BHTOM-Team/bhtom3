@@ -1,12 +1,58 @@
 from django import forms
+from astropy.coordinates import Angle
+import astropy.units as u
 
 from tom_dataservices.forms import BaseQueryForm
 
 
+COORDINATE_HELP_TEXT = 'Accepts decimal degrees or sexagesimal, e.g. 267.4128 or 17:49:39.07 / -30:27:08.4.'
+
+
+class CoordinateField(forms.FloatField):
+    def __init__(self, *args, coordinate_type='dec', **kwargs):
+        self.coordinate_type = coordinate_type
+        kwargs.setdefault('widget', forms.TextInput())
+        super().__init__(*args, **kwargs)
+
+    def to_python(self, value):
+        if value in self.empty_values:
+            return None
+        if isinstance(value, (int, float)):
+            return super().to_python(value)
+
+        text = str(value).strip()
+        if not text:
+            return None
+
+        try:
+            return super().to_python(text)
+        except forms.ValidationError:
+            pass
+
+        try:
+            if self.coordinate_type == 'ra':
+                if any(token in text.lower() for token in ('h', 'm', 's', ':')):
+                    return Angle(text, unit=u.hourangle).degree
+                return Angle(float(text), unit=u.deg).degree
+            return Angle(text, unit=u.deg).degree
+        except Exception as exc:
+            raise forms.ValidationError(
+                f'Enter a valid {self.coordinate_type.upper()} in decimal degrees or sexagesimal format.'
+            ) from exc
+
+
+def ra_field():
+    return CoordinateField(required=False, coordinate_type='ra', label='RA', help_text=COORDINATE_HELP_TEXT)
+
+
+def dec_field():
+    return CoordinateField(required=False, coordinate_type='dec', label='Dec', help_text=COORDINATE_HELP_TEXT)
+
+
 class GaiaDR3QueryForm(BaseQueryForm):
     source_id = forms.CharField(required=False, label='Gaia DR3 source_id')
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcsec = forms.FloatField(required=False, initial=1.0, min_value=0.05, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include epoch photometry')
     include_spectroscopy = forms.BooleanField(required=False, initial=True, label='Include BP/RP XP spectra')
@@ -24,8 +70,8 @@ class GaiaDR3QueryForm(BaseQueryForm):
 
 class LSSTQueryForm(BaseQueryForm):
     dia_object_id = forms.CharField(required=False, label='LSST diaObjectId')
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
 
@@ -46,8 +92,8 @@ class GaiaAlertsQueryForm(BaseQueryForm):
         label='Gaia Alerts name',
         help_text='You can enter either the full name, e.g. Gaia24amo, or just 24amo.',
     )
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include lightcurve photometry')
 
@@ -62,9 +108,31 @@ class GaiaAlertsQueryForm(BaseQueryForm):
         return cleaned
 
 
+class OGLEEWSQueryForm(BaseQueryForm):
+    target_name = forms.CharField(
+        required=False,
+        label='OGLE EWS name',
+        help_text='You can enter 2011-BLG-0001 or OGLE-2011-BLG-0001.',
+    )
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, label='Search radius (arcsec)')
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include lightcurve photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        has_name = bool((cleaned.get('target_name') or '').strip())
+        has_coords = cleaned.get('ra') is not None and cleaned.get('dec') is not None
+        if not has_name and not has_coords:
+            raise forms.ValidationError('Provide OGLE EWS name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 5.0
+        return cleaned
+
+
 class CRTSQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=0.1, min_value=0.01, label='Search radius (arcmin)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
 
@@ -78,8 +146,8 @@ class CRTSQueryForm(BaseQueryForm):
         return cleaned
     
 class SkyMapperQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=5.0, min_value=0.01, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
 
@@ -94,8 +162,8 @@ class SkyMapperQueryForm(BaseQueryForm):
 
 
 class SwiftUVOTQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=5.0, min_value=0.01, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
 
@@ -109,8 +177,8 @@ class SwiftUVOTQueryForm(BaseQueryForm):
         return cleaned
     
 class GalexQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=5.0, min_value=0.01, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
 
@@ -124,8 +192,8 @@ class GalexQueryForm(BaseQueryForm):
         return cleaned
 
 class GS6dFQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=5.0, min_value=0.01, label='Search radius (arcsec)')
     include_spectroscopy = forms.BooleanField(required=False, initial=True, label='Include spectroscopy')
 
@@ -139,8 +207,8 @@ class GS6dFQueryForm(BaseQueryForm):
         return cleaned
     
 class DESIQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=5.0, min_value=0.01, label='Search radius (arcsec)')
     include_spectroscopy = forms.BooleanField(required=False, initial=True, label='Include spectroscopy')
 
@@ -154,8 +222,8 @@ class DESIQueryForm(BaseQueryForm):
         return cleaned
     
 class ASASSNQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=5.0, min_value=0.01, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
 
@@ -169,8 +237,8 @@ class ASASSNQueryForm(BaseQueryForm):
         return cleaned
     
 class PanSTARRSQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=5.0, min_value=0.01, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
 
@@ -184,8 +252,8 @@ class PanSTARRSQueryForm(BaseQueryForm):
         return cleaned
 
 class WISEQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=5.0, min_value=0.01, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
 
@@ -200,8 +268,8 @@ class WISEQueryForm(BaseQueryForm):
 
 
 class PhotometricClassificationQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
 
     def clean(self):
         cleaned = super().clean()
@@ -212,8 +280,8 @@ class PhotometricClassificationQueryForm(BaseQueryForm):
 
 
 class SimbadQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcsec = forms.FloatField(required=False, initial=3.0, min_value=0.1, label='Search radius (arcsec)')
 
     def clean(self):
@@ -225,8 +293,8 @@ class SimbadQueryForm(BaseQueryForm):
         return cleaned
 
 class SDSSQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcsec = forms.FloatField(required=False, initial=10.0, min_value=0.05, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
     include_spectroscopy = forms.BooleanField(required=False, initial=True, label='Include spectra')
@@ -241,8 +309,8 @@ class SDSSQueryForm(BaseQueryForm):
         return cleaned
 
 class PTFQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=3.0, min_value=0.01, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
 
@@ -256,8 +324,8 @@ class PTFQueryForm(BaseQueryForm):
         return cleaned
 
 class LCOSpectraQueryForm(BaseQueryForm):
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field()
+    dec = dec_field()
     radius_arcmin = forms.FloatField(required=False, initial=5.0, min_value=0.01, label='Search radius (arcsec)')
     include_spectroscopy = forms.BooleanField(required=False, initial=True, label='Include spectroscopy')
 
