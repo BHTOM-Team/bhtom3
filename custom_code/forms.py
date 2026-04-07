@@ -10,6 +10,26 @@ from tom_targets.models import Target, TargetName
 from custom_code.models import TargetAliasInfo
 
 
+CREATE_FORM_HIDDEN_FIELDS = (
+    'constellation',
+    'phot_class',
+    'phot_classification_done',
+    'mjd_last',
+    'mag_last',
+    'filter_last',
+    'photometry_plot',
+    'photometry_plot_obs',
+    'photometry_icon_plot',
+    'spectroscopy_plot',
+    'plot_created',
+)
+
+SIDEREAL_CREATE_FORM_HIDDEN_FIELDS = CREATE_FORM_HIDDEN_FIELDS + (
+    'galactic_lng',
+    'galactic_lat',
+)
+
+
 class GeoTomAddSatForm(forms.Form):
     norad_id = forms.IntegerField(min_value=1, label="NORAD ID")
 
@@ -107,6 +127,11 @@ class BhtomSiderealTargetCreateForm(SiderealTargetCreateForm):
         help_text='This will be saved as the first comment on the created target.',
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name in SIDEREAL_CREATE_FORM_HIDDEN_FIELDS:
+            self.fields.pop(field_name, None)
+
 
 class BhtomNonSiderealTargetCreateForm(NonSiderealTargetCreateForm):
     recommended_observing_strategy = forms.CharField(
@@ -115,6 +140,11 @@ class BhtomNonSiderealTargetCreateForm(NonSiderealTargetCreateForm):
         widget=forms.Textarea(attrs={'rows': 3}),
         help_text='This will be saved as the first comment on the created target.',
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name in CREATE_FORM_HIDDEN_FIELDS:
+            self.fields.pop(field_name, None)
 
 
 PUBLIC_UPLOAD_FILTER_CHOICES = [

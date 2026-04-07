@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from tom_targets.models import Target
 
 from custom_code.data_services.ogle_ews_dataservice import (
     OGLEEWSDataService,
@@ -14,6 +15,11 @@ from custom_code.data_services.ogle_ews_dataservice import (
     _ra_to_decimal,
 )
 from custom_code.data_services.forms import SimbadQueryForm
+from custom_code.forms import (
+    BhtomNonSiderealTargetCreateForm,
+    BhtomSiderealTargetCreateForm,
+)
+from custom_code.target_derivations import derive_sidereal_target_fields
 
 
 @override_settings(
@@ -180,3 +186,55 @@ class DataServiceCoordinateFormTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn('ra', form.errors)
+
+
+class TargetCreateFormVisibilityTests(TestCase):
+    def test_sidereal_create_form_hides_derived_and_plot_fields(self):
+        form = BhtomSiderealTargetCreateForm()
+
+        self.assertNotIn('galactic_lng', form.fields)
+        self.assertNotIn('galactic_lat', form.fields)
+        self.assertNotIn('constellation', form.fields)
+        self.assertNotIn('phot_class', form.fields)
+        self.assertNotIn('phot_classification_done', form.fields)
+        self.assertNotIn('mjd_last', form.fields)
+        self.assertNotIn('mag_last', form.fields)
+        self.assertNotIn('filter_last', form.fields)
+        self.assertNotIn('photometry_plot', form.fields)
+        self.assertNotIn('photometry_plot_obs', form.fields)
+        self.assertNotIn('photometry_icon_plot', form.fields)
+        self.assertNotIn('spectroscopy_plot', form.fields)
+        self.assertNotIn('plot_created', form.fields)
+
+    def test_non_sidereal_create_form_hides_internal_and_plot_fields(self):
+        form = BhtomNonSiderealTargetCreateForm()
+
+        self.assertNotIn('constellation', form.fields)
+        self.assertNotIn('phot_class', form.fields)
+        self.assertNotIn('phot_classification_done', form.fields)
+        self.assertNotIn('mjd_last', form.fields)
+        self.assertNotIn('mag_last', form.fields)
+        self.assertNotIn('filter_last', form.fields)
+        self.assertNotIn('photometry_plot', form.fields)
+        self.assertNotIn('photometry_plot_obs', form.fields)
+        self.assertNotIn('photometry_icon_plot', form.fields)
+        self.assertNotIn('spectroscopy_plot', form.fields)
+        self.assertNotIn('plot_created', form.fields)
+        self.assertNotIn('galactic_lng', form.fields)
+        self.assertNotIn('galactic_lat', form.fields)
+
+
+class TargetDerivedFieldsTests(TestCase):
+    def test_sidereal_derivations_fill_galactic_coordinates_and_constellation(self):
+        target = Target(name='Gaia26abc', type=Target.SIDEREAL, ra=267.4127916666667, dec=-30.452333333333332, epoch=2000.0)
+
+        updates = derive_sidereal_target_fields(target)
+
+        self.assertAlmostEqual(updates['galactic_lng'], 359.155193, places=6)
+        self.assertAlmostEqual(updates['galactic_lat'], -1.533473, places=6)
+        self.assertEqual(updates['constellation'], 'Scorpius')
+
+    def test_non_sidereal_derivations_do_not_produce_sidereal_fields(self):
+        target = Target(name='CometX', type=Target.NON_SIDEREAL)
+
+        self.assertEqual(derive_sidereal_target_fields(target), {})

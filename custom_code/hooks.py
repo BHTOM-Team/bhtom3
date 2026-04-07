@@ -5,6 +5,8 @@ from django.db import transaction
 
 from tom_common.hooks import target_post_save as default_target_post_save
 
+from custom_code.target_derivations import refresh_target_derived_fields
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,6 +16,11 @@ def target_post_save(target, created):
     configured DataServices for newly-created targets.
     """
     default_target_post_save(target=target, created=created)
+
+    try:
+        refresh_target_derived_fields(target.id)
+    except Exception as exc:
+        logger.warning('Could not refresh derived target fields for target %s: %s', target.id, exc)
 
     if not created:
         return
