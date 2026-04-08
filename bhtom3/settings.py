@@ -274,7 +274,7 @@ FACILITIES = {
            'DEBUG': False,
     },
     'REM': {
-           'proposalIDs': ((52055, "DDT,PI:Pawel Zielinski"),),
+           'proposalIDs': ((53035, "DDT,PI:Pawel Zielinski"),),
            'email': "pzielinski@umk.pl",
     },
     'SUHORA': {
