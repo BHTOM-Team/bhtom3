@@ -114,6 +114,7 @@ class NeoWISEDataService(DataService):
             type='SIDEREAL',
             ra=target_result.get('ra'),
             dec=target_result.get('dec'),
+            epoch=2000.0,
         )
 
     def create_aliases_from_query(self, alias_results, **kwargs):

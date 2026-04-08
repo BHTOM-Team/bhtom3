@@ -93,4 +93,5 @@ class CRTSHarvester(AbstractHarvester):
         target.type = 'SIDEREAL'
         target.ra = self.catalog_data.get('ra')
         target.dec = self.catalog_data.get('dec')
+        target.epoch = 2000.0
         return target

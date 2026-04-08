@@ -299,6 +299,7 @@ class GaiaDR3DataService(DataService):
             type='SIDEREAL',
             ra=target_result.get('ra'),
             dec=target_result.get('dec'),
+            epoch=2000.0,
             pm_ra=target_result.get('pmra'),
             pm_dec=target_result.get('pmdec'),
             parallax=target_result.get('parallax'),

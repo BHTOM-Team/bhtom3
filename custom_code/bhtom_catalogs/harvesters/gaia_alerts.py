@@ -146,5 +146,6 @@ class GaiaAlertsHarvester(AbstractHarvester):
         target.type = 'SIDEREAL'
         target.ra = _to_float(self.catalog_data.get('RaDeg'))
         target.dec = _to_float(self.catalog_data.get('DecDeg'))
+        target.epoch = 2000.0
         target.description = str(self.catalog_data.get('Comment', '')).strip()
         return target

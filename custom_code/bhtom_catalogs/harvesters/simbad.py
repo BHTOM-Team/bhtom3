@@ -129,6 +129,7 @@ def target_from_result(result):
     target.type = 'SIDEREAL'
     target.ra = _clean_number(result.get('ra'))
     target.dec = _clean_number(result.get('dec'))
+    target.epoch = 2000.0
     target.pm_ra = _clean_number(result.get('pmra'))
     target.pm_dec = _clean_number(result.get('pmdec'))
     target.parallax = _clean_number(result.get('plx_value'))
@@ -171,6 +172,7 @@ class SimbadHarvester(AbstractHarvester):
         target.type = 'SIDEREAL'
         target.ra = _clean_number(row['ra']) if 'ra' in row.colnames else self.query_ra
         target.dec = _clean_number(row['dec']) if 'dec' in row.colnames else self.query_dec
+        target.epoch = 2000.0
         target.pm_ra = _clean_number(row['pmra']) if 'pmra' in row.colnames else None
         target.pm_dec = _clean_number(row['pmdec']) if 'pmdec' in row.colnames else None
         target.parallax = _clean_number(row['plx_value']) if 'plx_value' in row.colnames else None

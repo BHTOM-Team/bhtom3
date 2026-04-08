@@ -176,6 +176,7 @@ class GaiaDR3Harvester(AbstractHarvester):
         target.type = 'SIDEREAL'
         target.ra = _to_float(self.catalog_data.get('ra'))
         target.dec = _to_float(self.catalog_data.get('dec'))
+        target.epoch = 2000.0
         target.parallax = _to_float(self.catalog_data.get('parallax'))
         target.pm_ra = _to_float(self.catalog_data.get('pmra'))
         target.pm_dec = _to_float(self.catalog_data.get('pmdec'))

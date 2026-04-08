@@ -146,6 +146,7 @@ class SimbadDataService(DataService):
             type='SIDEREAL',
             ra=target_result['ra'],
             dec=target_result['dec'],
+            epoch=2000.0,
             pm_ra=target_result.get('pmra'),
             pm_dec=target_result.get('pmdec'),
             parallax=target_result.get('plx_value'),

@@ -17,6 +17,11 @@ from custom_code.data_services.ogle_ews_dataservice import (
     _parse_photometry_rows,
     _ra_to_decimal,
 )
+from custom_code.bhtom_catalogs.harvesters.simbad import target_from_result
+from custom_code.bhtom_catalogs.harvesters.crts import CRTSHarvester
+from custom_code.bhtom_catalogs.harvesters.gaia_alerts import GaiaAlertsHarvester
+from custom_code.bhtom_catalogs.harvesters.gaia_dr3 import GaiaDR3Harvester
+from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
 from custom_code.data_services.forms import SimbadQueryForm
 from custom_code.forms import (
     BhtomNonSiderealTargetCreateForm,
@@ -190,6 +195,38 @@ class DataServiceCoordinateFormTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn('ra', form.errors)
+
+
+class SimbadHarvesterTests(TestCase):
+    def test_target_from_result_sets_j2000_epoch(self):
+        target = target_from_result({
+            'main_id': 'TYC 9194-662-1',
+            'ra': 126.57054084958001,
+            'dec': -67.90756133863,
+            'pmra': None,
+            'pmdec': None,
+            'plx_value': None,
+        })
+
+        self.assertEqual(target.epoch, 2000.0)
+
+    def test_other_sidereal_harvesters_set_j2000_epoch(self):
+        crts = CRTSHarvester()
+        crts.catalog_data = {'name': 'CRTS_J1', 'ra': 12.3, 'dec': -45.6}
+
+        gaia_alerts = GaiaAlertsHarvester()
+        gaia_alerts.catalog_data = {'#Name': 'Gaia26abc', 'RaDeg': '12.3', 'DecDeg': '-45.6', 'Comment': 'x'}
+
+        gaia_dr3 = GaiaDR3Harvester()
+        gaia_dr3.catalog_data = {'source_id': '123', 'ra': 12.3, 'dec': -45.6, 'parallax': None, 'pmra': None, 'pmdec': None}
+
+        lsst = LSSTHarvester()
+        lsst.catalog_data = {'lsst_id': '456', 'ra': 12.3, 'dec': -45.6}
+
+        self.assertEqual(crts.to_target().epoch, 2000.0)
+        self.assertEqual(gaia_alerts.to_target().epoch, 2000.0)
+        self.assertEqual(gaia_dr3.to_target().epoch, 2000.0)
+        self.assertEqual(lsst.to_target().epoch, 2000.0)
 
 
 class TargetCreateFormVisibilityTests(TestCase):
