@@ -59,6 +59,7 @@ from custom_code.tasks import enqueue_target_dataservices_update
 from custom_code.bhtom_catalogs.harvesters import gaia_alerts as gaia_alerts_harvester
 from custom_code.bhtom_catalogs.harvesters import gaia_dr3 as gaia_dr3_harvester
 from custom_code.bhtom_catalogs.harvesters import simbad as simbad_harvester
+from custom_code.sun_separation import get_live_target_values
 from tom_dataproducts.views import DataProductUploadView
 
 
@@ -68,6 +69,126 @@ CATALOG_FORM_SESSION_KEY = 'catalog_query_form_data'
 PUBLIC_UPLOAD_CACHE_TIMEOUT = 24 * 60 * 60
 PUBLIC_UPLOAD_PAGE_SIZE = 200
 PUBLIC_UPLOAD_SESSION_KEY = 'public_upload_access_granted'
+LIST_OBSERVER_PRESETS = {
+    'warsaw': {'name': 'Warsaw', 'lat_deg': 52.2297, 'lon_deg': 21.0122, 'elevation_m': 100.0},
+    'ostrowik': {'name': 'Ostrowik', 'lat_deg': 52.087981, 'lon_deg': 21.41614, 'elevation_m': 120.0},
+    'bialkow': {'name': 'Bialkow', 'lat_deg': 51.47425, 'lon_deg': 16.657822, 'elevation_m': 130.0},
+    'bolecina': {'name': 'Bolecina', 'lat_deg': 49.819827, 'lon_deg': 19.370521, 'elevation_m': 398.0},
+    'moletai': {'name': 'Moletai', 'lat_deg': 55.3189, 'lon_deg': 25.5633, 'elevation_m': 200.0},
+    'piwnice': {'name': 'Piwnice', 'lat_deg': 53.09546, 'lon_deg': 18.56406, 'elevation_m': 87.0},
+    'lasilla': {'name': 'La Silla', 'lat_deg': -29.2567, 'lon_deg': -70.7346, 'elevation_m': 2400.0},
+}
+
+
+def _parse_float(value, default=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_utc_datetime(value):
+    if not value:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith('Z'):
+        normalized = normalized[:-1] + '+00:00'
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _resolve_list_calculation_time(request):
+    time_raw = (request.GET.get('time_utc') or '').strip()
+    calculation_time_utc = _parse_utc_datetime(time_raw)
+    if calculation_time_utc is not None:
+        return calculation_time_utc, calculation_time_utc.strftime('%Y-%m-%dT%H:%M:%S'), ''
+    if time_raw:
+        return (
+            datetime.now(timezone.utc),
+            time_raw,
+            'Custom UTC time is invalid. Use a valid UTC date and time.',
+        )
+    now_utc = datetime.now(timezone.utc)
+    return now_utc, now_utc.strftime('%Y-%m-%dT%H:%M:%S'), ''
+
+
+def _resolve_list_observer(request, observer_presets=None, default_key='warsaw', include_unspecified=False):
+    observer_presets = observer_presets or LIST_OBSERVER_PRESETS
+    observer_key = (request.GET.get('observer') or default_key).strip().lower()
+    lat_raw = (request.GET.get('lat') or '').strip()
+    lon_raw = (request.GET.get('lon') or '').strip()
+    elev_raw = (request.GET.get('elev') or '').strip()
+
+    if include_unspecified and observer_key == 'unspecified':
+        return {
+            'key': 'unspecified',
+            'name': 'Not Specified',
+            'lat_deg': 0.0,
+            'lon_deg': 0.0,
+            'elevation_m': 0.0,
+            'input_lat': '',
+            'input_lon': '',
+            'input_elev': '',
+            'visibility_enabled': False,
+            'error': '',
+        }
+
+    if observer_key == 'custom':
+        lat = _parse_float(lat_raw)
+        lon = _parse_float(lon_raw)
+        elev = _parse_float(elev_raw, default=100.0)
+        valid = (
+            lat is not None and lon is not None and
+            -90.0 <= lat <= 90.0 and
+            -180.0 <= lon <= 180.0
+        )
+        if valid:
+            return {
+                'key': 'custom',
+                'name': 'Custom',
+                'lat_deg': lat,
+                'lon_deg': lon,
+                'elevation_m': elev,
+                'input_lat': lat_raw,
+                'input_lon': lon_raw,
+                'input_elev': elev_raw or '100',
+                'visibility_enabled': True,
+                'error': '',
+            }
+        fallback = observer_presets.get(default_key, observer_presets['warsaw'])
+        return {
+            'key': default_key if default_key in observer_presets else 'warsaw',
+            'name': fallback['name'],
+            'lat_deg': fallback['lat_deg'],
+            'lon_deg': fallback['lon_deg'],
+            'elevation_m': fallback['elevation_m'],
+            'input_lat': lat_raw,
+            'input_lon': lon_raw,
+            'input_elev': elev_raw,
+            'visibility_enabled': True,
+            'error': 'Custom observer requires valid latitude (-90..90) and longitude (-180..180).',
+        }
+
+    preset = observer_presets.get(observer_key, observer_presets.get(default_key, observer_presets['warsaw']))
+    return {
+        'key': observer_key if observer_key in observer_presets else (default_key if default_key in observer_presets else 'warsaw'),
+        'name': preset['name'],
+        'lat_deg': preset['lat_deg'],
+        'lon_deg': preset['lon_deg'],
+        'elevation_m': preset['elevation_m'],
+        'input_lat': lat_raw,
+        'input_lon': lon_raw,
+        'input_elev': elev_raw,
+        'visibility_enabled': True,
+        'error': '',
+    }
 
 
 def _bhtom2_api_configured():
@@ -1237,9 +1358,21 @@ class Bhtom2TargetListView(TargetListView):
     Target list override matching the non-paginated bhtom2-style table page.
     """
 
+    OBSERVER_PRESETS = LIST_OBSERVER_PRESETS
     paginate_by = 20
     ordering = ['-priority', '-created']
     filterset_class = BhtomTargetFilterSet
+
+    @staticmethod
+    def _resolve_min_visible_altitude(request):
+        raw_value = (request.GET.get('min_alt') or '').strip()
+        if not raw_value:
+            return 30.0, '30'
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            return 30.0, raw_value
+        return value, raw_value
 
     def get_paginate_by(self, queryset):
         # HTMXTableViewMixin requires a paginator in context. Use a single page
@@ -1256,12 +1389,45 @@ class Bhtom2TargetListView(TargetListView):
 
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs)
+        calculation_time_utc, calculation_time_input, calculation_time_error = _resolve_list_calculation_time(self.request)
+        observer = _resolve_list_observer(
+            self.request,
+            observer_presets=self.OBSERVER_PRESETS,
+            default_key='unspecified',
+            include_unspecified=True,
+        )
+        visible_only = str(self.request.GET.get('visible_only', '')).lower() in ('1', 'true', 'yes', 'on')
+        min_visible_altitude, min_visible_altitude_input = self._resolve_min_visible_altitude(self.request)
 
         object_list = context.get('object_list', [])
         try:
-            context['target_count'] = object_list.count()
+            base_target_count = object_list.count()
         except (AttributeError, TypeError):
+            base_target_count = len(object_list)
+
+        if visible_only and observer.get('visibility_enabled', True):
+            visible_targets = []
+            for target in object_list:
+                live = get_live_target_values(
+                    target,
+                    time_to_compute=calculation_time_utc,
+                    observer_lat_deg=observer['lat_deg'],
+                    observer_lon_deg=observer['lon_deg'],
+                    observer_elevation_m=observer['elevation_m'],
+                )
+                altitude_deg = live.get('altitude_deg')
+                if altitude_deg is not None and altitude_deg >= min_visible_altitude:
+                    visible_targets.append(target)
+            object_list = visible_targets
+            context['object_list'] = object_list
+            paginator = context.get('paginator')
+            if paginator is not None:
+                paginator.count = len(object_list)
+
+        if visible_only and observer.get('visibility_enabled', True):
             context['target_count'] = len(object_list)
+        else:
+            context['target_count'] = base_target_count
 
         if hasattr(self, 'filterset') and self.filterset and self.filterset.data:
             params = [(k, v) for k, v in self.filterset.data.lists() if any(item != '' for item in v)]
@@ -1270,6 +1436,29 @@ class Bhtom2TargetListView(TargetListView):
         else:
             context['query_string'] = self.request.META.get('QUERY_STRING', '')
 
+        context['list_filter_hidden_params'] = [
+            (key, value)
+            for key, values in self.request.GET.lists()
+            if key not in {'observer', 'lat', 'lon', 'elev', 'time_utc'}
+            for value in values
+            if value != ''
+        ]
+        context['list_generated_utc'] = calculation_time_utc
+        context['list_generated_utc_input'] = calculation_time_input
+        context['list_time_error'] = calculation_time_error
+        context['list_observer'] = observer
+        context['list_visible_only'] = visible_only
+        context['list_visible_active'] = bool(visible_only and observer.get('visibility_enabled', True))
+        context['list_visibility_enabled'] = observer.get('visibility_enabled', True)
+        context['list_min_altitude'] = min_visible_altitude
+        context['list_min_altitude_input'] = min_visible_altitude_input or '30'
+        context['list_observer_presets'] = (
+            [{'key': 'unspecified', 'name': 'Not Specified'}] +
+            [
+            {'key': key, 'name': value['name']}
+            for key, value in self.OBSERVER_PRESETS.items()
+            ]
+        )
         return context
 
 
@@ -1680,106 +1869,7 @@ class GeoTomTargetListView(ListView):
     template_name = 'tom_targets/geotom_target_list.html'
     context_object_name = 'object_list'
     paginate_by = 500
-    OBSERVER_PRESETS = {
-        'warsaw': {'name': 'Warsaw', 'lat_deg': 52.2297, 'lon_deg': 21.0122, 'elevation_m': 100.0},
-        'ostrowik': {'name': 'Ostrowik', 'lat_deg': 52.087981, 'lon_deg': 21.41614, 'elevation_m': 120.0},
-        'bialkow': {'name': 'Bialkow', 'lat_deg': 51.47425, 'lon_deg': 16.657822, 'elevation_m': 130.0},
-        'bolecina': {'name': 'Bolecina', 'lat_deg': 49.819827, 'lon_deg': 19.370521, 'elevation_m': 398.0},
-        'moletai': {'name': 'Moletai', 'lat_deg': 55.3189, 'lon_deg': 25.5633, 'elevation_m': 200.0},
-        'piwnice': {'name': 'Piwnice', 'lat_deg': 53.09546, 'lon_deg': 18.56406, 'elevation_m': 87.0},
-        'lasilla': {'name': 'La Silla', 'lat_deg': -29.2567, 'lon_deg': -70.7346, 'elevation_m': 2400.0},
-    }
-
-    @staticmethod
-    def _parse_float(value, default=None):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
-    def _parse_utc_datetime(value):
-        if not value:
-            return None
-        normalized = value.strip()
-        if not normalized:
-            return None
-        if normalized.endswith('Z'):
-            normalized = normalized[:-1] + '+00:00'
-        try:
-            parsed = datetime.fromisoformat(normalized)
-        except ValueError:
-            return None
-        if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-
-    def _resolve_calculation_time(self):
-        time_raw = (self.request.GET.get('time_utc') or '').strip()
-        calculation_time_utc = self._parse_utc_datetime(time_raw)
-        if calculation_time_utc is not None:
-            return calculation_time_utc, calculation_time_utc.strftime('%Y-%m-%dT%H:%M:%S'), ''
-        if time_raw:
-            return (
-                datetime.now(timezone.utc),
-                time_raw,
-                'Custom UTC time is invalid. Use a valid UTC date and time.',
-            )
-        now_utc = datetime.now(timezone.utc)
-        return now_utc, now_utc.strftime('%Y-%m-%dT%H:%M:%S'), ''
-
-    def _resolve_observer(self):
-        observer_key = (self.request.GET.get('observer') or 'warsaw').strip().lower()
-        lat_raw = (self.request.GET.get('lat') or '').strip()
-        lon_raw = (self.request.GET.get('lon') or '').strip()
-        elev_raw = (self.request.GET.get('elev') or '').strip()
-
-        if observer_key == 'custom':
-            lat = self._parse_float(lat_raw)
-            lon = self._parse_float(lon_raw)
-            elev = self._parse_float(elev_raw, default=100.0)
-            valid = (
-                lat is not None and lon is not None and
-                -90.0 <= lat <= 90.0 and
-                -180.0 <= lon <= 180.0
-            )
-            if valid:
-                return {
-                    'key': 'custom',
-                    'name': 'Custom',
-                    'lat_deg': lat,
-                    'lon_deg': lon,
-                    'elevation_m': elev,
-                    'input_lat': lat_raw,
-                    'input_lon': lon_raw,
-                    'input_elev': elev_raw or '100',
-                    'error': '',
-                }
-            fallback = self.OBSERVER_PRESETS['warsaw']
-            return {
-                'key': 'warsaw',
-                'name': fallback['name'],
-                'lat_deg': fallback['lat_deg'],
-                'lon_deg': fallback['lon_deg'],
-                'elevation_m': fallback['elevation_m'],
-                'input_lat': lat_raw,
-                'input_lon': lon_raw,
-                'input_elev': elev_raw,
-                'error': 'Custom observer requires valid latitude (-90..90) and longitude (-180..180).',
-            }
-
-        preset = self.OBSERVER_PRESETS.get(observer_key, self.OBSERVER_PRESETS['warsaw'])
-        return {
-            'key': observer_key if observer_key in self.OBSERVER_PRESETS else 'warsaw',
-            'name': preset['name'],
-            'lat_deg': preset['lat_deg'],
-            'lon_deg': preset['lon_deg'],
-            'elevation_m': preset['elevation_m'],
-            'input_lat': lat_raw,
-            'input_lon': lon_raw,
-            'input_elev': elev_raw,
-            'error': '',
-        }
+    OBSERVER_PRESETS = LIST_OBSERVER_PRESETS
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -1803,8 +1893,8 @@ class GeoTomTargetListView(ListView):
 
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs)
-        observer = self._resolve_observer()
-        calculation_time_utc, calculation_time_input, calculation_time_error = self._resolve_calculation_time()
+        observer = _resolve_list_observer(self.request, observer_presets=self.OBSERVER_PRESETS)
+        calculation_time_utc, calculation_time_input, calculation_time_error = _resolve_list_calculation_time(self.request)
         visible_only = str(self.request.GET.get('visible_only', '')).lower() in ('1', 'true', 'yes', 'on')
 
         object_list = context.get('object_list', [])

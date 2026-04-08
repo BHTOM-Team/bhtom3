@@ -13,15 +13,30 @@ register = template.Library()
 
 
 @register.inclusion_tag('tom_targets/partials/aladin_skymap.html')
-def custom_target_distribution(targets):
+def custom_target_distribution(
+    targets,
+    calculation_time=None,
+    observer_lat_deg=None,
+    observer_lon_deg=None,
+    observer_elevation_m=None,
+):
     """
     Aladin skymap payload with live non-sidereal coordinates.
     Sidereal targets use stored coordinates.
     """
-    now = Time(datetime.now(timezone.utc), scale="utc")
+    if calculation_time:
+        now = Time(calculation_time, scale="utc")
+    else:
+        now = Time(datetime.now(timezone.utc), scale="utc")
     target_list = []
     for target in targets:
-        live = get_live_target_values(target, time_to_compute=now)
+        live = get_live_target_values(
+            target,
+            time_to_compute=now,
+            observer_lat_deg=observer_lat_deg,
+            observer_lon_deg=observer_lon_deg,
+            observer_elevation_m=observer_elevation_m,
+        )
         ra = live.get('ra')
         dec = live.get('dec')
         if ra is None or dec is None:

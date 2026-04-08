@@ -20,7 +20,7 @@
   </thead>
   <tbody>
     {% for target in targets %}
-    {% live_target_values target as live %}
+    {% live_target_values target list_generated_utc list_observer.lat_deg list_observer.lon_deg list_observer.elevation_m as live %}
     <tr>
       <td><label><input type="checkbox" name="selected-target" value="{{ target.id }}" onClick="single_select()" /></label></td>
       <td><a href="{% url 'targets:detail' target.id %}" title="{{ target.name }}">{{ target.name }}</a></td>

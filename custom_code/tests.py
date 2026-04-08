@@ -1,6 +1,9 @@
 from unittest.mock import Mock, patch
 
+from astropy.time import Time
+from datetime import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from tom_targets.models import Target
@@ -19,6 +22,7 @@ from custom_code.forms import (
     BhtomNonSiderealTargetCreateForm,
     BhtomSiderealTargetCreateForm,
 )
+from custom_code.sun_separation import get_live_target_values
 from custom_code.target_derivations import derive_sidereal_target_fields
 
 
@@ -238,3 +242,140 @@ class TargetDerivedFieldsTests(TestCase):
         target = Target(name='CometX', type=Target.NON_SIDEREAL)
 
         self.assertEqual(derive_sidereal_target_fields(target), {})
+
+    def test_non_sidereal_live_values_depend_on_observer_location(self):
+        target = Target(
+            name='MinorPlanetX',
+            type=Target.NON_SIDEREAL,
+            scheme='MPC_MINOR_PLANET',
+            semimajor_axis=2.35,
+            eccentricity=0.17,
+            inclination=8.4,
+            arg_of_perihelion=132.5,
+            lng_asc_node=76.2,
+            mean_anomaly=48.1,
+            epoch_of_elements=61000.0,
+            mean_daily_motion=0.274,
+        )
+
+        calculation_time = Time('2026-04-08T00:00:00', scale='utc')
+        warsaw = get_live_target_values(
+            target,
+            time_to_compute=calculation_time,
+            observer_lat_deg=52.2297,
+            observer_lon_deg=21.0122,
+            observer_elevation_m=100.0,
+        )
+        lasilla = get_live_target_values(
+            target,
+            time_to_compute=calculation_time,
+            observer_lat_deg=-29.2567,
+            observer_lon_deg=-70.7346,
+            observer_elevation_m=2400.0,
+        )
+
+        self.assertIsNotNone(warsaw['ra'])
+        self.assertIsNotNone(warsaw['dec'])
+        self.assertIsNotNone(lasilla['ra'])
+        self.assertIsNotNone(lasilla['dec'])
+        self.assertNotEqual(round(warsaw['ra'], 6), round(lasilla['ra'], 6))
+        self.assertNotEqual(round(warsaw['dec'], 6), round(lasilla['dec'], 6))
+
+    def test_non_sidereal_live_values_accept_python_datetime(self):
+        target = Target(
+            name='MinorPlanetY',
+            type=Target.NON_SIDEREAL,
+            scheme='MPC_MINOR_PLANET',
+            semimajor_axis=2.35,
+            eccentricity=0.17,
+            inclination=8.4,
+            arg_of_perihelion=132.5,
+            lng_asc_node=76.2,
+            mean_anomaly=48.1,
+            epoch_of_elements=61000.0,
+            mean_daily_motion=0.274,
+        )
+
+        live = get_live_target_values(
+            target,
+            time_to_compute=Time('2026-04-08T00:00:00', scale='utc').to_datetime(timezone=timezone.utc),
+            observer_lat_deg=52.2297,
+            observer_lon_deg=21.0122,
+            observer_elevation_m=100.0,
+        )
+
+        self.assertIsNotNone(live['ra'])
+        self.assertIsNotNone(live['dec'])
+
+    def test_non_sidereal_live_values_ignore_blank_observer_coordinates(self):
+        target = Target(
+            name='MinorPlanetZ',
+            type=Target.NON_SIDEREAL,
+            scheme='MPC_MINOR_PLANET',
+            semimajor_axis=2.35,
+            eccentricity=0.17,
+            inclination=8.4,
+            arg_of_perihelion=132.5,
+            lng_asc_node=76.2,
+            mean_anomaly=48.1,
+            epoch_of_elements=61000.0,
+            mean_daily_motion=0.274,
+        )
+
+        live = get_live_target_values(
+            target,
+            time_to_compute=Time('2026-04-08T00:00:00', scale='utc'),
+            observer_lat_deg='',
+            observer_lon_deg='',
+            observer_elevation_m='',
+        )
+
+        self.assertIsNotNone(live['ra'])
+        self.assertIsNotNone(live['dec'])
+
+    def test_sidereal_live_values_compute_altitude_for_selected_observer_and_time(self):
+        target = Target(
+            name='SiderealTarget',
+            type=Target.SIDEREAL,
+            ra=120.0,
+            dec=22.0,
+            sun_separation=95.0,
+        )
+
+        live = get_live_target_values(
+            target,
+            time_to_compute=Time('2026-04-08T00:00:00', scale='utc'),
+            observer_lat_deg=52.2297,
+            observer_lon_deg=21.0122,
+            observer_elevation_m=100.0,
+        )
+
+        self.assertEqual(live['ra'], 120.0)
+        self.assertEqual(live['dec'], 22.0)
+        self.assertIsNotNone(live['altitude_deg'])
+
+
+class TargetListViewTests(TestCase):
+    def test_main_target_list_displays_geotom_style_time_and_observer_controls(self):
+        user = get_user_model().objects.create_user(username='tester', password='pass')
+        self.client.force_login(user)
+
+        response = self.client.get('/targets/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Generated (UT):')
+        self.assertContains(response, 'Observer:')
+        self.assertContains(response, 'Not Specified')
+        self.assertContains(response, 'Visible Now')
+        self.assertContains(response, 'name="min_alt"')
+
+    def test_visible_now_does_not_activate_for_unspecified_observer(self):
+        user = get_user_model().objects.create_user(username='tester2', password='pass')
+        self.client.force_login(user)
+
+        response = self.client.get('/targets/', {'observer': 'unspecified', 'visible_only': '1'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Not Specified')
+        self.assertContains(response, 'Visible Now')
+        self.assertNotContains(response, 'btn btn-info">Visible Now')

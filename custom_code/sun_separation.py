@@ -5,7 +5,7 @@ import math
 from typing import Optional
 
 from astropy import units as u
-from astropy.coordinates import SkyCoord, get_body
+from astropy.coordinates import AltAz, EarthLocation, SkyCoord, get_body
 from astropy.time import Time
 from numpy import around
 
@@ -27,12 +27,61 @@ def _utc_time_now() -> Time:
 def _coerce_time_utc(value: Optional[Time] = None) -> Time:
     if value is None:
         return _utc_time_now()
-    dt = value.to_datetime(timezone=timezone.utc)
+    if isinstance(value, Time):
+        dt = value.to_datetime(timezone=timezone.utc)
+    elif isinstance(value, datetime):
+        dt = value
+    else:
+        dt = Time(value, scale="utc").to_datetime(timezone=timezone.utc)
+
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     else:
         dt = dt.astimezone(timezone.utc)
     return Time(dt, scale="utc")
+
+
+def _observer_location(observer_lat_deg=None, observer_lon_deg=None, observer_elevation_m=None):
+    if observer_lat_deg in (None, '') or observer_lon_deg in (None, ''):
+        return None
+    try:
+        lat_deg = float(observer_lat_deg)
+        lon_deg = float(observer_lon_deg)
+    except (TypeError, ValueError):
+        return None
+
+    try:
+        elevation_m = 0.0 if observer_elevation_m in (None, '') else float(observer_elevation_m)
+    except (TypeError, ValueError):
+        elevation_m = 0.0
+
+    return EarthLocation(
+        lat=lat_deg * u.deg,
+        lon=lon_deg * u.deg,
+        height=elevation_m * u.m,
+    )
+
+
+def compute_target_altitude(
+    ra,
+    dec,
+    time_to_compute: Optional[Time] = None,
+    observer_lat_deg=None,
+    observer_lon_deg=None,
+    observer_elevation_m=None,
+):
+    observer_location = _observer_location(
+        observer_lat_deg=observer_lat_deg,
+        observer_lon_deg=observer_lon_deg,
+        observer_elevation_m=observer_elevation_m,
+    )
+    if observer_location is None or ra is None or dec is None:
+        return None
+
+    tt = _coerce_time_utc(time_to_compute)
+    target_coord = SkyCoord(ra=float(ra) * u.deg, dec=float(dec) * u.deg, frame="icrs")
+    altaz = target_coord.transform_to(AltAz(obstime=tt, location=observer_location))
+    return float(altaz.alt.deg)
 
 
 @dataclass
@@ -218,7 +267,13 @@ def _ecliptic_to_equatorial_j2000(x, y, z):
     return x_eq, y_eq, z_eq
 
 
-def _non_sidereal_ra_dec_now(target, tt: Time):
+def _non_sidereal_ra_dec_now(
+    target,
+    tt: Time,
+    observer_lat_deg=None,
+    observer_lon_deg=None,
+    observer_elevation_m=None,
+):
     elements = _build_elements_from_target(target)
     if elements is None:
         return None
@@ -239,30 +294,59 @@ def _non_sidereal_ra_dec_now(target, tt: Time):
     gy = obj_y - ey
     gz = obj_z - ez
 
-    geocentric = SkyCoord(
+    observer_location = _observer_location(
+        observer_lat_deg=observer_lat_deg,
+        observer_lon_deg=observer_lon_deg,
+        observer_elevation_m=observer_elevation_m,
+    )
+    if observer_location is not None:
+        observer_gcrs, _ = observer_location.get_gcrs_posvel(tt)
+        gx -= observer_gcrs.x.to(u.au).value
+        gy -= observer_gcrs.y.to(u.au).value
+        gz -= observer_gcrs.z.to(u.au).value
+
+    topocentric = SkyCoord(
         x=gx * u.au,
         y=gy * u.au,
         z=gz * u.au,
         representation_type="cartesian",
         frame="icrs",
     )
-    spherical = geocentric.spherical
+    spherical = topocentric.spherical
     return float(spherical.lon.deg), float(spherical.lat.deg)
 
 
-def compute_sun_separation(ra, dec, time_to_compute: Optional[Time] = None) -> float:
+def compute_sun_separation(
+    ra,
+    dec,
+    time_to_compute: Optional[Time] = None,
+    observer_lat_deg=None,
+    observer_lon_deg=None,
+    observer_elevation_m=None,
+) -> float:
     """
     Compute Sun-target angular separation in degrees for current UTC time.
     Rounds to integer degrees to match historical bhtom2/cpcsv2 behavior.
     """
     tt = _coerce_time_utc(time_to_compute)
-    sun_pos = get_body("sun", tt)
+    observer_location = _observer_location(
+        observer_lat_deg=observer_lat_deg,
+        observer_lon_deg=observer_lon_deg,
+        observer_elevation_m=observer_elevation_m,
+    )
+    sun_pos = get_body("sun", tt, location=observer_location)
     obj_pos = SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame="icrs")
     obj_in_sun_frame = obj_pos.transform_to(sun_pos.frame)
     return float(around(sun_pos.separation(obj_in_sun_frame).deg, 0))
 
 
-def _resolve_target_coordinates_now(target, time_to_compute: Optional[Time] = None):
+def _resolve_target_coordinates_now(
+    target,
+    time_to_compute: Optional[Time] = None,
+    observer_lat_deg=None,
+    observer_lon_deg=None,
+    observer_elevation_m=None,
+):
     tt = _coerce_time_utc(time_to_compute)
 
     if target.type != Target.NON_SIDEREAL:
@@ -271,7 +355,13 @@ def _resolve_target_coordinates_now(target, time_to_compute: Optional[Time] = No
         return float(target.ra), float(target.dec)
 
     try:
-        coords = _non_sidereal_ra_dec_now(target, tt)
+        coords = _non_sidereal_ra_dec_now(
+            target,
+            tt,
+            observer_lat_deg=observer_lat_deg,
+            observer_lon_deg=observer_lon_deg,
+            observer_elevation_m=observer_elevation_m,
+        )
         if coords is not None:
             return coords
     except Exception:
@@ -296,24 +386,45 @@ def _resolve_target_coordinates_now(target, time_to_compute: Optional[Time] = No
     return None
 
 
-def get_live_target_values(target, time_to_compute: Optional[Time] = None):
+def get_live_target_values(
+    target,
+    time_to_compute: Optional[Time] = None,
+    observer_lat_deg=None,
+    observer_lon_deg=None,
+    observer_elevation_m=None,
+):
     """
     Return display-ready coordinates and sun separation.
 
     For non-sidereal targets, coordinates are propagated locally from stored
-    orbital elements for "now".
-    For sidereal targets, stored RA/Dec and stored sun_separation are returned.
+    orbital elements for the selected time and observer.
+    For sidereal targets, stored RA/Dec are returned and observer-dependent
+    altitude is computed for the selected time/location when available.
     """
+    tt = _coerce_time_utc(time_to_compute)
     if target.type != Target.NON_SIDEREAL:
         return {
             "ra": target.ra,
             "dec": target.dec,
             "sun_separation": target.sun_separation,
-            "computed_at_utc": None,
+            "altitude_deg": compute_target_altitude(
+                target.ra,
+                target.dec,
+                time_to_compute=tt,
+                observer_lat_deg=observer_lat_deg,
+                observer_lon_deg=observer_lon_deg,
+                observer_elevation_m=observer_elevation_m,
+            ),
+            "computed_at_utc": tt.to_datetime(timezone=timezone.utc),
         }
 
-    tt = _coerce_time_utc(time_to_compute)
-    coordinates = _resolve_target_coordinates_now(target, time_to_compute=tt)
+    coordinates = _resolve_target_coordinates_now(
+        target,
+        time_to_compute=tt,
+        observer_lat_deg=observer_lat_deg,
+        observer_lon_deg=observer_lon_deg,
+        observer_elevation_m=observer_elevation_m,
+    )
     if coordinates is None:
         return {
             "ra": target.ra,
@@ -326,7 +437,22 @@ def get_live_target_values(target, time_to_compute: Optional[Time] = None):
     return {
         "ra": ra,
         "dec": dec,
-        "sun_separation": compute_sun_separation(ra, dec, time_to_compute=tt),
+        "sun_separation": compute_sun_separation(
+            ra,
+            dec,
+            time_to_compute=tt,
+            observer_lat_deg=observer_lat_deg,
+            observer_lon_deg=observer_lon_deg,
+            observer_elevation_m=observer_elevation_m,
+        ),
+        "altitude_deg": compute_target_altitude(
+            ra,
+            dec,
+            time_to_compute=tt,
+            observer_lat_deg=observer_lat_deg,
+            observer_lon_deg=observer_lon_deg,
+            observer_elevation_m=observer_elevation_m,
+        ),
         "computed_at_utc": tt.to_datetime(timezone=timezone.utc),
     }
 

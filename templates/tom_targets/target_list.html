@@ -5,6 +5,34 @@
 {% block content %}
 <div class="row mx-0 targets-layout">
   <div class="col-md-10 px-0 targets-main-col">
+    <div class="geotom-generated-time-wrap mb-1">
+      <div class="geotom-generated-time">
+        Generated (UT): {{ list_generated_utc|date:"Y-m-d H:i:s" }}
+      </div>
+      <button class="btn btn-outline-secondary btn-sm geotom-time-toggle" type="button" data-toggle="collapse" data-target="#target-list-time-picker" aria-expanded="false" aria-controls="target-list-time-picker">
+        Change
+      </button>
+    </div>
+    <div id="target-list-time-picker" class="collapse{% if list_time_error %} show{% endif %} mb-2">
+      <div class="card card-body geotom-observer-panel geotom-time-panel">
+        {% if list_time_error %}
+        <div class="alert alert-warning py-2 mb-2">{{ list_time_error }}</div>
+        {% endif %}
+        <form method="get" action="" class="form-inline geotom-time-form">
+          {% for key, value in list_filter_hidden_params %}
+          <input type="hidden" name="{{ key }}" value="{{ value }}">
+          {% endfor %}
+          <input type="hidden" name="observer" value="{{ list_observer.key }}">
+          <input type="hidden" name="lat" value="{{ list_observer.input_lat }}">
+          <input type="hidden" name="lon" value="{{ list_observer.input_lon }}">
+          <input type="hidden" name="elev" value="{{ list_observer.input_elev }}">
+          <label for="id_time_utc" class="mr-2 mb-0">UTC</label>
+          <input id="id_time_utc" type="datetime-local" step="1" name="time_utc" class="form-control form-control-sm mr-2" value="{{ list_generated_utc_input|default_if_none:'' }}">
+          <button type="submit" class="btn btn-primary btn-sm mr-2">Apply</button>
+          <a href="?{% for key, value in list_filter_hidden_params %}{% if not forloop.first %}&{% endif %}{{ key|urlencode }}={{ value|urlencode }}{% endfor %}{% if list_filter_hidden_params %}&{% endif %}observer={{ list_observer.key|urlencode }}&lat={{ list_observer.input_lat|urlencode }}&lon={{ list_observer.input_lon|urlencode }}&elev={{ list_observer.input_elev|urlencode }}" class="btn btn-outline-secondary btn-sm">Now</a>
+        </form>
+      </div>
+    </div>
     <div class="row">
       <div class="col-md-12">
         <span class="float-right" style="color: rgb(43, 158, 203);">
@@ -25,7 +53,56 @@
 
     <div style="padding-bottom: 20px;"></div>
     {% select_target_js %}
-    {% custom_target_distribution filter.qs %}
+    <div class="mt-2 mb-2 geotom-observer-wrap">
+      <div class="geotom-observer">
+        <button class="btn btn-link btn-sm p-0 align-baseline geotom-observer-toggle" type="button" data-toggle="collapse" data-target="#target-list-observer-picker" aria-expanded="false" aria-controls="target-list-observer-picker">
+          Observer:
+        </button>
+        {% if list_observer.key == 'unspecified' %}
+        {{ list_observer.name }}
+        {% else %}
+        {{ list_observer.name }} ({{ list_observer.lat_deg }}, {{ list_observer.lon_deg }}, {{ list_observer.elevation_m }} m)
+        {% endif %}
+      </div>
+    </div>
+    <div id="target-list-observer-picker" class="collapse mb-3">
+      <div class="card card-body geotom-observer-panel">
+        {% if list_observer.error %}
+        <div class="alert alert-warning py-2 mb-2">{{ list_observer.error }}</div>
+        {% endif %}
+        <form method="get" action="">
+          {% for key, value in list_filter_hidden_params %}
+          <input type="hidden" name="{{ key }}" value="{{ value }}">
+          {% endfor %}
+          <input type="hidden" name="time_utc" value="{{ list_generated_utc_input }}">
+          <div class="form-row">
+            <div class="form-group col-md-3">
+              <label for="id_observer">Preset</label>
+              <select id="id_observer" name="observer" class="form-control">
+                {% for preset in list_observer_presets %}
+                <option value="{{ preset.key }}"{% if list_observer.key == preset.key %} selected{% endif %}>{{ preset.name }}</option>
+                {% endfor %}
+                <option value="custom"{% if list_observer.key == 'custom' %} selected{% endif %}>Custom</option>
+              </select>
+            </div>
+            <div class="form-group col-md-3">
+              <label for="id_lat">Latitude</label>
+              <input id="id_lat" type="text" name="lat" class="form-control geotom-custom-input" value="{{ list_observer.input_lat }}">
+            </div>
+            <div class="form-group col-md-3">
+              <label for="id_lon">Longitude</label>
+              <input id="id_lon" type="text" name="lon" class="form-control geotom-custom-input" value="{{ list_observer.input_lon }}">
+            </div>
+            <div class="form-group col-md-3">
+              <label for="id_elev">Elevation [m]</label>
+              <input id="id_elev" type="text" name="elev" class="form-control geotom-custom-input" value="{{ list_observer.input_elev }}">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Apply Observer</button>
+        </form>
+      </div>
+    </div>
+    {% custom_target_distribution object_list list_generated_utc list_observer.lat_deg list_observer.lon_deg list_observer.elevation_m %}
 
     <label id="displaySelected"></label>
     <button id="optionSelectAll" type="button" class="btn btn-link" onClick="select_all({{ target_count }})"></button>
@@ -54,7 +131,31 @@
     <h4>Filtering</h4>
     {{ filter.fields }}
     <form action="" method="get" class="form">
+      <input type="hidden" name="observer" value="{{ list_observer.key }}">
+      <input type="hidden" name="lat" value="{{ list_observer.input_lat }}">
+      <input type="hidden" name="lon" value="{{ list_observer.input_lon }}">
+      <input type="hidden" name="elev" value="{{ list_observer.input_elev }}">
+      <input type="hidden" name="time_utc" value="{{ list_generated_utc_input }}">
       {% bootstrap_form filter.form %}
+      <div class="form-group">
+        <label class="d-block mb-1" for="id_min_alt">Min altitude [deg]</label>
+        <div class="visible-filter-row">
+          <input
+            id="id_min_alt"
+            class="form-control"
+            type="number"
+            name="min_alt"
+            value="{{ list_min_altitude_input }}"
+            step="1"
+          >
+          <button type="submit" name="visible_only" value="1" class="btn {% if list_visible_active %}btn-info{% else %}btn-outline-info{% endif %}">
+            Visible Now
+          </button>
+          <a href="?{% for key, value in list_filter_hidden_params %}{% if not forloop.first %}&{% endif %}{{ key|urlencode }}={{ value|urlencode }}{% endfor %}{% if list_filter_hidden_params %}&{% endif %}observer={{ list_observer.key|urlencode }}&lat={{ list_observer.input_lat|urlencode }}&lon={{ list_observer.input_lon|urlencode }}&elev={{ list_observer.input_elev|urlencode }}&time_utc={{ list_generated_utc_input|urlencode }}" class="btn {% if list_visible_active %}btn-outline-info{% else %}btn-info{% endif %}">
+            Show All
+          </a>
+        </div>
+      </div>
       {% buttons %}
       <button type="submit" class="btn btn-primary">Filter</button>
       <a href="{% url 'targets:list' %}" class="btn btn-secondary" title="Reset">Reset</a>
@@ -92,9 +193,78 @@
     min-width: 0;
   }
 
+  .geotom-observer {
+    clear: both;
+    color: #e8eef8;
+    font-weight: 500;
+  }
+
+  .geotom-generated-time {
+    color: #c7d7ec;
+    font-size: 0.95rem;
+  }
+
+  .geotom-generated-time-wrap {
+    clear: both;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .geotom-time-toggle {
+    padding-top: 0.1rem;
+    padding-bottom: 0.1rem;
+    line-height: 1.2;
+  }
+
+  .geotom-time-panel {
+    max-width: 540px;
+  }
+
+  .geotom-time-form {
+    gap: 0.35rem;
+  }
+
+  .geotom-observer-toggle {
+    color: #7fc2ff;
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .geotom-observer-toggle:hover,
+  .geotom-observer-toggle:focus {
+    color: #a9d6ff;
+    text-decoration: underline;
+  }
+
+  .geotom-observer-panel {
+    background: #0f141a;
+    border-color: #31404f;
+    color: #e8eef8;
+  }
+
+  .geotom-observer-panel label {
+    color: #d4e2f2;
+  }
+
+  .geotom-custom-input {
+    min-width: 120px;
+  }
+
   .targets-table-wrap {
     width: 100%;
     overflow-x: auto;
+  }
+
+  .visible-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .visible-filter-row input.form-control {
+    max-width: 110px;
   }
 
   .targets-table-wrap .table {
