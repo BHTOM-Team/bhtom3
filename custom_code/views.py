@@ -69,6 +69,7 @@ CATALOG_FORM_SESSION_KEY = 'catalog_query_form_data'
 PUBLIC_UPLOAD_CACHE_TIMEOUT = 24 * 60 * 60
 PUBLIC_UPLOAD_PAGE_SIZE = 200
 PUBLIC_UPLOAD_SESSION_KEY = 'public_upload_access_granted'
+TARGET_LIST_OBSERVER_SESSION_KEY = 'target_list_observer'
 LIST_OBSERVER_PRESETS = {
     'warsaw': {'name': 'Warsaw', 'lat_deg': 52.2297, 'lon_deg': 21.0122, 'elevation_m': 100.0},
     'ostrowik': {'name': 'Ostrowik', 'lat_deg': 52.087981, 'lon_deg': 21.41614, 'elevation_m': 120.0},
@@ -121,10 +122,11 @@ def _resolve_list_calculation_time(request):
 
 def _resolve_list_observer(request, observer_presets=None, default_key='warsaw', include_unspecified=False):
     observer_presets = observer_presets or LIST_OBSERVER_PRESETS
-    observer_key = (request.GET.get('observer') or default_key).strip().lower()
-    lat_raw = (request.GET.get('lat') or '').strip()
-    lon_raw = (request.GET.get('lon') or '').strip()
-    elev_raw = (request.GET.get('elev') or '').strip()
+    saved = request.session.get(TARGET_LIST_OBSERVER_SESSION_KEY, {}) if hasattr(request, 'session') else {}
+    observer_key = (request.GET.get('observer') if 'observer' in request.GET else saved.get('observer', default_key) or default_key).strip().lower()
+    lat_raw = (request.GET.get('lat') if 'lat' in request.GET else saved.get('lat', '')).strip()
+    lon_raw = (request.GET.get('lon') if 'lon' in request.GET else saved.get('lon', '')).strip()
+    elev_raw = (request.GET.get('elev') if 'elev' in request.GET else saved.get('elev', '')).strip()
 
     if include_unspecified and observer_key == 'unspecified':
         return {
@@ -188,6 +190,17 @@ def _resolve_list_observer(request, observer_presets=None, default_key='warsaw',
         'input_elev': elev_raw,
         'visibility_enabled': True,
         'error': '',
+    }
+
+
+def _store_list_observer(request, observer):
+    if not hasattr(request, 'session'):
+        return
+    request.session[TARGET_LIST_OBSERVER_SESSION_KEY] = {
+        'observer': observer.get('key', ''),
+        'lat': observer.get('input_lat', ''),
+        'lon': observer.get('input_lon', ''),
+        'elev': observer.get('input_elev', ''),
     }
 
 
@@ -1396,6 +1409,7 @@ class Bhtom2TargetListView(TargetListView):
             default_key='unspecified',
             include_unspecified=True,
         )
+        _store_list_observer(self.request, observer)
         visible_only = str(self.request.GET.get('visible_only', '')).lower() in ('1', 'true', 'yes', 'on')
         min_visible_altitude, min_visible_altitude_input = self._resolve_min_visible_altitude(self.request)
 

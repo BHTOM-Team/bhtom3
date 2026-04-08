@@ -416,3 +416,14 @@ class TargetListViewTests(TestCase):
         self.assertContains(response, 'Not Specified')
         self.assertContains(response, 'Visible Now')
         self.assertNotContains(response, 'btn btn-info">Visible Now')
+
+    def test_target_list_remembers_observer_from_previous_visit(self):
+        user = get_user_model().objects.create_user(username='tester3', password='pass')
+        self.client.force_login(user)
+
+        first_response = self.client.get('/targets/', {'observer': 'ostrowik'})
+        second_response = self.client.get('/targets/')
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertContains(second_response, 'Ostrowik (52.087981, 21.41614, 120.0 m)')
