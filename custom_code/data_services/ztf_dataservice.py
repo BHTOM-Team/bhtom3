@@ -1,23 +1,22 @@
 import logging
 
-import requests
 from astropy.time import Time
 from datetime import timezone
+
+import pandas as pd
+from io import StringIO
+import requests
 
 from tom_dataservices.dataservices import DataService
 from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
-from custom_code.data_services.forms import SwiftUVOTQueryForm
+from custom_code.data_services.forms import ZTFQueryForm
 
 
 logger = logging.getLogger(__name__)
 
-SWIFTUVOT_START_URL = 'http://193.0.88.218:8892/api/start'
-SWIFTUVOT_RESULT_URL = 'http://193.0.88.218:8892/api/result'
-
-def _swift_alias(ra, dec):
-    return f'SWIFT+J{ra}_{dec}'
+ZTF_PAGE = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?utf8=%E2%9C%93&mission=irsa&projshort=ZTF"
 
 
 def _to_float(value):
@@ -26,22 +25,29 @@ def _to_float(value):
     except (TypeError, ValueError):
         return None
 
-class SwiftUVOTDataService(DataService):
-    name = 'SwiftUVOT'
-    verbose_name = 'SwiftUVOT'
+
+def _build_ztf_api_url(ra,dec,rad_arcsec):
+    rad = rad_arcsec * 0.000278
+    return f"https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves?POS=CIRCLE {ra} {dec} {rad}&BAD_CATFLAGS_MASK=32768&FORMAT=CSV"
+
+
+
+class ZTFDataService(DataService):
+    name = 'ZTF'
+    verbose_name = 'ZTF'
     update_on_daily_refresh = True
-    info_url = SWIFTUVOT_START_URL
-    service_notes = 'Query Swift UVOT by coordinates through in house Swift service.'
+    info_url = ZTF_PAGE
+    service_notes = 'Query ZTF by coordinates and ingest ZTF photometry.'
 
     @classmethod
     def get_form_class(cls):
-        return SwiftUVOTQueryForm
+        return ZTFQueryForm
 
     def build_query_parameters(self, parameters, **kwargs):
         self.query_parameters = {
             'ra': parameters.get('ra'),
             'dec': parameters.get('dec'),
-            'radius_arcsec': parameters.get('radius_arcsec') or 5.0,
+            'radius_arcsec': parameters.get('radius_arcsec') or 1.1,
             'include_photometry': bool(parameters.get('include_photometry', True)),
         }
         return self.query_parameters
@@ -49,48 +55,45 @@ class SwiftUVOTDataService(DataService):
     def query_service(self, query_parameters, **kwargs):
         ra = _to_float(query_parameters.get('ra'))
         dec = _to_float(query_parameters.get('dec'))
-        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 5.0
-        swiift_data = None
+        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 1.1
         if ra is None or dec is None:
-            self.query_results = {'photometry_data': [], 'source_location': None}
+            self.query_results = {'lc_data': [], 'source_location': None}
             return self.query_results
 
+        lc_data = None
         try:
-            src_data = {"ra": ra, "dec": dec}
-            requests.post(SWIFTUVOT_START_URL, json=src_data)
-            swift_response = requests.get(SWIFTUVOT_RESULT_URL, params=src_data)
-            swiift_data = swift_response.json()
+            ztf_res = requests.get(_build_ztf_api_url(ra,dec,radius_arcsec))
+            ztf_df = pd.read_csv(StringIO(ztf_res.text))
+            if len(ztf_df)>0:
+                lc_data = ztf_df
+                source_location = "irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan"
+            else:
+                logger.debug('ZTF returned no data for RA=%s Dec=%s', ra, dec)
+        except ValueError:
+            logger.debug('ZTF returned error for RA=%s Dec=%s', ra, dec)
 
-            if len(swiift_data) == 0:
-                logger.debug('Swift UVOT returned no photometry for RA=%s Dec=%s', ra, dec)
-
-        except Exception as e:
-            logger.debug('SkyMapper error %s', e)
-        
         self.query_results = {
-            'photometry_data': swiift_data,
-            'source_location': SWIFTUVOT_RESULT_URL,
+            'lc_data': lc_data,
+            'source_location': source_location,
             'ra': ra,
             'dec': dec,
         }
-
         return self.query_results
 
     def query_targets(self, query_parameters, **kwargs):
         data = self.query_service(query_parameters, **kwargs)
         ra = data.get('ra')
         dec = data.get('dec')
-        photometry_data = data.get('photometry_data')
-        if ra is None or dec is None or photometry_data is None:
+        lc_data = data.get('lc_data')
+        if ra is None or dec is None or lc_data is None:
             return []
 
-        alias = _swift_alias(ra,dec)
         return [{
-            'name': alias,
+            'name': None,
             'ra': ra,
             'dec': dec,
-            'aliases': [alias],
-            'reduced_datums': {'photometry': self._build_photometry_datums(photometry_data)},
+            'aliases': [None],
+            'reduced_datums': {'photometry': self._build_photometry_datums(lc_data)},
             'source_location': data.get('source_location'),
         }]
 
@@ -133,18 +136,13 @@ class SwiftUVOTDataService(DataService):
                 source_location=self.query_results.get('source_location') or self.info_url,
             )
 
-    def _build_photometry_datums(self, rows):
+    def _build_photometry_datums(self, lc_data):
         output = []
-        for row in rows:
-            mjd = _to_float(row["obs_time"])
-            mag = _to_float(row["mag"])
-            magerr = _to_float(row["mag_err"])
-            fil = row["filter"]
-            band = f"UVOT({fil})"
-            if mjd is None or mag is None or magerr is None:
+        for _, datum in lc_data.iterrows():
+            if datum.magerr>2.0:
                 continue
             output.append({
-                'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                'value': {'filter': band, 'magnitude': mag, 'error': magerr},
-            })
+                'timestamp': Time(datum.mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
+                'value': {'filter': f"ZTF({datum.filtercode})", 'magnitude': datum.mag, 'error': datum.magerr},
+                })
         return output

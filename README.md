@@ -3,8 +3,6 @@ Currently under development!
 
 **_Note_: The latest update of tomtoolkit (12 March 2026) updates Django to v5.2.11. Now, some of the older Django modules may not work!**
 
-**Important: _LCO Spectra Data Service added! It takes lots of time to download data and put it in BHTOM_**
-
 ## How to install it on a new machine.
 
 Install Python 3.11

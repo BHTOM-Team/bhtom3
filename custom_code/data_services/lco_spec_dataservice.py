@@ -6,8 +6,6 @@ from specutils import Spectrum1D
 import numpy as np
 import astropy.units as u
 import requests
-import tarfile
-from io import BytesIO
 from astropy.io import fits
 
 from tom_dataservices.dataservices import DataService
@@ -29,29 +27,6 @@ def _to_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
-
-def _giveWaveFlux(file):
-    hdul = fits.open(file)
-
-    data = hdul[0].data
-    header = hdul[0].header
-
-    flux = data[0][0]
-
-    crval1 = header['CRVAL1']
-    cd1_1 = header['CD1_1']
-    crpix1 = header['CRPIX1']
-    naxis1 = header['NAXIS1']
-    pixels = np.arange(naxis1)
-
-    wavelength = crval1 + (pixels + 1 - crpix1) * cd1_1
-
-    mask = flux > 0
-
-    clean_flux = flux[mask]
-    clean_wavelength = wavelength[mask]
-
-    return clean_wavelength,clean_flux*1e-20
 
 
 class LCOSpectraDataService(DataService):
@@ -88,7 +63,7 @@ class LCOSpectraDataService(DataService):
 
         try:
             limit = 200
-            reduction_level = 90
+            reduction_level = 91
             now_utc = datetime.now(timezone.utc)
             today_str = now_utc.date().strftime("%Y-%m-%d")
             lco_res = requests.get(f"https://archive-api.lco.global/frames/?start=2014-01-01&end={today_str}&covers=POINT({ra} {dec})&public=true&exclude_calibrations=true&limit={limit}&configuration_type=SPECTRUM&reduction_level={reduction_level}").json()
@@ -172,20 +147,20 @@ class LCOSpectraDataService(DataService):
         for spec_info in spec_data:
             try:
                 serializer = SpectrumSerializer()
-                spec_gz_url = spec_info['url']
-                spec_id = spec_info['id']
-                spec_time = spec_info['observation_date']
-                site_id = spec_info['site_id']
-                gz_resp = requests.get(spec_gz_url)
-                gz_resp.raise_for_status()
-                gz_file = BytesIO(gz_resp.content)
-                with tarfile.open(fileobj=gz_file, mode="r:gz") as tar:
-                    spec_ex_name = next(name for name in tar.getnames() if "merge" in name.lower() and "_ex.fits" in name.lower())
-                    spec_ex_file = tar.extractfile(spec_ex_name)
-                    wave,flux = _giveWaveFlux(spec_ex_file)
+                basename = spec_info['basename']
+
+                if "e91-1d" in basename:
+                    spec_hdul = fits.open(spec_info['url'])
+                    spec_time = spec_info['observation_date']
+                    site_id = spec_info['site_id']
+                    spec_id = spec_info['id']
+                    sp_data = spec_hdul[1].data
+                    valid = (~np.isnan(sp_data['flux'])) & (~np.isnan(sp_data['wavelength']))
+                    clean_flux = np.array(sp_data['flux'][valid])
+                    clean_wavelength = np.array(sp_data['wavelength'][valid])
                     spectrum = Spectrum1D(
-                        flux=flux * u.erg / u.s / u.cm**2 / u.AA,
-                        spectral_axis=wave * u.AA,)
+                        flux=clean_flux * u.erg / u.s / u.cm**2 / u.AA,
+                        spectral_axis=clean_wavelength * u.AA,)
                     serialized = serializer.serialize(spectrum)
                     serialized.update({
                     'filter': f'LCO-{site_id}',
@@ -194,7 +169,33 @@ class LCOSpectraDataService(DataService):
                     output.append({
                     'timestamp': Time(spec_time, format='isot', scale='utc').to_datetime(timezone=timezone.utc),
                     'value': serialized,})
+                else:
+                    spec_id = spec_info['id']
+                    resp_rel_frames = requests.get(f"https://archive-api.lco.global/frames/{spec_id}/related/").json()
+                    for rel_frame in resp_rel_frames:
+                        if "e91-1d" in rel_frame['basename']:
+                            spec_hdul = fits.open(rel_frame['url'])
+                            spec_time = rel_frame['observation_date']
+                            site_id = rel_frame['site_id']
+                            spec_id = rel_frame['id']
+                            sp_data = spec_hdul[1].data
+                            valid = (~np.isnan(sp_data['flux'])) & (~np.isnan(sp_data['wavelength']))
+                            clean_flux = np.array(sp_data['flux'][valid])
+                            clean_wavelength = np.array(sp_data['wavelength'][valid])
+                            spectrum = Spectrum1D(
+                                flux=clean_flux * u.erg / u.s / u.cm**2 / u.AA,
+                                spectral_axis=clean_wavelength * u.AA,)
+                            serialized = serializer.serialize(spectrum)
+                            serialized.update({
+                            'filter': f'LCO-{site_id}',
+                            'source_id': str(spec_id),
+                            'spectrum_type': 'LCO_spectrum',})
+                            output.append({
+                            'timestamp': Time(spec_time, format='isot', scale='utc').to_datetime(timezone=timezone.utc),
+                            'value': serialized,})
+
             except Exception as e:
+                print(e)
                 continue
 
         return output
