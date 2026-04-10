@@ -58,7 +58,7 @@ class PanSTARRSDataService(DataService):
         self.query_parameters = {
             'ra': parameters.get('ra'),
             'dec': parameters.get('dec'),
-            'radius_arcsec': parameters.get('radius_arcsec') or 5.0,
+            'radius_arcsec': parameters.get('radius_arcsec') or 2.0,
             'include_photometry': bool(parameters.get('include_photometry', True)),
         }
         return self.query_parameters
@@ -66,7 +66,7 @@ class PanSTARRSDataService(DataService):
     def query_service(self, query_parameters, **kwargs):
         ra = _to_float(query_parameters.get('ra'))
         dec = _to_float(query_parameters.get('dec'))
-        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 5.0
+        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 2.0
         if ra is None or dec is None:
             self.query_results = {'lc_data': [], 'source_location': None}
             return self.query_results
