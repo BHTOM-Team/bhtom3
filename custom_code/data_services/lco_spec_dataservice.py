@@ -158,7 +158,6 @@ class LCOSpectraDataService(DataService):
                     valid = (~np.isnan(sp_data['flux'])) & (~np.isnan(sp_data['wavelength']))
                     clean_flux = np.array(sp_data['flux'][valid])
                     clean_wavelength = np.array(sp_data['wavelength'][valid])
-                    print(clean_flux)
                     spectrum = Spectrum1D(
                         flux=clean_flux * u.erg / u.s / u.cm**2 / u.AA,
                         spectral_axis=clean_wavelength * u.AA,)
@@ -186,7 +185,6 @@ class LCOSpectraDataService(DataService):
                             spectrum = Spectrum1D(
                                 flux=clean_flux * u.erg / u.s / u.cm**2 / u.AA,
                                 spectral_axis=clean_wavelength * u.AA,)
-                            print(clean_flux)
                             serialized = serializer.serialize(spectrum)
                             serialized.update({
                             'filter': f'LCO-{site_id}',

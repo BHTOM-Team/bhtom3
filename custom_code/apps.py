@@ -26,6 +26,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.photometric_classification_dataservice.PhotometricClassificationDataService'},
             {'class': f'{self.name}.data_services.ptf_dataservice.PTFDataService'},
             {'class': f'{self.name}.data_services.lco_spec_dataservice.LCOSpectraDataService'},
+            {'class': f'{self.name}.data_services.ztf_dataservice.ZTFDataService'},
         ]
 
     def ready(self):
