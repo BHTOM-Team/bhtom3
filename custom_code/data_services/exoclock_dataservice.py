@@ -232,9 +232,7 @@ class ExoClockDataService(DataService):
 
     def _build_target_result(self, planet_key: str, planet_data: Dict[str, Any], source_location: str):
         coord = SkyCoord(planet_data['ra_j2000'], planet_data['dec_j2000'], unit=(u.hourangle, u.deg))
-        aliases = [
-            {'name': planet_data.get('name') or planet_key, 'url': source_location, 'source_name': self.name},
-        ]
+        aliases = []
         host_name = str(planet_data.get('star') or '').strip()
         if host_name:
             aliases.append({'name': host_name, 'url': source_location, 'source_name': self.name})
