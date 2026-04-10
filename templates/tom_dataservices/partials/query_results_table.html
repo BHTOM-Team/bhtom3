@@ -1,0 +1,39 @@
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th><input type="checkbox" id="selectAll"/></th>
+      {% for column in results.0.keys %}
+        {% if column != 'reduced_datums' and column != 'transit_source_name' and column != 'transit_source_url' and column != 'transit_planet_name' and column != 'transit_host_name' and column != 'transit_t0_bjd_tdb' and column != 'transit_t0_unc' and column != 'transit_period_days' and column != 'transit_period_unc' and column != 'transit_duration_hours' and column != 'transit_depth_r_mmag' and column != 'transit_v_mag' and column != 'transit_r_mag' and column != 'transit_gaia_g_mag' %}
+          <th>{{ column|capfirst }}</th>
+        {% endif %}
+      {% endfor %}
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for result in results %}
+      <tr
+        {% if result.transit_source_name %}data-transit-source-name="{{ result.transit_source_name|escape }}"{% endif %}
+        {% if result.transit_source_url %}data-transit-source-url="{{ result.transit_source_url|escape }}"{% endif %}
+        {% if result.transit_planet_name %}data-transit-planet-name="{{ result.transit_planet_name|escape }}"{% endif %}
+        {% if result.transit_host_name %}data-transit-host-name="{{ result.transit_host_name|escape }}"{% endif %}
+        {% if result.transit_t0_bjd_tdb is not None %}data-transit-t0-bjd-tdb="{{ result.transit_t0_bjd_tdb }}"{% endif %}
+        {% if result.transit_t0_unc is not None %}data-transit-t0-unc="{{ result.transit_t0_unc }}"{% endif %}
+        {% if result.transit_period_days is not None %}data-transit-period-days="{{ result.transit_period_days }}"{% endif %}
+        {% if result.transit_period_unc is not None %}data-transit-period-unc="{{ result.transit_period_unc }}"{% endif %}
+        {% if result.transit_duration_hours is not None %}data-transit-duration-hours="{{ result.transit_duration_hours }}"{% endif %}
+        {% if result.transit_depth_r_mmag is not None %}data-transit-depth-r-mmag="{{ result.transit_depth_r_mmag }}"{% endif %}
+        {% if result.transit_v_mag is not None %}data-transit-v-mag="{{ result.transit_v_mag }}"{% endif %}
+        {% if result.transit_r_mag is not None %}data-transit-r-mag="{{ result.transit_r_mag }}"{% endif %}
+        {% if result.transit_gaia_g_mag is not None %}data-transit-gaia-g-mag="{{ result.transit_gaia_g_mag }}"{% endif %}
+      >
+        <td><input type="checkbox" name="selected_results" value="{{ result.id }}"/></td>
+        {% for key, value in result.items %}
+          {% if key != 'reduced_datums' and key != 'transit_source_name' and key != 'transit_source_url' and key != 'transit_planet_name' and key != 'transit_host_name' and key != 'transit_t0_bjd_tdb' and key != 'transit_t0_unc' and key != 'transit_period_days' and key != 'transit_period_unc' and key != 'transit_duration_hours' and key != 'transit_depth_r_mmag' and key != 'transit_v_mag' and key != 'transit_r_mag' and key != 'transit_gaia_g_mag' %}
+            <td>{{ value }}</td>
+          {% endif %}
+        {% endfor %}
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>

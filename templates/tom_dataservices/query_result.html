@@ -42,52 +42,6 @@
       }
     }
 
-    function headerMap(row) {
-      const table = row.closest('table');
-      const headers = Array.from(table.querySelectorAll('thead th')).map((cell) =>
-        (cell.textContent || '').trim().toLowerCase()
-      );
-      return headers;
-    }
-
-    function cellValue(row, labels) {
-      const headers = headerMap(row);
-      const cells = Array.from(row.querySelectorAll('td'));
-      for (const label of labels) {
-        const index = headers.findIndex((header) => header === label || header.includes(label));
-        if (index >= 0 && cells[index]) {
-          return (cells[index].textContent || '').trim();
-        }
-      }
-      return '';
-    }
-
-    function buildCreateUrl(row) {
-      let name = cellValue(row, ['name', 'target', 'object']);
-      const ra = cellValue(row, ['ra']);
-      const dec = cellValue(row, ['dec']);
-      const type = cellValue(row, ['type']).toUpperCase() || 'SIDEREAL';
-      const params = new URLSearchParams();
-
-      if (name) {
-        if ('{{ data_service }}' === 'OGLEEWS' && !name.toUpperCase().startsWith('OGLE-')) {
-          name = `OGLE-${name}`;
-        }
-        params.set('name', name);
-      }
-      if (ra) {
-        params.set('ra', ra);
-      }
-      if (dec) {
-        params.set('dec', dec);
-      }
-      if (type !== 'NON_SIDEREAL') {
-        params.set('epoch', '2000.0');
-      }
-      params.set('type', type === 'NON_SIDEREAL' ? 'NON_SIDEREAL' : 'SIDEREAL');
-      return `{% url 'targets:create' %}?${params.toString()}`;
-    }
-
     if (selectAll) {
       selectAll.addEventListener('change', function() {
         selectedResults().forEach((item) => {
@@ -112,22 +66,12 @@
         if (checked.length !== 1) {
           event.preventDefault();
           setFeedback(checked.length < 1 ? 'Select one result to open the target create form.' : 'Select only one result to open the target create form.');
-          return;
+        } else {
+          setFeedback('');
         }
-
-        const row = checked[0].closest('tr');
-        const createUrl = row ? buildCreateUrl(row) : '';
-        if (!createUrl) {
-          event.preventDefault();
-          setFeedback('Could not read the selected result. Please try again.');
-          return;
-        }
-
-        event.preventDefault();
-        setFeedback('');
-        window.location.assign(createUrl);
       });
     }
+
   })();
 </script>
 

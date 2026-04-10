@@ -1,13 +1,14 @@
 import json
 
 from django import forms
-from django.forms import inlineformset_factory
+from django.core.exceptions import ValidationError
+from django.forms import BaseInlineFormSet, inlineformset_factory
 
 from tom_catalogs.harvester import get_service_classes
 from tom_targets.forms import NonSiderealTargetCreateForm, SiderealTargetCreateForm
 from tom_targets.models import Target, TargetName
 
-from custom_code.models import TargetAliasInfo
+from custom_code.models import TargetAliasInfo, TransitEphemeris
 
 
 CREATE_FORM_HIDDEN_FIELDS = (
@@ -68,10 +69,41 @@ class TargetAliasForm(forms.ModelForm):
         return alias
 
 
+class TargetAliasInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+
+        seen_names = set()
+        target_name = str(getattr(self.instance, 'name', '') or '').strip().casefold()
+        for form in self.forms:
+            if self.can_delete and self._should_delete_form(form):
+                continue
+            if not hasattr(form, 'cleaned_data'):
+                continue
+
+            name = str(form.cleaned_data.get('name') or '').strip()
+            if not name:
+                continue
+
+            normalized_name = name.casefold()
+            if normalized_name == target_name:
+                raise ValidationError(f'Alias "{name}" cannot match the target name.')
+            if normalized_name in seen_names:
+                raise ValidationError(f'Alias "{name}" is duplicated.')
+            seen_names.add(normalized_name)
+
+            duplicates = TargetName.objects.filter(name__iexact=name)
+            if self.instance.pk:
+                duplicates = duplicates.exclude(target=self.instance)
+            if duplicates.exists():
+                raise ValidationError(f'Alias "{name}" already exists on another target.')
+
+
 BhtomTargetNamesFormset = inlineformset_factory(
     Target,
     TargetName,
     form=TargetAliasForm,
+    formset=TargetAliasInlineFormSet,
     fields=('name',),
     validate_min=False,
     can_delete=True,
@@ -119,7 +151,67 @@ class BhtomCatalogQueryForm(forms.Form):
         return json.dumps(aliases) if aliases else ''
 
 
-class BhtomSiderealTargetCreateForm(SiderealTargetCreateForm):
+class PlanetaryTransitTargetFormMixin(forms.Form):
+    transit_char_field_names = (
+        'source_name',
+        'source_url',
+        'planet_name',
+        'host_name',
+        'priority',
+    )
+    transit_field_names = (
+        't0_bjd_tdb',
+        't0_unc',
+        'period_days',
+        'period_unc',
+        'duration_hours',
+        'depth_r_mmag',
+        'v_mag',
+        'r_mag',
+        'gaia_g_mag',
+    )
+
+    source_name = forms.CharField(required=False, label='Transit source name')
+    source_url = forms.URLField(required=False, label='Transit source URL')
+    planet_name = forms.CharField(required=False, label='Planet name')
+    host_name = forms.CharField(required=False, label='Host star name')
+    priority = forms.CharField(required=False, label='ExoClock priority')
+    t0_bjd_tdb = forms.FloatField(required=False, label='T0 (BJD_TDB)')
+    t0_unc = forms.FloatField(required=False, label='T0 uncertainty (d)')
+    period_days = forms.FloatField(required=False, label='Period (d)')
+    period_unc = forms.FloatField(required=False, label='Period uncertainty (d)')
+    duration_hours = forms.FloatField(required=False, label='Duration (h)')
+    depth_r_mmag = forms.FloatField(required=False, label='Depth (mmag)')
+    v_mag = forms.FloatField(required=False, label='V mag')
+    r_mag = forms.FloatField(required=False, label='R mag')
+    gaia_g_mag = forms.FloatField(required=False, label='Gaia G mag')
+
+    def _set_transit_initials(self):
+        try:
+            transit_ephemeris = self.instance.transit_ephemeris
+        except TransitEphemeris.DoesNotExist:
+            return
+
+        for field_name in self.transit_field_names:
+            value = getattr(transit_ephemeris, field_name, None)
+            if value not in (None, ''):
+                self.fields[field_name].initial = value
+
+    def get_transit_ephemeris_defaults(self):
+        defaults = {}
+        for field_name in self.transit_char_field_names:
+            defaults[field_name] = (self.cleaned_data.get(field_name) or '').strip()
+        for field_name in self.transit_field_names:
+            defaults[field_name] = self.cleaned_data.get(field_name)
+        return defaults
+
+
+class BhtomSiderealTargetCreateForm(PlanetaryTransitTargetFormMixin, SiderealTargetCreateForm):
+    classification = forms.ChoiceField(
+        choices=Target._meta.get_field('classification').choices,
+        required=False,
+        label='Classification',
+    )
     recommended_observing_strategy = forms.CharField(
         label='Recommended observing strategy',
         min_length=4,
@@ -131,6 +223,11 @@ class BhtomSiderealTargetCreateForm(SiderealTargetCreateForm):
         super().__init__(*args, **kwargs)
         for field_name in SIDEREAL_CREATE_FORM_HIDDEN_FIELDS:
             self.fields.pop(field_name, None)
+        for field_name in ('distance', 'distance_err', 'sun_separation', 'cadence_priority'):
+            self.fields.pop(field_name, None)
+        if not getattr(self.instance, 'pk', None):
+            self.fields.pop('priority', None)
+        self._set_transit_initials()
 
 
 class BhtomNonSiderealTargetCreateForm(NonSiderealTargetCreateForm):
@@ -145,6 +242,18 @@ class BhtomNonSiderealTargetCreateForm(NonSiderealTargetCreateForm):
         super().__init__(*args, **kwargs)
         for field_name in CREATE_FORM_HIDDEN_FIELDS:
             self.fields.pop(field_name, None)
+class BhtomSiderealTargetUpdateForm(BhtomSiderealTargetCreateForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._set_transit_initials()
+
+
+class BhtomPlanetaryTransitTargetCreateForm(BhtomSiderealTargetCreateForm):
+    pass
+
+
+class BhtomPlanetaryTransitTargetUpdateForm(BhtomSiderealTargetUpdateForm):
+    pass
 
 
 PUBLIC_UPLOAD_FILTER_CHOICES = [

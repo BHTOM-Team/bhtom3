@@ -35,18 +35,23 @@ from tom_catalogs.harvester import MissingDataException
 from tom_targets.forms import TargetExtraFormset
 from tom_targets.models import Target
 from tom_targets.views import TargetCreateView, TargetDetailView, TargetListView, TargetUpdateView
+from tom_dataservices.dataservices import get_data_service_class
+from tom_dataservices.views import CreateTargetFromQueryView
 
 from custom_code.filters import BhtomTargetFilterSet
 from custom_code.forms import (
     BhtomCatalogQueryForm,
     BhtomNonSiderealTargetCreateForm,
+    BhtomPlanetaryTransitTargetCreateForm,
+    BhtomPlanetaryTransitTargetUpdateForm,
     BhtomSiderealTargetCreateForm,
+    BhtomSiderealTargetUpdateForm,
     BhtomTargetNamesFormset,
     GeoTomAddSatForm,
     PublicUploadAccessForm,
     PublicFitsUploadForm,
 )
-from custom_code.models import GeoTarget
+from custom_code.models import GeoTarget, TransitEphemeris
 from custom_code.geosat import (
     altaz_to_hadec_point,
     convert_altaz_curve_to_hadec,
@@ -1228,6 +1233,27 @@ def _parse_alias_payload(payload):
     return cleaned
 
 
+def _dedupe_alias_rows(rows):
+    deduped = []
+    seen = set()
+    for row in rows:
+        if isinstance(row, dict):
+            name = str(row.get('name') or '').strip()
+            key = name.casefold()
+            if not name or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(row)
+        elif isinstance(row, str):
+            name = row.strip()
+            key = name.casefold()
+            if not name or key in seen:
+                continue
+            seen.add(key)
+            deduped.append({'name': name})
+    return deduped
+
+
 def _guess_alias_source(alias_name, url=''):
     value = str(alias_name or '').strip()
     url_value = str(url or '').strip().lower()
@@ -1269,6 +1295,17 @@ def _build_recommended_observing_strategy_comment(user, strategy):
         f'Created by: {full_name} ({username})\n'
         f'Recommended observing strategy: {strategy.strip()}'
     )
+
+
+def _get_transit_ephemeris_defaults(form):
+    getter = getattr(form, 'get_transit_ephemeris_defaults', None)
+    if not callable(getter):
+        return None
+    return getter()
+
+
+def _is_planetary_transit_classification(form):
+    return str(getattr(form, 'cleaned_data', {}).get('classification') or '').strip() == 'Planetary Transit'
 
 
 def _build_gaia_alerts_catalog_target(row):
@@ -1477,23 +1514,48 @@ class Bhtom2TargetListView(TargetListView):
 
 
 class BhtomTargetCreateView(TargetCreateView):
+    def _is_planetary_transit_target(self):
+        classification = (
+            self.request.POST.get('classification')
+            or self.request.GET.get('classification')
+            or self.initial.get('classification')
+            or ''
+        ).strip()
+        return classification == 'Planetary Transit'
+
     def get_form_class(self):
         target_type = self.get_target_type()
         self.initial['type'] = target_type
         if target_type == Target.SIDEREAL:
+            if self._is_planetary_transit_target():
+                return BhtomPlanetaryTransitTargetCreateForm
             return BhtomSiderealTargetCreateForm
         return BhtomNonSiderealTargetCreateForm
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        alias_payload = _parse_alias_payload(self.request.GET.get('alias_payload'))
+        form = context.get('form')
+        transit_char_field_names = getattr(form, 'transit_char_field_names', ())
+        transit_field_names = getattr(form, 'transit_field_names', ())
+        context['transit_char_field_names'] = transit_char_field_names
+        context['transit_field_names'] = transit_field_names
+        context['transit_char_fields'] = [form[name] for name in transit_char_field_names if form and name in form.fields]
+        context['transit_fields'] = [form[name] for name in transit_field_names if form and name in form.fields]
+        context['permissions_field'] = form['permissions'] if form and 'permissions' in form.fields else None
+        groups_field = form['groups'] if form and 'groups' in form.fields else None
+        context['groups_field'] = groups_field
+        context['show_groups_field'] = bool(
+            groups_field and getattr(form.fields['groups'].queryset, 'exists', lambda: False)()
+        )
+        alias_payload = _dedupe_alias_rows(_parse_alias_payload(self.request.GET.get('alias_payload')))
         if self.request.method == 'POST':
             context['names_form'] = BhtomTargetNamesFormset(self.request.POST, instance=getattr(self, 'object', None))
         elif alias_payload:
             context['names_form'] = BhtomTargetNamesFormset(initial=alias_payload)
         else:
+            names = _dedupe_alias_rows([{'name': new_name} for new_name in self.request.GET.get('names', '').split(',') if new_name])
             context['names_form'] = BhtomTargetNamesFormset(
-                initial=[{'name': new_name} for new_name in self.request.GET.get('names', '').split(',') if new_name]
+                initial=names
             )
         return context
 
@@ -1503,6 +1565,16 @@ class BhtomTargetCreateView(TargetCreateView):
             form.fields['groups'].queryset = Group.objects.all()
         else:
             form.fields['groups'].queryset = self.request.user.groups.all()
+        for field_name in getattr(form, 'transit_char_field_names', ()):
+            if field_name in form.fields:
+                value = self.request.GET.get(field_name)
+                if value not in (None, ''):
+                    form.fields[field_name].initial = value
+        for field_name in getattr(form, 'transit_field_names', ()):
+            if field_name in form.fields:
+                value = self.request.GET.get(field_name)
+                if value not in (None, ''):
+                    form.fields[field_name].initial = value
         return form
 
     @transaction.atomic
@@ -1510,9 +1582,17 @@ class BhtomTargetCreateView(TargetCreateView):
         self.object = form.save()
         extra = TargetExtraFormset(self.request.POST, instance=self.object)
         names = BhtomTargetNamesFormset(self.request.POST, instance=self.object)
+        transit_ephemeris = _get_transit_ephemeris_defaults(form) if _is_planetary_transit_classification(form) else None
+        has_transit_ephemeris = transit_ephemeris is not None and (
+            any(value not in (None, '') for value in transit_ephemeris.values())
+            or hasattr(self.object, 'transit_ephemeris')
+        )
+
         if extra.is_valid() and names.is_valid():
             extra.save()
             names.save()
+            if has_transit_ephemeris:
+                TransitEphemeris.objects.update_or_create(target=self.object, defaults=transit_ephemeris)
             Comment.objects.create(
                 content_object=self.object,
                 site=get_current_site(self.request),
@@ -1535,8 +1615,26 @@ class BhtomTargetCreateView(TargetCreateView):
 
 
 class BhtomTargetUpdateView(TargetUpdateView):
+    def get_form_class(self):
+        if self.object.type == Target.SIDEREAL:
+            return BhtomSiderealTargetUpdateForm
+        return super().get_form_class()
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        form = context.get('form')
+        transit_char_field_names = getattr(form, 'transit_char_field_names', ())
+        transit_field_names = getattr(form, 'transit_field_names', ())
+        context['transit_char_field_names'] = transit_char_field_names
+        context['transit_field_names'] = transit_field_names
+        context['transit_char_fields'] = [form[name] for name in transit_char_field_names if form and name in form.fields]
+        context['transit_fields'] = [form[name] for name in transit_field_names if form and name in form.fields]
+        context['permissions_field'] = form['permissions'] if form and 'permissions' in form.fields else None
+        groups_field = form['groups'] if form and 'groups' in form.fields else None
+        context['groups_field'] = groups_field
+        context['show_groups_field'] = bool(
+            groups_field and getattr(form.fields['groups'].queryset, 'exists', lambda: False)()
+        )
         if self.request.method == 'POST':
             context['names_form'] = BhtomTargetNamesFormset(self.request.POST, instance=self.object)
         else:
@@ -1551,6 +1649,12 @@ class BhtomTargetUpdateView(TargetUpdateView):
         if extra.is_valid() and names.is_valid():
             extra.save()
             names.save()
+            transit_ephemeris = _get_transit_ephemeris_defaults(form) if _is_planetary_transit_classification(form) else None
+            if transit_ephemeris is not None and (
+                any(value not in (None, '') for value in transit_ephemeris.values())
+                or hasattr(self.object, 'transit_ephemeris')
+            ):
+                TransitEphemeris.objects.update_or_create(target=self.object, defaults=transit_ephemeris)
             return redirect(self.get_success_url())
         form.add_error(None, extra.errors)
         form.add_error(None, extra.non_form_errors())
@@ -1855,7 +1959,79 @@ class BhtomCatalogSelectResultView(LoginRequiredMixin, View):
 
         if not stored_results:
             messages.error(request, 'Catalog query results expired. Run the catalog query again.')
-            return redirect(reverse('tom_catalogs:query'))
+        return redirect(reverse('tom_catalogs:query'))
+
+
+class BhtomCreateTargetFromQueryView(CreateTargetFromQueryView):
+    @staticmethod
+    def _build_create_url(target, cached_result):
+        target_params = target.as_dict()
+        target_params['names'] = ','.join(
+            alias['name'] for alias in getattr(target, 'extra_aliases', []) if alias.get('name')
+        )
+        has_transit_payload = any(
+            cached_result.get(key) not in (None, '')
+            for key in (
+                'transit_source_name',
+                'transit_source_url',
+                'transit_planet_name',
+                'transit_host_name',
+                'transit_t0_bjd_tdb',
+                'transit_period_days',
+            )
+        )
+        if has_transit_payload:
+            target_params['classification'] = 'Planetary Transit'
+        target_params['source_name'] = cached_result.get('transit_source_name') or target_params.get('source_name') or ''
+        target_params['source_url'] = cached_result.get('transit_source_url') or target_params.get('source_url') or ''
+        target_params['planet_name'] = cached_result.get('transit_planet_name') or target_params.get('planet_name') or ''
+        target_params['host_name'] = cached_result.get('transit_host_name') or target_params.get('host_name') or ''
+        for key, value in [
+            ('t0_bjd_tdb', cached_result.get('transit_t0_bjd_tdb')),
+            ('t0_unc', cached_result.get('transit_t0_unc')),
+            ('period_days', cached_result.get('transit_period_days')),
+            ('period_unc', cached_result.get('transit_period_unc')),
+            ('duration_hours', cached_result.get('transit_duration_hours')),
+            ('depth_r_mmag', cached_result.get('transit_depth_r_mmag')),
+            ('v_mag', cached_result.get('transit_v_mag')),
+            ('r_mag', cached_result.get('transit_r_mag')),
+            ('gaia_g_mag', cached_result.get('transit_gaia_g_mag')),
+        ]:
+            if value not in (None, ''):
+                target_params[key] = value
+        alias_payload = BhtomCatalogQueryForm.serialize_alias_payload(target)
+        if alias_payload:
+            target_params['alias_payload'] = alias_payload
+        return reverse('targets:create') + '?' + urlencode(target_params)
+
+    def post(self, request, *args, **kwargs):
+        query_id = request.POST.get('query_id')
+        data_service_name = request.POST.get('data_service')
+        results = request.POST.getlist('selected_results')
+        if not results:
+            messages.warning(request, 'Please select at least one result from which to create a target.')
+            if query_id:
+                return redirect(reverse('dataservices:run_saved', kwargs={'pk': query_id}))
+            return redirect(reverse('dataservices:run'))
+
+        data_service_class = get_data_service_class(data_service_name)()
+        selected_result_id = results[0]
+        cached_result = cache.get(f'result_{selected_result_id}')
+        if not cached_result:
+            messages.error(request, 'Could not create targets. Try re-running the query again.')
+            if query_id:
+                return redirect(reverse('dataservices:run_saved', kwargs={'pk': query_id}))
+            return redirect(reverse('dataservices:run'))
+
+        try:
+            target, _, _ = data_service_class.to_target(cached_result)
+        except MissingDataException:
+            messages.error(request, 'Could not create targets. Try re-running the query again.')
+            if query_id:
+                return redirect(reverse('dataservices:run_saved', kwargs={'pk': query_id}))
+            return redirect(reverse('dataservices:run'))
+
+        return HttpResponseRedirect(self._build_create_url(target, cached_result))
         if selected_result in (None, ''):
             messages.warning(request, 'Please select one result.')
             context = {

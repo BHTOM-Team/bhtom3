@@ -1,9 +1,11 @@
 import logging
 
+from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.contrib.auth.signals import user_logged_in
+from django.core.exceptions import ObjectDoesNotExist
 from django.db.backends.signals import connection_created
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 
 from tom_dataproducts.models import ReducedDatum
@@ -131,6 +133,56 @@ def update_target_priority_on_target_save(sender, instance, **kwargs):
     if instance is None or instance.pk is None:
         return
     refresh_target_priority(instance.pk)
+
+
+def _raw_delete_related_rows(app_label, model_name, **filters):
+    """
+    Delete dependent rows before target deletion.
+
+    Django's collector should cascade these relations, but some TOM models end up
+    with deferred foreign keys on SQLite. Removing the child rows explicitly keeps
+    target deletion from failing at commit time.
+    """
+    try:
+        model = apps.get_model(app_label, model_name)
+    except LookupError:
+        return
+
+    queryset = model.objects.filter(**filters)
+    if not queryset.exists():
+        return
+
+    raw_delete = getattr(queryset, '_raw_delete', None)
+    if raw_delete is not None:
+        raw_delete(queryset.db)
+        return
+
+    queryset.delete()
+
+
+@receiver(pre_delete, sender=Target, dispatch_uid='custom_code.cleanup_target_relations_on_target_delete')
+def cleanup_target_relations_on_target_delete(sender, instance, **kwargs):
+    if instance is None or instance.pk is None:
+        return
+
+    target_id = instance.pk
+    _raw_delete_related_rows('tom_dataproducts', 'ReducedDatum', target_id=target_id)
+    _raw_delete_related_rows('tom_dataproducts', 'DataProduct', target_id=target_id)
+    _raw_delete_related_rows('tom_observations', 'ObservationRecord', target_id=target_id)
+    _raw_delete_related_rows('tom_targets', 'TargetExtra', target_id=target_id)
+    _raw_delete_related_rows('tom_targets', 'PersistentShare', target_id=target_id)
+
+    try:
+        instance.aliases.all().delete()
+    except ObjectDoesNotExist:
+        pass
+
+    try:
+        transit_ephemeris = instance.transit_ephemeris
+    except ObjectDoesNotExist:
+        transit_ephemeris = None
+    if transit_ephemeris is not None:
+        transit_ephemeris.delete()
 
 
 @receiver(connection_created, dispatch_uid='custom_code.sqlite_pragmas')

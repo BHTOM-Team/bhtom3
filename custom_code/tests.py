@@ -1,9 +1,12 @@
+import json
 from unittest.mock import Mock, patch
 
 from astropy.time import Time
 from datetime import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.cache import cache
 from django.contrib.auth import get_user_model
+from django.test.client import RequestFactory
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from tom_targets.models import Target
@@ -27,12 +30,18 @@ from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
 from custom_code.data_services.forms import SimbadQueryForm
 from custom_code.forms import (
     BhtomNonSiderealTargetCreateForm,
+    BhtomPlanetaryTransitTargetCreateForm,
+    BhtomPlanetaryTransitTargetUpdateForm,
     BhtomSiderealTargetCreateForm,
+    BhtomSiderealTargetUpdateForm,
+    BhtomTargetNamesFormset,
 )
 from custom_code.models import TransitEphemeris
+from custom_code.signals import cleanup_target_relations_on_target_delete
 from custom_code.tasks import _run_service_for_target
 from custom_code.sun_separation import get_live_target_values
 from custom_code.target_derivations import derive_sidereal_target_fields
+from custom_code.views import BhtomCreateTargetFromQueryView, BhtomTargetCreateView, BhtomTargetUpdateView
 
 
 @override_settings(
@@ -260,6 +269,10 @@ class ExoClockDataServiceTests(TestCase):
         self.assertEqual(result['reduced_datums']['transit_timing'][1]['value']['mission'], 'TESS')
         self.assertTrue(result['reduced_datums']['transit_timing'][1]['value']['has_data_download'])
         self.assertEqual(result['reduced_datums']['transit_timing'][2]['value']['reference'], 'Yee et al. 2020')
+        self.assertEqual(result['transit_source_name'], 'ExoClock')
+        self.assertEqual(result['transit_planet_name'], 'WASP-12b')
+        self.assertEqual(result['transit_host_name'], 'WASP-12')
+        self.assertEqual(result['transit_period_days'], 1.091418859)
 
     def test_query_targets_by_coordinates_selects_nearest_planet(self):
         service = ExoClockDataService()
@@ -448,6 +461,16 @@ class TargetCreateFormVisibilityTests(TestCase):
     def test_sidereal_create_form_hides_derived_and_plot_fields(self):
         form = BhtomSiderealTargetCreateForm()
 
+        self.assertIn('classification', form.fields)
+        self.assertIn('source_name', form.fields)
+        self.assertIn('planet_name', form.fields)
+        self.assertIn('t0_bjd_tdb', form.fields)
+        self.assertIn('period_days', form.fields)
+        self.assertNotIn('distance', form.fields)
+        self.assertNotIn('distance_err', form.fields)
+        self.assertNotIn('sun_separation', form.fields)
+        self.assertNotIn('cadence_priority', form.fields)
+        self.assertNotIn('priority', form.fields)
         self.assertNotIn('galactic_lng', form.fields)
         self.assertNotIn('galactic_lat', form.fields)
         self.assertNotIn('constellation', form.fields)
@@ -461,6 +484,389 @@ class TargetCreateFormVisibilityTests(TestCase):
         self.assertNotIn('photometry_icon_plot', form.fields)
         self.assertNotIn('spectroscopy_plot', form.fields)
         self.assertNotIn('plot_created', form.fields)
+
+    def test_planetary_transit_create_form_includes_transit_ephemeris_fields(self):
+        form = BhtomPlanetaryTransitTargetCreateForm()
+
+        self.assertIn('source_name', form.fields)
+        self.assertIn('source_url', form.fields)
+        self.assertIn('planet_name', form.fields)
+        self.assertIn('host_name', form.fields)
+        self.assertIn('priority', form.fields)
+        self.assertIn('t0_bjd_tdb', form.fields)
+        self.assertIn('t0_unc', form.fields)
+        self.assertIn('period_days', form.fields)
+        self.assertIn('period_unc', form.fields)
+        self.assertIn('duration_hours', form.fields)
+        self.assertIn('depth_r_mmag', form.fields)
+        self.assertIn('v_mag', form.fields)
+        self.assertIn('r_mag', form.fields)
+        self.assertIn('gaia_g_mag', form.fields)
+
+    def test_sidereal_update_form_includes_transit_ephemeris_fields(self):
+        target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
+        form = BhtomSiderealTargetUpdateForm(instance=target)
+
+        self.assertIn('classification', form.fields)
+        self.assertIn('source_name', form.fields)
+        self.assertIn('planet_name', form.fields)
+        self.assertIn('priority', form.fields)
+
+    def test_target_alias_formset_rejects_duplicate_names_before_save(self):
+        target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
+        prefix = BhtomTargetNamesFormset(instance=target).prefix
+        formset = BhtomTargetNamesFormset(
+            data={
+                f'{prefix}-TOTAL_FORMS': '2',
+                f'{prefix}-INITIAL_FORMS': '0',
+                f'{prefix}-MIN_NUM_FORMS': '0',
+                f'{prefix}-MAX_NUM_FORMS': '1000',
+                f'{prefix}-0-name': 'WASP-12',
+                f'{prefix}-1-name': 'WASP-12',
+            },
+            instance=target,
+        )
+
+        self.assertFalse(formset.is_valid())
+        self.assertTrue(formset.non_form_errors())
+
+
+class TargetDeleteCleanupTests(TestCase):
+    def test_target_delete_cleans_related_rows_before_parent_delete(self):
+        target = Mock(pk=123)
+        target.aliases = Mock()
+        target.aliases.all.return_value.delete = Mock()
+        target.transit_ephemeris = Mock()
+
+        queryset_mocks = []
+        model_mocks = []
+        for _ in range(5):
+            queryset = Mock()
+            queryset.exists.return_value = True
+            queryset.db = 'default'
+            queryset._raw_delete = Mock()
+            model = Mock()
+            model.objects.filter.return_value = queryset
+            queryset_mocks.append(queryset)
+            model_mocks.append(model)
+
+        with patch('custom_code.signals.apps.get_model', side_effect=model_mocks) as mocked_get_model:
+            cleanup_target_relations_on_target_delete(sender=Target, instance=target)
+
+        self.assertEqual(mocked_get_model.call_count, 5)
+        for queryset in queryset_mocks:
+            queryset._raw_delete.assert_called_once_with('default')
+
+        target.aliases.all.return_value.delete.assert_called_once()
+        target.transit_ephemeris.delete.assert_called_once()
+
+
+class PlanetaryTransitTargetCreateTests(TestCase):
+    def test_create_view_uses_planetary_transit_form_for_classification(self):
+        request = RequestFactory().get(reverse('targets:create'), {'classification': 'Planetary Transit', 'type': 'SIDEREAL'})
+        view = BhtomTargetCreateView()
+        view.request = request
+        view.initial = {}
+        view.get_target_type = Mock(return_value=Target.SIDEREAL)
+
+        self.assertIs(view.get_form_class(), BhtomPlanetaryTransitTargetCreateForm)
+
+    def test_form_valid_persists_transit_ephemeris(self):
+        request = RequestFactory().post(reverse('targets:create'))
+        user = get_user_model().objects.create_user(username='transit-user', password='secret')
+        request.user = user
+
+        target = Target.objects.create(
+            name='WASP-12b',
+            type=Target.SIDEREAL,
+            ra=97.6366525,
+            dec=29.672296111111113,
+            epoch=2000.0,
+            classification='Planetary Transit',
+        )
+
+        class DummyForm:
+            cleaned_data = {
+                'source_name': 'ExoClock',
+                'source_url': 'https://www.exoclock.space/database/planets/WASP-12b',
+                'planet_name': 'WASP-12b',
+                'host_name': 'WASP-12',
+                'priority': 'A',
+                't0_bjd_tdb': 2457368.4973,
+                't0_unc': 0.0041,
+                'period_days': 1.091418859,
+                'period_unc': 0.0000012,
+                'duration_hours': 2.93,
+                'depth_r_mmag': 17.81,
+                'v_mag': 11.3,
+                'r_mag': 11.1,
+                'gaia_g_mag': 11.25,
+                'recommended_observing_strategy': 'Observe around the predicted transit window.',
+            }
+
+            def save(self):
+                return target
+
+        extra_formset = Mock()
+        extra_formset.is_valid.return_value = True
+        extra_formset.save.return_value = None
+        names_formset = Mock()
+        names_formset.is_valid.return_value = True
+        names_formset.save.return_value = None
+
+        view = BhtomTargetCreateView()
+        view.request = request
+
+        with patch('custom_code.views.TargetExtraFormset', return_value=extra_formset), \
+             patch('custom_code.views.BhtomTargetNamesFormset', return_value=names_formset), \
+             patch('custom_code.views.Comment.objects.create'), \
+             patch('custom_code.views.get_current_site', return_value=Mock()), \
+             patch('custom_code.views.run_hook'), \
+             patch.object(BhtomTargetCreateView, 'get_success_url', return_value='/targets/1/'):
+            response = view.form_valid(DummyForm())
+
+        self.assertEqual(response.status_code, 302)
+        ephemeris = TransitEphemeris.objects.get(target=target)
+        self.assertEqual(ephemeris.source_name, 'ExoClock')
+        self.assertEqual(ephemeris.planet_name, 'WASP-12b')
+        self.assertEqual(ephemeris.host_name, 'WASP-12')
+        self.assertAlmostEqual(ephemeris.period_days, 1.091418859)
+
+    def test_create_view_prefills_transit_fields_from_exoclock_payload(self):
+        request = RequestFactory().get(
+            reverse('targets:create'),
+            {
+                'type': 'SIDEREAL',
+                'classification': 'Planetary Transit',
+                'source_name': 'ExoClock',
+                'source_url': 'https://www.exoclock.space/database/planets/WASP-12b',
+                'planet_name': 'WASP-12b',
+                'host_name': 'WASP-12',
+                't0_bjd_tdb': '2457368.4973',
+                't0_unc': '0.0041',
+                'period_days': '1.091418859',
+                'period_unc': '0.0000012',
+                'duration_hours': '2.93',
+                'depth_r_mmag': '17.81',
+                'v_mag': '11.3',
+                'r_mag': '11.1',
+                'gaia_g_mag': '11.25',
+            },
+        )
+        user = get_user_model().objects.create_user(username='transit-prefill', password='secret')
+        request.user = user
+
+        view = BhtomTargetCreateView()
+        view.request = request
+        view.object = None
+        view.initial = {}
+        view.get_target_type = Mock(return_value=Target.SIDEREAL)
+
+        form = view.get_form()
+
+        self.assertEqual(form.fields['source_name'].initial, 'ExoClock')
+        self.assertEqual(form.fields['source_url'].initial, 'https://www.exoclock.space/database/planets/WASP-12b')
+        self.assertEqual(form.fields['planet_name'].initial, 'WASP-12b')
+        self.assertEqual(form.fields['host_name'].initial, 'WASP-12')
+        self.assertEqual(form.fields['t0_bjd_tdb'].initial, 2457368.4973)
+        self.assertEqual(form.fields['period_days'].initial, 1.091418859)
+        self.assertEqual(form.fields['duration_hours'].initial, 2.93)
+        self.assertEqual(form.fields['depth_r_mmag'].initial, 17.81)
+
+    def test_create_target_from_query_redirects_with_transit_query_params(self):
+        cache_key = 'result_0'
+        cache_payload = {
+            'name': 'WASP-12b',
+            'ra': 97.6366525,
+            'dec': 29.672296111111113,
+            'epoch': 2000.0,
+            'transit_source_name': 'ExoClock',
+            'transit_source_url': 'https://www.exoclock.space/database/planets/WASP-12b',
+            'transit_planet_name': 'WASP-12b',
+            'transit_host_name': 'WASP-12',
+            'transit_t0_bjd_tdb': 2457368.4973,
+            'transit_t0_unc': 0.0041,
+            'transit_period_days': 1.091418859,
+            'transit_period_unc': 0.0000012,
+            'transit_duration_hours': 2.93,
+            'transit_depth_r_mmag': 17.81,
+            'transit_v_mag': 11.3,
+            'transit_r_mag': 11.1,
+            'transit_gaia_g_mag': 11.25,
+        }
+        cache.set(cache_key, cache_payload, 3600)
+
+        request = RequestFactory().post(
+            reverse('dataservices:create-target'),
+            data={
+                'query_id': '17',
+                'data_service': 'ExoClock',
+                'selected_results': ['0'],
+            },
+        )
+        user = get_user_model().objects.create_user(username='transit-create-query', password='secret')
+        request.user = user
+
+        class StubService:
+            def to_target(self, cached_result):
+                self.cached_result = cached_result
+                return Target.objects.create(
+                    name='WASP-12b',
+                    type=Target.SIDEREAL,
+                    ra=97.6366525,
+                    dec=29.672296111111113,
+                    epoch=2000.0,
+                ), None, None
+
+        with patch('custom_code.views.get_data_service_class', return_value=StubService):
+            response = BhtomCreateTargetFromQueryView.as_view()(request)
+
+        self.assertEqual(response.status_code, 302)
+        location = response['Location']
+        self.assertIn('classification=Planetary+Transit', location)
+        self.assertIn('source_name=ExoClock', location)
+        self.assertIn('planet_name=WASP-12b', location)
+        self.assertIn('t0_bjd_tdb=2457368.4973', location)
+        self.assertIn('period_days=1.091418859', location)
+
+    def test_create_context_hides_empty_groups_field(self):
+        request = RequestFactory().get(reverse('targets:create'), {'type': 'SIDEREAL'})
+        user = get_user_model().objects.create_user(username='target-create-layout', password='secret')
+        request.user = user
+
+        view = BhtomTargetCreateView()
+        view.request = request
+        view.object = None
+        view.initial = {}
+        view.get_target_type = Mock(return_value=Target.SIDEREAL)
+
+        form = view.get_form()
+        context = view.get_context_data(form=form)
+
+        self.assertFalse(context['show_groups_field'])
+        self.assertIsNotNone(context['permissions_field'])
+
+    def test_transit_form_normalizes_blank_text_fields_to_empty_strings(self):
+        form = BhtomPlanetaryTransitTargetCreateForm(
+            data={
+                'type': 'SIDEREAL',
+                'name': 'WASP-12b',
+                'ra': 97.6366525,
+                'dec': 29.672296111111113,
+                'epoch': 2000.0,
+                'classification': 'Planetary Transit',
+                'recommended_observing_strategy': 'Observe around the predicted transit window.',
+                'source_name': '',
+                'source_url': '',
+                'planet_name': '',
+                'host_name': '',
+                'priority': '',
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        defaults = form.get_transit_ephemeris_defaults()
+        self.assertEqual(defaults['source_name'], '')
+        self.assertEqual(defaults['source_url'], '')
+        self.assertEqual(defaults['planet_name'], '')
+        self.assertEqual(defaults['host_name'], '')
+        self.assertEqual(defaults['priority'], '')
+
+
+class PlanetaryTransitTargetUpdateTests(TestCase):
+    def test_update_form_includes_and_prefills_transit_fields(self):
+        target = Target.objects.create(
+            name='WASP-12b',
+            type=Target.SIDEREAL,
+            ra=97.6366525,
+            dec=29.672296111111113,
+            epoch=2000.0,
+            classification='Planetary Transit',
+        )
+        TransitEphemeris.objects.create(
+            target=target,
+            source_name='ExoClock',
+            source_url='https://www.exoclock.space/database/planets/WASP-12b',
+            planet_name='WASP-12b',
+            host_name='WASP-12',
+            priority='A',
+            period_days=1.091418859,
+        )
+
+        form = BhtomPlanetaryTransitTargetUpdateForm(instance=target)
+
+        self.assertIn('source_name', form.fields)
+        self.assertIn('planet_name', form.fields)
+        self.assertEqual(form.fields['source_name'].initial, 'ExoClock')
+        self.assertEqual(form.fields['planet_name'].initial, 'WASP-12b')
+        self.assertEqual(form.fields['host_name'].initial, 'WASP-12')
+
+    def test_update_view_persists_transit_ephemeris_changes(self):
+        request = RequestFactory().post(reverse('targets:update', kwargs={'pk': 1}))
+        user = get_user_model().objects.create_user(username='transit-user-update', password='secret')
+        request.user = user
+
+        target = Target.objects.create(
+            name='WASP-12b',
+            type=Target.SIDEREAL,
+            ra=97.6366525,
+            dec=29.672296111111113,
+            epoch=2000.0,
+            classification='Planetary Transit',
+        )
+        TransitEphemeris.objects.create(
+            target=target,
+            source_name='ExoClock',
+            source_url='https://www.exoclock.space/database/planets/WASP-12b',
+            planet_name='WASP-12b',
+            host_name='WASP-12',
+            priority='A',
+            period_days=1.091418859,
+        )
+
+        class DummyForm:
+            cleaned_data = {
+                'source_name': 'ExoClock',
+                'source_url': 'https://www.exoclock.space/database/planets/WASP-12b',
+                'planet_name': 'WASP-12b',
+                'host_name': 'WASP-12',
+                'priority': 'B',
+                't0_bjd_tdb': 2457368.4973,
+                't0_unc': 0.0041,
+                'period_days': 1.091418860,
+                'period_unc': 0.0000013,
+                'duration_hours': 3.1,
+                'depth_r_mmag': 18.2,
+                'v_mag': 11.2,
+                'r_mag': 11.0,
+                'gaia_g_mag': 11.1,
+            }
+
+            def save(self):
+                return target
+
+        extra_formset = Mock()
+        extra_formset.is_valid.return_value = True
+        extra_formset.save.return_value = None
+        names_formset = Mock()
+        names_formset.is_valid.return_value = True
+        names_formset.save.return_value = None
+
+        view = BhtomTargetUpdateView()
+        view.request = request
+        view.object = target
+
+        with patch('custom_code.views.TargetExtraFormset', return_value=extra_formset), \
+             patch('custom_code.views.BhtomTargetNamesFormset', return_value=names_formset), \
+             patch('custom_code.views.run_hook'), \
+             patch.object(BhtomTargetUpdateView, 'get_success_url', return_value='/targets/1/'):
+            response = view.form_valid(DummyForm())
+
+        self.assertEqual(response.status_code, 302)
+        ephemeris = TransitEphemeris.objects.get(target=target)
+        self.assertEqual(ephemeris.priority, 'B')
+        self.assertAlmostEqual(ephemeris.current_oc_min, -4.2)
+        self.assertAlmostEqual(ephemeris.period_days, 1.09141886)
 
     def test_non_sidereal_create_form_hides_internal_and_plot_fields(self):
         form = BhtomNonSiderealTargetCreateForm()

@@ -41,6 +41,7 @@ from custom_code.views import (
 
 urlpatterns = [
     path('accounts/logout/', LegacyLogoutView.as_view(), name='logout'),
+    path('dataservices/', include(('custom_code.dataservices_urls', 'dataservices'), namespace='dataservices')),
     path('catalogs/query/', BhtomCatalogQueryView.as_view(), name='catalog-query-override'),
     path('catalogs/query/select/', BhtomCatalogSelectResultView.as_view(), name='catalog-select-result'),
     path('targets/', Bhtom2TargetListView.as_view(), name='targets-list-override'),
