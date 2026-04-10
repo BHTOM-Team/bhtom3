@@ -318,6 +318,7 @@ CLASSIFICATION_TYPES = [
     ("SSO", "Solar System Object(SSO)"),
     ("Star", "Star"), ("SN", "Supernova(SN)"), ("Supernova imposter", "Supernova imposter"),
     ("Symbiotic star", "Symbiotic star"),
+    ("Planetary Transit", "Planetary Transit"),
     ("TDE", "Tidal Disruption Event(TDE)"), ("Variable star-other", "Variable star-other"),
     ("XRB", "X-Ray Binary(XRB)"),
     ("YSO", "Young Stellar Object(YSO)")]
@@ -407,6 +408,7 @@ _CORE_CUSTOM_HARVESTER_CLASSES = [
     'custom_code.bhtom_catalogs.harvesters.gaia_dr3.GaiaDR3Harvester',
     'custom_code.bhtom_catalogs.harvesters.lsst.LSSTHarvester',
     'custom_code.bhtom_catalogs.harvesters.gaia_alerts.GaiaAlertsHarvester',
+    'custom_code.bhtom_catalogs.harvesters.exoclock.ExoClockHarvester',
 ]
 _BOTTOM_CUSTOM_HARVESTER_CLASSES = [
     'custom_code.bhtom_catalogs.harvesters.crts.CRTSHarvester',

@@ -17,16 +17,20 @@ from custom_code.data_services.ogle_ews_dataservice import (
     _parse_photometry_rows,
     _ra_to_decimal,
 )
+from custom_code.data_services.exoclock_dataservice import ExoClockDataService
 from custom_code.bhtom_catalogs.harvesters.simbad import target_from_result
 from custom_code.bhtom_catalogs.harvesters.crts import CRTSHarvester
 from custom_code.bhtom_catalogs.harvesters.gaia_alerts import GaiaAlertsHarvester
 from custom_code.bhtom_catalogs.harvesters.gaia_dr3 import GaiaDR3Harvester
+from custom_code.bhtom_catalogs.harvesters.exoclock import ExoClockHarvester
 from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
 from custom_code.data_services.forms import SimbadQueryForm
 from custom_code.forms import (
     BhtomNonSiderealTargetCreateForm,
     BhtomSiderealTargetCreateForm,
 )
+from custom_code.models import TransitEphemeris
+from custom_code.tasks import _run_service_for_target
 from custom_code.sun_separation import get_live_target_values
 from custom_code.target_derivations import derive_sidereal_target_fields
 
@@ -175,6 +179,190 @@ class OGLEEWSDataServiceTests(TestCase):
         )
 
 
+class ExoClockDataServiceTests(TestCase):
+    def test_query_targets_by_name_returns_ephemeris_and_timing_rows(self):
+        service = ExoClockDataService()
+        catalog = {
+            'WASP-12b': {
+                'name': 'WASP-12b',
+                'star': 'WASP-12',
+                'priority': 'low',
+                'current_oc_min': -5.37,
+                'ra_j2000': '06:30:32.7966',
+                'dec_j2000': '+29:40:20.266',
+                'v_mag': 11.57,
+                'r_mag': 11.288,
+                'gaia_g_mag': 11.5,
+                'depth_r_mmag': 17.81,
+                'duration_hours': 3.0,
+                't0_bjd_tdb': 2457368.4973,
+                't0_unc': 5.9e-05,
+                'period_days': 1.091418859,
+                'period_unc': 3.9e-08,
+                'min_telescope_inches': 5.0,
+                'total_observations': 532,
+                'total_observations_recent': 26,
+            }
+        }
+        html = """
+        <html><body>
+        <table></table><table></table><table></table>
+        <table>
+          <tr><td colspan="5"><h2>ExoClock Observations</h2></td></tr>
+          <tr><th>Planet<br>Observation Date</th><th>Observer<br>Observatory</th><th>Telescope<br> Camera / Filter / Exp [s]</th><th>O-C<br>minutes</th><th></th></tr>
+          <tr>
+            <td>WASP-12b<br>2026-03-23</td>
+            <td>Mizuho Imai<br>Niijima Gakuen High School</td>
+            <td>Nisimura Co.<br>BITRAN BJ-54L / I / 60.0</td>
+            <td>-7.6 ± 3.31</td>
+            <td><a href="/database/observations/WASP-12b_1"><button>View</button></a></td>
+          </tr>
+          <tr><td colspan="4"><h2>Space Observations</h2></td></tr>
+          <tr><th>Planet<br>Observation Date</th><th>Mission</th><th>O-C<br>minutes</th><th></th></tr>
+          <tr>
+            <td>WASP-12b<br>2023-12-06</td>
+            <td>TESS</td>
+            <td>-4.32 ± 0.63</td>
+            <td><a href="/database/space/WASP-12b_2"><button>View &amp; Get data</button></a></td>
+          </tr>
+          <tr><td colspan="4"><h2>Literature Mid-times</h2></td></tr>
+          <tr><th>Planet<br>Observation Date</th><th>Reference</th><th>O-C<br>minutes</th><th></th></tr>
+          <tr>
+            <td>2019-01-23</td>
+            <td>Yee et al. 2020</td>
+            <td>0.59 ± 0.63</td>
+            <td><a href="/database/literature/WASP-12b_3"><button>View</button></a></td>
+          </tr>
+        </table>
+        </body></html>
+        """
+
+        with patch.object(service, 'query_service', return_value={'catalog': catalog, 'source_location': service.info_url}), patch.object(
+            service,
+            '_fetch_timing_datums',
+            return_value=service._parse_timing_datums(html, 'https://www.exoclock.space/database/planets/WASP-12b'),
+        ):
+            results = service.query_targets({
+                'target_name': 'WASP-12b',
+                'target_names': ['WASP-12b', 'WASP-12'],
+                'include_timing_data': True,
+                'radius_arcsec': 30.0,
+            })
+
+        self.assertEqual(len(results), 1)
+        result = results[0]
+        self.assertEqual(result['name'], 'WASP-12b')
+        self.assertEqual(result['aliases'][1]['name'], 'WASP-12')
+        self.assertEqual(result['transit_ephemeris_updates']['period_days'], 1.091418859)
+        self.assertEqual(result['transit_ephemeris_updates']['recent_observations'], 26)
+        self.assertEqual(len(result['reduced_datums']['transit_timing']), 3)
+        self.assertEqual(result['reduced_datums']['transit_timing'][0]['value']['category'], 'exoclock')
+        self.assertEqual(result['reduced_datums']['transit_timing'][1]['value']['mission'], 'TESS')
+        self.assertTrue(result['reduced_datums']['transit_timing'][1]['value']['has_data_download'])
+        self.assertEqual(result['reduced_datums']['transit_timing'][2]['value']['reference'], 'Yee et al. 2020')
+
+    def test_query_targets_by_coordinates_selects_nearest_planet(self):
+        service = ExoClockDataService()
+        catalog = {
+            'WASP-12b': {
+                'name': 'WASP-12b',
+                'star': 'WASP-12',
+                'ra_j2000': '06:30:32.7966',
+                'dec_j2000': '+29:40:20.266',
+            },
+            'WASP-13b': {
+                'name': 'WASP-13b',
+                'star': 'WASP-13',
+                'ra_j2000': '09:20:24.7030',
+                'dec_j2000': '+33:52:56.598',
+            },
+        }
+
+        with patch.object(service, 'query_service', return_value={'catalog': catalog, 'source_location': service.info_url}), patch.object(
+            service,
+            '_fetch_timing_datums',
+            return_value=[],
+        ):
+            results = service.query_targets({
+                'target_names': [],
+                'ra': 97.63665,
+                'dec': 29.672296,
+                'radius_arcsec': 60.0,
+                'include_timing_data': True,
+            })
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'WASP-12b')
+
+
+class DataServicePersistenceTests(TestCase):
+    def test_run_service_for_target_persists_transit_ephemeris(self):
+        target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
+
+        class StubService:
+            name = 'ExoClock'
+
+            @classmethod
+            def get_form_class(cls):
+                return ExoClockDataService.get_form_class()
+
+            def build_query_parameters(self, parameters, **kwargs):
+                return parameters
+
+            def query_targets(self, query_parameters, **kwargs):
+                return [{
+                    'target_updates': {'ra': 97.63665, 'dec': 29.672296, 'epoch': 2000.0},
+                    'aliases': [{'name': 'WASP-12', 'url': 'https://www.exoclock.space/database/planets/WASP-12b'}],
+                    'transit_ephemeris_updates': {
+                        'source_name': 'ExoClock',
+                        'source_url': 'https://www.exoclock.space/database/planets/WASP-12b',
+                        'planet_name': 'WASP-12b',
+                        'host_name': 'WASP-12',
+                        'priority': 'low',
+                        'period_days': 1.091418859,
+                        'duration_hours': 3.0,
+                        'depth_r_mmag': 17.81,
+                        't0_bjd_tdb': 2457368.4973,
+                        'recent_observations': 26,
+                        'payload': {'name': 'WASP-12b'},
+                    },
+                }]
+
+        _run_service_for_target(target, 'ExoClock', StubService, force_all_services=False)
+
+        target.refresh_from_db()
+        self.assertEqual(target.ra, 97.63665)
+        self.assertTrue(target.aliases.filter(name='WASP-12').exists())
+        ephemeris = TransitEphemeris.objects.get(target=target)
+        self.assertEqual(ephemeris.planet_name, 'WASP-12b')
+        self.assertEqual(ephemeris.host_name, 'WASP-12')
+        self.assertEqual(ephemeris.recent_observations, 26)
+
+    def test_transit_ephemeris_computes_next_transit_from_bjd_tdb(self):
+        target = Target.objects.create(name='TestTransit', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
+        now = Time('2026-04-10T12:00:00', scale='utc')
+        ephemeris = TransitEphemeris.objects.create(
+            target=target,
+            planet_name='TestTransit',
+            t0_bjd_tdb=now.tdb.jd - 0.25,
+            period_days=1.0,
+            duration_hours=2.0,
+        )
+
+        with patch('custom_code.models.Time.now', return_value=now):
+            next_transit = ephemeris.next_transit_time()
+            hours_until = ephemeris.hours_until_next_transit()
+            window = ephemeris.next_transit_window_display()
+
+        self.assertIsNotNone(next_transit)
+        self.assertIsNotNone(hours_until)
+        self.assertIsNotNone(window)
+        self.assertAlmostEqual(hours_until, 18.0, places=1)
+        self.assertEqual(next_transit.date().isoformat(), '2026-04-11')
+        self.assertAlmostEqual(window['ingress']['hours'], 17.0, places=1)
+        self.assertAlmostEqual(window['egress']['hours'], 19.0, places=1)
+
+
 class DataServiceCoordinateFormTests(TestCase):
     def test_coordinate_form_accepts_decimal_degrees(self):
         form = SimbadQueryForm(data={'ra': '267.4127916666667', 'dec': '-30.452333333333332'})
@@ -227,6 +415,33 @@ class SimbadHarvesterTests(TestCase):
         self.assertEqual(gaia_alerts.to_target().epoch, 2000.0)
         self.assertEqual(gaia_dr3.to_target().epoch, 2000.0)
         self.assertEqual(lsst.to_target().epoch, 2000.0)
+
+    def test_exoclock_harvester_maps_target_and_host_alias(self):
+        exoclock = ExoClockHarvester()
+        exoclock.catalog_data = {
+            'name': 'WASP-12b',
+            'star': 'WASP-12',
+            'ra_j2000': '06:30:32.7966',
+            'dec_j2000': '+29:40:20.266',
+        }
+
+        target = exoclock.to_target()
+
+        self.assertEqual(target.name, 'WASP-12b')
+        self.assertEqual(target.type, 'SIDEREAL')
+        self.assertEqual(target.epoch, 2000.0)
+        self.assertEqual(target.classification, 'Planetary Transit')
+        self.assertAlmostEqual(target.ra, 97.6366525)
+        self.assertAlmostEqual(target.dec, 29.672296111111113)
+        self.assertEqual(target.extra_aliases[0]['name'], 'WASP-12')
+        self.assertEqual(target.extra_aliases[0]['source_name'], 'ExoClock')
+
+
+class CatalogServiceRegistrationTests(TestCase):
+    def test_exoclock_is_listed_in_catalog_services(self):
+        from tom_catalogs.harvester import get_service_classes
+
+        self.assertIn('ExoClock', get_service_classes())
 
 
 class TargetCreateFormVisibilityTests(TestCase):

@@ -87,6 +87,90 @@
 
 </dl>
 
+{% if transit_ephemeris %}
+<p>Transit Ephemeris</p>
+<dl class="row">
+  {% if transit_ephemeris.planet_name %}
+  <dt class="col-sm-6">Planet</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.planet_name }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.host_name %}
+  <dt class="col-sm-6">Host Star</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.host_name }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.priority %}
+  <dt class="col-sm-6">ExoClock Priority</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.priority|upper }}</dd>
+  {% endif %}
+  {% with transit_window=transit_ephemeris.next_transit_window_display %}
+  {% if transit_window.transit %}
+  <dt class="col-sm-6"><strong class="text-danger">Next Transit (UT)</strong></dt>
+  <dd class="col-sm-6"><strong class="text-danger">{{ transit_window.transit.utc|date:"Y-m-d H:i:s" }} UT ({{ transit_window.transit.hours|floatformat:1 }} h)</strong></dd>
+  {% endif %}
+  {% if transit_window.ingress %}
+  <dt class="col-sm-6">Next Ingress (UT)</dt>
+  <dd class="col-sm-6">{{ transit_window.ingress.utc|date:"Y-m-d H:i:s" }} UT ({{ transit_window.ingress.hours|floatformat:1 }} h)</dd>
+  {% endif %}
+  {% if transit_window.egress %}
+  <dt class="col-sm-6">Next Egress (UT)</dt>
+  <dd class="col-sm-6">{{ transit_window.egress.utc|date:"Y-m-d H:i:s" }} UT ({{ transit_window.egress.hours|floatformat:1 }} h)</dd>
+  {% endif %}
+  {% endwith %}
+  {% if transit_ephemeris.period_days != None %}
+  <dt class="col-sm-6">Period (d)</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.period_days }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.period_unc != None %}
+  <dt class="col-sm-6">Period unc. (d)</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.period_unc }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.t0_bjd_tdb != None %}
+  <dt class="col-sm-6">T0 (BJD_TDB)</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.t0_bjd_tdb }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.t0_unc != None %}
+  <dt class="col-sm-6">T0 unc. (d)</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.t0_unc }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.duration_hours != None %}
+  <dt class="col-sm-6">Duration (h)</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.duration_hours }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.depth_r_mmag != None %}
+  <dt class="col-sm-6">Depth (mmag)</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.depth_r_mmag }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.v_mag != None %}
+  <dt class="col-sm-6">V mag</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.v_mag }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.r_mag != None %}
+  <dt class="col-sm-6">R mag</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.r_mag }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.gaia_g_mag != None %}
+  <dt class="col-sm-6">Gaia G mag</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.gaia_g_mag }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.min_telescope_inches != None %}
+  <dt class="col-sm-6">Min telescope (in)</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.min_telescope_inches }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.current_oc_min != None %}
+  <dt class="col-sm-6">Current O-C (min)</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.current_oc_min }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.total_observations != None %}
+  <dt class="col-sm-6">Observations (total/recent)</dt>
+  <dd class="col-sm-6">{{ transit_ephemeris.total_observations }} / {{ transit_ephemeris.recent_observations|default_if_none:"0" }}</dd>
+  {% endif %}
+  {% if transit_ephemeris.source_url %}
+  <dt class="col-sm-6">Source</dt>
+  <dd class="col-sm-6"><a href="{{ transit_ephemeris.source_url }}" target="_blank" rel="noopener noreferrer">{{ transit_ephemeris.source_name|default:"ExoClock" }}</a></dd>
+  {% endif %}
+</dl>
+{% endif %}
+
  
 <dl class="row">
 {% for key, value in extras.items %}

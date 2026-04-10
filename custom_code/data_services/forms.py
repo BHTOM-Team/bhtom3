@@ -130,6 +130,24 @@ class OGLEEWSQueryForm(BaseQueryForm):
         return cleaned
 
 
+class ExoClockQueryForm(BaseQueryForm):
+    target_name = forms.CharField(required=False, label='ExoClock planet name')
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(required=False, initial=30.0, min_value=0.1, label='Search radius (arcsec)')
+    include_timing_data = forms.BooleanField(required=False, initial=True, label='Include O-C timing rows')
+
+    def clean(self):
+        cleaned = super().clean()
+        has_name = bool((cleaned.get('target_name') or '').strip())
+        has_coords = cleaned.get('ra') is not None and cleaned.get('dec') is not None
+        if not has_name and not has_coords:
+            raise forms.ValidationError('Provide ExoClock target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 30.0
+        return cleaned
+
+
 class CRTSQueryForm(BaseQueryForm):
     ra = ra_field()
     dec = dec_field()

@@ -81,7 +81,7 @@
       if (dec) {
         params.set('dec', dec);
       }
-      if ('{{ data_service }}' === 'OGLEEWS') {
+      if (type !== 'NON_SIDEREAL') {
         params.set('epoch', '2000.0');
       }
       params.set('type', type === 'NON_SIDEREAL' ? 'NON_SIDEREAL' : 'SIDEREAL');

@@ -10,7 +10,7 @@ from django_tasks import task
 from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target
 from custom_code.last_photometry import refresh_target_last_photometry
-from custom_code.models import TargetAliasInfo
+from custom_code.models import TargetAliasInfo, TransitEphemeris
 from custom_code.priority import refresh_target_priority
 from custom_code.sun_separation import refresh_target_sun_separation
 
@@ -194,6 +194,9 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
             Target.objects.filter(pk=target.pk).update(**target_updates)
             for field_name, value in target_updates.items():
                 setattr(target, field_name, value)
+        transit_ephemeris_updates = result.get('transit_ephemeris_updates') or {}
+        if transit_ephemeris_updates:
+            TransitEphemeris.objects.update_or_create(target=target, defaults=transit_ephemeris_updates)
         for alias in result.get('aliases', []):
             alias_data = _normalize_alias_result(alias)
             if not alias_data['name']:
@@ -296,6 +299,14 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         ogle_ews_name = _extract_ogle_ews_name(target)
         if ogle_ews_name:
             query_parameters['target_name'] = ogle_ews_name
+    elif 'target_name' in form_fields and service_name == 'ExoClock':
+        query_parameters['target_name'] = target.name
+        query_parameters['target_names'] = list(dict.fromkeys(_iter_target_names(target)))
+    elif service_name == 'ExoClock':
+        query_parameters['target_names'] = list(dict.fromkeys(_iter_target_names(target)))
+
+    if 'include_timing_data' in form_fields:
+        query_parameters['include_timing_data'] = True
 
     return query_parameters
 

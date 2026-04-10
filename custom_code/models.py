@@ -1,5 +1,7 @@
+import math
+from datetime import timedelta
 from django.db import models
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dateutil.parser import parse
 
@@ -8,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.forms.models import model_to_dict
 from django.urls import reverse
+from astropy.time import Time
 
 from tom_targets.base_models import BaseTarget
 
@@ -138,3 +141,99 @@ class TargetAliasInfo(models.Model):
 
     def __str__(self):
         return f'{self.target_name.name}'
+
+
+class TransitEphemeris(models.Model):
+    target = models.OneToOneField('custom_code.BhtomTarget', on_delete=models.CASCADE, related_name='transit_ephemeris')
+    source_name = models.CharField(max_length=100, blank=True, default='')
+    source_url = models.URLField(max_length=500, blank=True, default='')
+    planet_name = models.CharField(max_length=100, blank=True, default='')
+    host_name = models.CharField(max_length=100, blank=True, default='')
+    priority = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    current_oc_min = models.FloatField(null=True, blank=True)
+    t0_bjd_tdb = models.FloatField(null=True, blank=True)
+    t0_unc = models.FloatField(null=True, blank=True)
+    period_days = models.FloatField(null=True, blank=True)
+    period_unc = models.FloatField(null=True, blank=True)
+    duration_hours = models.FloatField(null=True, blank=True)
+    depth_r_mmag = models.FloatField(null=True, blank=True)
+    v_mag = models.FloatField(null=True, blank=True)
+    r_mag = models.FloatField(null=True, blank=True)
+    gaia_g_mag = models.FloatField(null=True, blank=True)
+    min_telescope_inches = models.FloatField(null=True, blank=True)
+    total_observations = models.PositiveIntegerField(null=True, blank=True)
+    recent_observations = models.PositiveIntegerField(null=True, blank=True)
+    payload = models.JSONField(blank=True, default=dict)
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'transit ephemeris'
+        verbose_name_plural = 'transit ephemerides'
+
+    def __str__(self):
+        label = self.planet_name or self.target.name
+        return f'{label} transit ephemeris'
+
+    def next_transit_time(self, now=None):
+        if self.t0_bjd_tdb is None or self.period_days in (None, 0):
+            return None
+
+        current_time = now or Time.now()
+        current_bjd_tdb = current_time.tdb.jd if hasattr(current_time, 'tdb') else Time(current_time, scale='utc').tdb.jd
+        epochs_since_t0 = (current_bjd_tdb - float(self.t0_bjd_tdb)) / float(self.period_days)
+        next_epoch = math.ceil(epochs_since_t0)
+        next_bjd_tdb = float(self.t0_bjd_tdb) + next_epoch * float(self.period_days)
+        return Time(next_bjd_tdb, format='jd', scale='tdb').utc.to_datetime(timezone=timezone.utc)
+
+    def hours_until_next_transit(self, now=None):
+        next_transit = self.next_transit_time(now=now)
+        if next_transit is None:
+            return None
+
+        current_time = now or Time.now()
+        current_dt = current_time.to_datetime(timezone=timezone.utc) if hasattr(current_time, 'to_datetime') else current_time
+        delta = next_transit - current_dt
+        return delta.total_seconds() / 3600.0
+
+    def next_transit_display(self, now=None):
+        next_transit = self.next_transit_time(now=now)
+        hours = self.hours_until_next_transit(now=now)
+        if next_transit is None or hours is None:
+            return None
+        return {
+            'utc': next_transit,
+            'hours': hours,
+        }
+
+    def next_transit_window_display(self, now=None):
+        next_transit = self.next_transit_time(now=now)
+        if next_transit is None:
+            return None
+
+        if self.duration_hours in (None, 0):
+            return {
+                'transit': self.next_transit_display(now=now),
+                'ingress': None,
+                'egress': None,
+            }
+
+        half_duration = timedelta(hours=float(self.duration_hours) / 2.0)
+        ingress = next_transit - half_duration
+        egress = next_transit + half_duration
+        current_time = now or Time.now()
+        current_dt = current_time.to_datetime(timezone=timezone.utc) if hasattr(current_time, 'to_datetime') else current_time
+        return {
+            'transit': {
+                'utc': next_transit,
+                'hours': (next_transit - current_dt).total_seconds() / 3600.0,
+            },
+            'ingress': {
+                'utc': ingress,
+                'hours': (ingress - current_dt).total_seconds() / 3600.0,
+            },
+            'egress': {
+                'utc': egress,
+                'hours': (egress - current_dt).total_seconds() / 3600.0,
+            },
+        }

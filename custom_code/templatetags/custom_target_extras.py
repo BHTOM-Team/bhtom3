@@ -64,8 +64,13 @@ def bhtom_target_data(target):
             'url': url,
         })
     other_names.sort(key=lambda row: (row['source_name'].lower(), row['name'].lower()))
+    try:
+        transit_ephemeris = target.transit_ephemeris
+    except Exception:
+        transit_ephemeris = None
     return {
         'target': target,
         'extras': extras,
         'target_other_names': other_names,
+        'transit_ephemeris': transit_ephemeris,
     }

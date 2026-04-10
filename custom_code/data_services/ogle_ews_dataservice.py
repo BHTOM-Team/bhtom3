@@ -243,7 +243,6 @@ class OGLEEWSDataService(DataService):
                 'ra': ra,
                 'dec': dec,
                 'aliases': [name, normalized_raw_name],
-                'epoch': 2000.0,
                 'source_location': photometry_urls.get(normalized_raw_name) or self.info_url,
             }
             photometry_rows = photometry_by_name.get(normalized_raw_name)
