@@ -84,6 +84,11 @@ LIST_OBSERVER_PRESETS = {
     'piwnice': {'name': 'Piwnice', 'lat_deg': 53.09546, 'lon_deg': 18.56406, 'elevation_m': 87.0},
     'lasilla': {'name': 'La Silla', 'lat_deg': -29.2567, 'lon_deg': -70.7346, 'elevation_m': 2400.0},
 }
+EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY = (
+    'Follow the Exoclock emphemeris and observe in one or more bands to cover the entire transit, '
+    'with ingres and egres well determined. Adjust the exposure time accordingly to the brightness '
+    'of the star and the depth of the transit.'
+)
 
 
 def _parse_float(value, default=None):
@@ -1305,7 +1310,12 @@ def _get_transit_ephemeris_defaults(form):
 
 
 def _is_planetary_transit_classification(form):
-    return str(getattr(form, 'cleaned_data', {}).get('classification') or '').strip() == 'Planetary Transit'
+    classification = str(getattr(form, 'cleaned_data', {}).get('classification') or '').strip()
+    if not classification:
+        classification = str(getattr(getattr(form, 'instance', None), 'classification', '') or '').strip()
+    if not classification:
+        classification = str(getattr(getattr(form, 'object', None), 'classification', '') or '').strip()
+    return classification == 'Planetary Transit'
 
 
 def _build_gaia_alerts_catalog_target(row):
@@ -1366,6 +1376,36 @@ def _build_catalog_result_row(service_name, index, match):
         'summary': summary,
         'url': view_url,
     }
+
+
+def _add_transit_target_params(target_params, target):
+    transit_mapping = (
+        ('source_name', 'transit_source_name'),
+        ('source_url', 'transit_source_url'),
+        ('planet_name', 'transit_planet_name'),
+        ('host_name', 'transit_host_name'),
+        ('priority', 'transit_priority'),
+        ('t0_bjd_tdb', 'transit_t0_bjd_tdb'),
+        ('t0_unc', 'transit_t0_unc'),
+        ('period_days', 'transit_period_days'),
+        ('period_unc', 'transit_period_unc'),
+        ('duration_hours', 'transit_duration_hours'),
+        ('depth_r_mmag', 'transit_depth_r_mmag'),
+        ('v_mag', 'transit_v_mag'),
+        ('r_mag', 'transit_r_mag'),
+        ('gaia_g_mag', 'transit_gaia_g_mag'),
+    )
+    has_transit_payload = False
+    for param_name, attr_name in transit_mapping:
+        value = getattr(target, attr_name, None)
+        if value not in (None, ''):
+            target_params[param_name] = value
+            has_transit_payload = True
+    if has_transit_payload:
+        target_params['classification'] = 'Planetary Transit'
+        if getattr(target, 'transit_source_name', '') == 'ExoClock':
+            target_params['recommended_observing_strategy'] = EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY
+    return target_params
 
 
 def _hours_to_hms(hours_value):
@@ -1565,16 +1605,20 @@ class BhtomTargetCreateView(TargetCreateView):
             form.fields['groups'].queryset = Group.objects.all()
         else:
             form.fields['groups'].queryset = self.request.user.groups.all()
+        if 'recommended_observing_strategy' in form.fields:
+            value = self.request.GET.get('recommended_observing_strategy')
+            if value not in (None, ''):
+                form.fields['recommended_observing_strategy'].initial = value
         for field_name in getattr(form, 'transit_char_field_names', ()):
             if field_name in form.fields:
                 value = self.request.GET.get(field_name)
                 if value not in (None, ''):
-                    form.fields[field_name].initial = value
+                    form.fields[field_name].initial = form.fields[field_name].to_python(value)
         for field_name in getattr(form, 'transit_field_names', ()):
             if field_name in form.fields:
                 value = self.request.GET.get(field_name)
                 if value not in (None, ''):
-                    form.fields[field_name].initial = value
+                    form.fields[field_name].initial = form.fields[field_name].to_python(value)
         return form
 
     @transaction.atomic
@@ -1936,6 +1980,7 @@ class BhtomCatalogQueryView(FormView):
 
     def get_success_url(self):
         target_params = self.target.as_dict()
+        target_params = _add_transit_target_params(target_params, self.target)
         target_params['names'] = ','.join(
             alias['name'] for alias in getattr(self.target, 'extra_aliases', []) if alias.get('name')
         )
@@ -1949,7 +1994,11 @@ class BhtomCatalogSelectResultView(LoginRequiredMixin, View):
     @staticmethod
     def _build_create_url(service_name, row):
         target = _build_catalog_target_from_match(service_name, row)
-        return reverse('targets:create') + '?' + urlencode(target.as_dict())
+        target_params = _add_transit_target_params(target.as_dict(), target)
+        alias_payload = BhtomCatalogQueryForm.serialize_alias_payload(target)
+        if alias_payload:
+            target_params['alias_payload'] = alias_payload
+        return reverse('targets:create') + '?' + urlencode(target_params)
 
     def post(self, request, *args, **kwargs):
         stored_results = request.session.get(CATALOG_RESULTS_SESSION_KEY) or []

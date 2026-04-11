@@ -151,11 +151,26 @@ class ExoClockHarvester(AbstractHarvester):
         target.epoch = 2000.0
         target.classification = 'Planetary Transit'
         target.description = f'ExoClock transit target{f" around {host_name}" if host_name else ""}'
+        source_url = f'{EXOCLOCK_PLANET_URL}/{planet_name}' if planet_name else EXOCLOCK_PLANETS_JSON_URL
         target.extra_aliases = []
         if host_name:
             target.extra_aliases.append({
                 'name': host_name,
-                'url': f'{EXOCLOCK_PLANET_URL}/{planet_name}',
+                'url': source_url,
                 'source_name': self.name,
             })
+        target.transit_source_name = self.name
+        target.transit_source_url = source_url
+        target.transit_planet_name = planet_name
+        target.transit_host_name = host_name
+        target.transit_t0_bjd_tdb = _to_float(self.catalog_data.get('t0_bjd_tdb'))
+        target.transit_t0_unc = _to_float(self.catalog_data.get('t0_unc'))
+        target.transit_period_days = _to_float(self.catalog_data.get('period_days'))
+        target.transit_period_unc = _to_float(self.catalog_data.get('period_unc'))
+        target.transit_duration_hours = _to_float(self.catalog_data.get('duration_hours'))
+        target.transit_depth_r_mmag = _to_float(self.catalog_data.get('depth_r_mmag'))
+        target.transit_v_mag = _to_float(self.catalog_data.get('v_mag'))
+        target.transit_r_mag = _to_float(self.catalog_data.get('r_mag'))
+        target.transit_gaia_g_mag = _to_float(self.catalog_data.get('gaia_g_mag'))
+        target.transit_priority = str(self.catalog_data.get('priority') or '').strip()
         return target

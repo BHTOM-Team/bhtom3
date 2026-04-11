@@ -38,10 +38,16 @@ from custom_code.forms import (
 )
 from custom_code.models import TransitEphemeris
 from custom_code.signals import cleanup_target_relations_on_target_delete
-from custom_code.tasks import _run_service_for_target
+from custom_code.tasks import _build_query_parameters_for_service, _run_service_for_target
 from custom_code.sun_separation import get_live_target_values
 from custom_code.target_derivations import derive_sidereal_target_fields
-from custom_code.views import BhtomCreateTargetFromQueryView, BhtomTargetCreateView, BhtomTargetUpdateView
+from custom_code.views import (
+    BhtomCatalogQueryView,
+    BhtomCreateTargetFromQueryView,
+    BhtomTargetCreateView,
+    BhtomTargetUpdateView,
+    EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
+)
 
 
 @override_settings(
@@ -189,7 +195,7 @@ class OGLEEWSDataServiceTests(TestCase):
 
 
 class ExoClockDataServiceTests(TestCase):
-    def test_query_targets_by_name_returns_ephemeris_and_timing_rows(self):
+    def test_query_targets_by_name_returns_ephemeris_fields(self):
         service = ExoClockDataService()
         catalog = {
             'WASP-12b': {
@@ -213,66 +219,25 @@ class ExoClockDataServiceTests(TestCase):
                 'total_observations_recent': 26,
             }
         }
-        html = """
-        <html><body>
-        <table></table><table></table><table></table>
-        <table>
-          <tr><td colspan="5"><h2>ExoClock Observations</h2></td></tr>
-          <tr><th>Planet<br>Observation Date</th><th>Observer<br>Observatory</th><th>Telescope<br> Camera / Filter / Exp [s]</th><th>O-C<br>minutes</th><th></th></tr>
-          <tr>
-            <td>WASP-12b<br>2026-03-23</td>
-            <td>Mizuho Imai<br>Niijima Gakuen High School</td>
-            <td>Nisimura Co.<br>BITRAN BJ-54L / I / 60.0</td>
-            <td>-7.6 ± 3.31</td>
-            <td><a href="/database/observations/WASP-12b_1"><button>View</button></a></td>
-          </tr>
-          <tr><td colspan="4"><h2>Space Observations</h2></td></tr>
-          <tr><th>Planet<br>Observation Date</th><th>Mission</th><th>O-C<br>minutes</th><th></th></tr>
-          <tr>
-            <td>WASP-12b<br>2023-12-06</td>
-            <td>TESS</td>
-            <td>-4.32 ± 0.63</td>
-            <td><a href="/database/space/WASP-12b_2"><button>View &amp; Get data</button></a></td>
-          </tr>
-          <tr><td colspan="4"><h2>Literature Mid-times</h2></td></tr>
-          <tr><th>Planet<br>Observation Date</th><th>Reference</th><th>O-C<br>minutes</th><th></th></tr>
-          <tr>
-            <td>2019-01-23</td>
-            <td>Yee et al. 2020</td>
-            <td>0.59 ± 0.63</td>
-            <td><a href="/database/literature/WASP-12b_3"><button>View</button></a></td>
-          </tr>
-        </table>
-        </body></html>
-        """
-
-        with patch.object(service, 'query_service', return_value={'catalog': catalog, 'source_location': service.info_url}), patch.object(
-            service,
-            '_fetch_timing_datums',
-            return_value=service._parse_timing_datums(html, 'https://www.exoclock.space/database/planets/WASP-12b'),
-        ):
+        with patch.object(service, 'query_service', return_value={'catalog': catalog, 'source_location': service.info_url}):
             results = service.query_targets({
                 'target_name': 'WASP-12b',
                 'target_names': ['WASP-12b', 'WASP-12'],
-                'include_timing_data': True,
                 'radius_arcsec': 30.0,
             })
 
         self.assertEqual(len(results), 1)
         result = results[0]
         self.assertEqual(result['name'], 'WASP-12b')
-        self.assertEqual(result['aliases'][1]['name'], 'WASP-12')
+        self.assertEqual(result['aliases'][0]['name'], 'WASP-12')
         self.assertEqual(result['transit_ephemeris_updates']['period_days'], 1.091418859)
         self.assertEqual(result['transit_ephemeris_updates']['recent_observations'], 26)
-        self.assertEqual(len(result['reduced_datums']['transit_timing']), 3)
-        self.assertEqual(result['reduced_datums']['transit_timing'][0]['value']['category'], 'exoclock')
-        self.assertEqual(result['reduced_datums']['transit_timing'][1]['value']['mission'], 'TESS')
-        self.assertTrue(result['reduced_datums']['transit_timing'][1]['value']['has_data_download'])
-        self.assertEqual(result['reduced_datums']['transit_timing'][2]['value']['reference'], 'Yee et al. 2020')
+        self.assertNotIn('reduced_datums', result)
         self.assertEqual(result['transit_source_name'], 'ExoClock')
         self.assertEqual(result['transit_planet_name'], 'WASP-12b')
         self.assertEqual(result['transit_host_name'], 'WASP-12')
         self.assertEqual(result['transit_period_days'], 1.091418859)
+        self.assertEqual(result['target_updates']['classification'], 'Planetary Transit')
 
     def test_query_targets_by_coordinates_selects_nearest_planet(self):
         service = ExoClockDataService()
@@ -291,17 +256,12 @@ class ExoClockDataServiceTests(TestCase):
             },
         }
 
-        with patch.object(service, 'query_service', return_value={'catalog': catalog, 'source_location': service.info_url}), patch.object(
-            service,
-            '_fetch_timing_datums',
-            return_value=[],
-        ):
+        with patch.object(service, 'query_service', return_value={'catalog': catalog, 'source_location': service.info_url}):
             results = service.query_targets({
                 'target_names': [],
                 'ra': 97.63665,
                 'dec': 29.672296,
                 'radius_arcsec': 60.0,
-                'include_timing_data': True,
             })
 
         self.assertEqual(len(results), 1)
@@ -310,7 +270,14 @@ class ExoClockDataServiceTests(TestCase):
 
 class DataServicePersistenceTests(TestCase):
     def test_run_service_for_target_persists_transit_ephemeris(self):
-        target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
+        target = Target.objects.create(
+            name='WASP-12b',
+            type=Target.SIDEREAL,
+            ra=1.0,
+            dec=2.0,
+            epoch=2000.0,
+            description='Original description from create form',
+        )
 
         class StubService:
             name = 'ExoClock'
@@ -324,7 +291,12 @@ class DataServicePersistenceTests(TestCase):
 
             def query_targets(self, query_parameters, **kwargs):
                 return [{
-                    'target_updates': {'ra': 97.63665, 'dec': 29.672296, 'epoch': 2000.0},
+                    'target_updates': {
+                        'ra': 97.63665,
+                        'dec': 29.672296,
+                        'epoch': 2000.0,
+                        'classification': 'Planetary Transit',
+                    },
                     'aliases': [{'name': 'WASP-12', 'url': 'https://www.exoclock.space/database/planets/WASP-12b'}],
                     'transit_ephemeris_updates': {
                         'source_name': 'ExoClock',
@@ -345,11 +317,23 @@ class DataServicePersistenceTests(TestCase):
 
         target.refresh_from_db()
         self.assertEqual(target.ra, 97.63665)
+        self.assertEqual(target.classification, 'Planetary Transit')
+        self.assertEqual(target.description, 'Original description from create form')
         self.assertTrue(target.aliases.filter(name='WASP-12').exists())
         ephemeris = TransitEphemeris.objects.get(target=target)
         self.assertEqual(ephemeris.planet_name, 'WASP-12b')
         self.assertEqual(ephemeris.host_name, 'WASP-12')
         self.assertEqual(ephemeris.recent_observations, 26)
+
+    def test_build_query_parameters_for_exoclock_uses_cone_search_radius(self):
+        target = Target.objects.create(name='Gaia DR3 123', type=Target.SIDEREAL, ra=97.63665, dec=29.672296, epoch=2000.0)
+
+        params = _build_query_parameters_for_service(target, 'ExoClock', ExoClockDataService())
+
+        self.assertEqual(params['target_name'], 'Gaia DR3 123')
+        self.assertEqual(params['ra'], 97.63665)
+        self.assertEqual(params['dec'], 29.672296)
+        self.assertEqual(params['radius_arcsec'], 30.0)
 
     def test_transit_ephemeris_computes_next_transit_from_bjd_tdb(self):
         target = Target.objects.create(name='TestTransit', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
@@ -436,6 +420,8 @@ class SimbadHarvesterTests(TestCase):
             'star': 'WASP-12',
             'ra_j2000': '06:30:32.7966',
             'dec_j2000': '+29:40:20.266',
+            't0_bjd_tdb': 2457368.4973,
+            'period_days': 1.091418859,
         }
 
         target = exoclock.to_target()
@@ -448,6 +434,11 @@ class SimbadHarvesterTests(TestCase):
         self.assertAlmostEqual(target.dec, 29.672296111111113)
         self.assertEqual(target.extra_aliases[0]['name'], 'WASP-12')
         self.assertEqual(target.extra_aliases[0]['source_name'], 'ExoClock')
+        self.assertEqual(target.transit_source_name, 'ExoClock')
+        self.assertEqual(target.transit_planet_name, 'WASP-12b')
+        self.assertEqual(target.transit_host_name, 'WASP-12')
+        self.assertEqual(target.transit_t0_bjd_tdb, 2457368.4973)
+        self.assertEqual(target.transit_period_days, 1.091418859)
 
 
 class CatalogServiceRegistrationTests(TestCase):
@@ -455,6 +446,45 @@ class CatalogServiceRegistrationTests(TestCase):
         from tom_catalogs.harvester import get_service_classes
 
         self.assertIn('ExoClock', get_service_classes())
+
+    def test_exoclock_catalog_query_redirect_prefills_transit_fields(self):
+        exoclock = ExoClockHarvester()
+        exoclock.catalog_data = {
+            'name': 'WASP-12b',
+            'star': 'WASP-12',
+            'priority': 'low',
+            'ra_j2000': '06:30:32.7966',
+            'dec_j2000': '+29:40:20.266',
+            't0_bjd_tdb': 2457368.4973,
+            't0_unc': 5.9e-05,
+            'period_days': 1.091418859,
+            'period_unc': 3.9e-08,
+            'duration_hours': 3.0,
+            'depth_r_mmag': 17.81,
+            'v_mag': 11.57,
+            'r_mag': 11.288,
+            'gaia_g_mag': 11.5,
+        }
+        target = exoclock.to_target()
+
+        request = RequestFactory().get(reverse('tom_catalogs:query'))
+        request.user = get_user_model().objects.create_user(username='catalog-exoclock', password='secret')
+
+        view = BhtomCatalogQueryView()
+        view.request = request
+        view.target = target
+
+        location = view.get_success_url()
+
+        self.assertIn('classification=Planetary+Transit', location)
+        self.assertIn('source_name=ExoClock', location)
+        self.assertIn('source_url=https%3A%2F%2Fwww.exoclock.space%2Fdatabase%2Fplanets%2FWASP-12b', location)
+        self.assertIn('planet_name=WASP-12b', location)
+        self.assertIn('host_name=WASP-12', location)
+        self.assertIn('priority=low', location)
+        self.assertIn('t0_bjd_tdb=2457368.4973', location)
+        self.assertIn('period_days=1.091418859', location)
+        self.assertIn('recommended_observing_strategy=', location)
 
 
 class TargetCreateFormVisibilityTests(TestCase):
@@ -586,6 +616,7 @@ class PlanetaryTransitTargetCreateTests(TestCase):
         )
 
         class DummyForm:
+            instance = target
             cleaned_data = {
                 'source_name': 'ExoClock',
                 'source_url': 'https://www.exoclock.space/database/planets/WASP-12b',
@@ -606,6 +637,24 @@ class PlanetaryTransitTargetCreateTests(TestCase):
 
             def save(self):
                 return target
+
+            def get_transit_ephemeris_defaults(self):
+                return {
+                    'source_name': self.cleaned_data['source_name'],
+                    'source_url': self.cleaned_data['source_url'],
+                    'planet_name': self.cleaned_data['planet_name'],
+                    'host_name': self.cleaned_data['host_name'],
+                    'priority': self.cleaned_data['priority'],
+                    't0_bjd_tdb': self.cleaned_data['t0_bjd_tdb'],
+                    't0_unc': self.cleaned_data['t0_unc'],
+                    'period_days': self.cleaned_data['period_days'],
+                    'period_unc': self.cleaned_data['period_unc'],
+                    'duration_hours': self.cleaned_data['duration_hours'],
+                    'depth_r_mmag': self.cleaned_data['depth_r_mmag'],
+                    'v_mag': self.cleaned_data['v_mag'],
+                    'r_mag': self.cleaned_data['r_mag'],
+                    'gaia_g_mag': self.cleaned_data['gaia_g_mag'],
+                }
 
         extra_formset = Mock()
         extra_formset.is_valid.return_value = True
@@ -672,6 +721,31 @@ class PlanetaryTransitTargetCreateTests(TestCase):
         self.assertEqual(form.fields['period_days'].initial, 1.091418859)
         self.assertEqual(form.fields['duration_hours'].initial, 2.93)
         self.assertEqual(form.fields['depth_r_mmag'].initial, 17.81)
+
+    def test_create_view_prefills_recommended_strategy_from_query_string(self):
+        request = RequestFactory().get(
+            reverse('targets:create'),
+            {
+                'type': 'SIDEREAL',
+                'classification': 'Planetary Transit',
+                'recommended_observing_strategy': EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
+            },
+        )
+        user = get_user_model().objects.create_user(username='transit-strategy-prefill', password='secret')
+        request.user = user
+
+        view = BhtomTargetCreateView()
+        view.request = request
+        view.object = None
+        view.initial = {}
+        view.get_target_type = Mock(return_value=Target.SIDEREAL)
+
+        form = view.get_form()
+
+        self.assertEqual(
+            form.fields['recommended_observing_strategy'].initial,
+            EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
+        )
 
     def test_create_target_from_query_redirects_with_transit_query_params(self):
         cache_key = 'result_0'
@@ -756,6 +830,9 @@ class PlanetaryTransitTargetCreateTests(TestCase):
                 'epoch': 2000.0,
                 'classification': 'Planetary Transit',
                 'recommended_observing_strategy': 'Observe around the predicted transit window.',
+                'permissions': 'PUBLIC',
+                'importance': '1.0',
+                'cadence': '1.0',
                 'source_name': '',
                 'source_url': '',
                 'planet_name': '',

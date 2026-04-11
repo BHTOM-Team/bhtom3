@@ -135,7 +135,6 @@ class ExoClockQueryForm(BaseQueryForm):
     ra = ra_field()
     dec = dec_field()
     radius_arcsec = forms.FloatField(required=False, initial=30.0, min_value=0.1, label='Search radius (arcsec)')
-    include_timing_data = forms.BooleanField(required=False, initial=True, label='Include O-C timing rows')
 
     def clean(self):
         cleaned = super().clean()
