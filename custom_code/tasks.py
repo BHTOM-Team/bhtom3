@@ -56,7 +56,6 @@ def _count_returned_reduced_datums(reduced_datums):
             continue
     return total
 
-
 def _get_data_service_classes():
     """
     Compatibility wrapper for TOM Toolkit versions with different

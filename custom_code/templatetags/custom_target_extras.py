@@ -1,5 +1,6 @@
 from django import template
 from django.conf import settings
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 
 
 register = template.Library()
@@ -48,9 +49,53 @@ def _simbad_coordinate_url(target):
     )
 
 
+@register.filter
+def truncate_decimals(value, places=4):
+    if value in (None, ''):
+        return ''
+    try:
+        places = int(places)
+        quantizer = Decimal('1').scaleb(-places)
+        truncated = Decimal(str(value)).quantize(quantizer, rounding=ROUND_DOWN)
+        return f'{truncated:.{places}f}'
+    except (InvalidOperation, TypeError, ValueError):
+        return value
+
+
 @register.inclusion_tag('tom_targets/partials/target_data.html')
 def bhtom_target_data(target):
-    extras = {k['name']: target.extra_fields.get(k['name'], '') for k in settings.EXTRA_FIELDS if not k.get('hidden')}
+    extras = {
+        k['name']: target.extra_fields.get(k['name'])
+        for k in settings.EXTRA_FIELDS
+        if not k.get('hidden')
+    }
+    extras = {key: value for key, value in extras.items() if value not in (None, '')}
+    tags = {
+        key: value
+        for key, value in target.tags.items()
+        if key not in {'parallax_error', 'pm_ra_error', 'pm_dec_error'}
+    }
+    astrometry_rows = [
+        {
+            'label': 'Parallax (mas)',
+            'value': target.parallax,
+            'error': getattr(target, 'parallax_error', None),
+            'error_label': 'Parallax error (mas)',
+        },
+        {
+            'label': 'Proper Motion RA (mas/yr)',
+            'value': target.pm_ra,
+            'error': getattr(target, 'pm_ra_error', None),
+            'error_label': 'Proper Motion RA error (mas/yr)',
+        },
+        {
+            'label': 'Proper Motion Dec (mas/yr)',
+            'value': target.pm_dec,
+            'error': getattr(target, 'pm_dec_error', None),
+            'error_label': 'Proper Motion Dec error (mas/yr)',
+        },
+    ]
+    astrometry_rows = [row for row in astrometry_rows if row['value'] is not None]
     other_names = []
     for alias in target.aliases.all().select_related('alias_info'):
         alias_info = getattr(alias, 'alias_info', None)
@@ -70,7 +115,9 @@ def bhtom_target_data(target):
         transit_ephemeris = None
     return {
         'target': target,
+        'astrometry_rows': astrometry_rows,
         'extras': extras,
+        'tags': tags,
         'target_other_names': other_names,
         'transit_ephemeris': transit_ephemeris,
     }

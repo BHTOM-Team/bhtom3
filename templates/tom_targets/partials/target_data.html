@@ -1,4 +1,4 @@
-{% load tom_common_extras targets_extras live_target_extras tz %}
+{% load tom_common_extras targets_extras live_target_extras tz custom_target_extras %}
 {% live_target_values target as live %}
 <dl class="row">
   <dt class="col-sm-6">Name</dt>
@@ -87,6 +87,16 @@
 
 </dl>
 
+{% if astrometry_rows %}
+<p>Gaia parameters</p>
+<dl class="row">
+  {% for row in astrometry_rows %}
+  <dt class="col-sm-6">{{ row.label }}</dt>
+  <dd class="col-sm-6">{{ row.value|truncate_decimals:4 }}{% if row.error != None %} +- {{ row.error|truncate_decimals:4 }}{% endif %}</dd>
+  {% endfor %}
+</dl>
+{% endif %}
+
 {% if transit_ephemeris %}
 <p>Transit Ephemeris</p>
 <dl class="row">
@@ -118,19 +128,11 @@
   {% endwith %}
   {% if transit_ephemeris.period_days != None %}
   <dt class="col-sm-6">Period (d)</dt>
-  <dd class="col-sm-6">{{ transit_ephemeris.period_days }}</dd>
-  {% endif %}
-  {% if transit_ephemeris.period_unc != None %}
-  <dt class="col-sm-6">Period unc. (d)</dt>
-  <dd class="col-sm-6">{{ transit_ephemeris.period_unc }}</dd>
+  <dd class="col-sm-6">{{ transit_ephemeris.period_days }}{% if transit_ephemeris.period_unc != None %} +- {{ transit_ephemeris.period_unc }}{% endif %}</dd>
   {% endif %}
   {% if transit_ephemeris.t0_bjd_tdb != None %}
   <dt class="col-sm-6">T0 (BJD_TDB)</dt>
-  <dd class="col-sm-6">{{ transit_ephemeris.t0_bjd_tdb }}</dd>
-  {% endif %}
-  {% if transit_ephemeris.t0_unc != None %}
-  <dt class="col-sm-6">T0 unc. (d)</dt>
-  <dd class="col-sm-6">{{ transit_ephemeris.t0_unc }}</dd>
+  <dd class="col-sm-6">{{ transit_ephemeris.t0_bjd_tdb }}{% if transit_ephemeris.t0_unc != None %} +- {{ transit_ephemeris.t0_unc }}{% endif %}</dd>
   {% endif %}
   {% if transit_ephemeris.duration_hours != None %}
   <dt class="col-sm-6">Duration (h)</dt>
@@ -178,10 +180,10 @@
   <dd class="col-sm-6">{{ value }}</dd>
 {% endfor %}
 </dl>
-{% if target.tags %}
+{% if tags %}
 <p>Tags</p>
 <dl class="row">
-{% for key, value in target.tags.items %}
+{% for key, value in tags.items %}
   <dt class="col-sm-6">{{ key }}</dt>
   <dd class="col-sm-6">{{ value }}</dd>
 {% endfor %}

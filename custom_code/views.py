@@ -90,7 +90,6 @@ EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY = (
     'of the star and the depth of the transit.'
 )
 
-
 def _parse_float(value, default=None):
     try:
         return float(value)
@@ -2015,6 +2014,15 @@ class BhtomCreateTargetFromQueryView(CreateTargetFromQueryView):
     @staticmethod
     def _build_create_url(target, cached_result):
         target_params = target.as_dict()
+        parallax = getattr(target, 'parallax', None)
+        if parallax in (None, ''):
+            parallax = cached_result.get('parallax')
+        if parallax not in (None, ''):
+            target_params['parallax'] = parallax
+        for key in ('parallax_error', 'pm_ra_error', 'pm_dec_error'):
+            value = cached_result.get(key)
+            if value not in (None, ''):
+                target_params[key] = value
         target_params['names'] = ','.join(
             alias['name'] for alias in getattr(target, 'extra_aliases', []) if alias.get('name')
         )

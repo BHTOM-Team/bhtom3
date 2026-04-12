@@ -98,7 +98,10 @@ def _build_box_prefilter(ra_deg, dec_deg, radius_deg):
 
 
 def _build_source_query(where_clause, extra_columns=''):
-    columns = 'source_id, ra, dec, pmra, pmdec, parallax, has_xp_sampled'
+    columns = (
+        'source_id, ra, dec, pmra, pmdec, parallax, '
+        'pmra_error, pmdec_error, parallax_error, has_xp_sampled'
+    )
     if extra_columns:
         columns = f'{columns}, {extra_columns}'
     return f'SELECT TOP 1 {columns} FROM gaiadr3.gaia_source WHERE {where_clause}'
@@ -285,7 +288,25 @@ class GaiaDR3DataService(DataService):
             'pmra': _to_float(source.get('pmra')),
             'pmdec': _to_float(source.get('pmdec')),
             'parallax': _to_float(source.get('parallax')),
+            'pm_ra_error': _to_float(source.get('pmra_error')),
+            'pm_dec_error': _to_float(source.get('pmdec_error')),
+            'parallax_error': _to_float(source.get('parallax_error')),
             'aliases': [f'GaiaDR3_{source_id}'],
+            'target_updates': {
+                key: value
+                for key, value in {
+                    'ra': _to_float(source.get('ra')),
+                    'dec': _to_float(source.get('dec')),
+                    'epoch': 2000.0,
+                    'pm_ra': _to_float(source.get('pmra')),
+                    'pm_dec': _to_float(source.get('pmdec')),
+                    'parallax': _to_float(source.get('parallax')),
+                    'pm_ra_error': _to_float(source.get('pmra_error')),
+                    'pm_dec_error': _to_float(source.get('pmdec_error')),
+                    'parallax_error': _to_float(source.get('parallax_error')),
+                }.items()
+                if value is not None
+            },
             'reduced_datums': {
                 'photometry': self._build_photometry_datums(data.get('photometry_rows', [])),
                 'spectroscopy': self._build_spectroscopy_datums(source_id, data.get('spectroscopy_rows', [])),

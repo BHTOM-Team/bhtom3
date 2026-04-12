@@ -205,8 +205,13 @@ class PlanetaryTransitTargetFormMixin(forms.Form):
             defaults[field_name] = self.cleaned_data.get(field_name)
         return defaults
 
+class GaiaAstrometryFormMixin(forms.Form):
+    parallax_error = forms.FloatField(required=False, widget=forms.HiddenInput())
+    pm_ra_error = forms.FloatField(required=False, widget=forms.HiddenInput())
+    pm_dec_error = forms.FloatField(required=False, widget=forms.HiddenInput())
 
-class BhtomSiderealTargetCreateForm(PlanetaryTransitTargetFormMixin, SiderealTargetCreateForm):
+
+class BhtomSiderealTargetCreateForm(GaiaAstrometryFormMixin, PlanetaryTransitTargetFormMixin, SiderealTargetCreateForm):
     classification = forms.ChoiceField(
         choices=Target._meta.get_field('classification').choices,
         required=False,
@@ -228,6 +233,12 @@ class BhtomSiderealTargetCreateForm(PlanetaryTransitTargetFormMixin, SiderealTar
         if not getattr(self.instance, 'pk', None):
             self.fields.pop('priority', None)
         self._set_transit_initials()
+
+    class Meta(SiderealTargetCreateForm.Meta):
+        fields = tuple(dict.fromkeys(
+            tuple(getattr(SiderealTargetCreateForm.Meta, 'fields', ()))
+            + ('parallax', 'parallax_error', 'pm_ra_error', 'pm_dec_error')
+        ))
 
 
 class BhtomNonSiderealTargetCreateForm(NonSiderealTargetCreateForm):

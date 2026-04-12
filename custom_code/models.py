@@ -92,6 +92,18 @@ class BhtomTarget(BaseTarget):
     filter_last = models.CharField(max_length=20, verbose_name='last filter', null=True, blank=True, default='')
     cadence_priority = models.FloatField(verbose_name='cadence priority', null=True, blank=True, default=0)
     description = models.CharField(max_length=200, verbose_name='description', null=True, blank=True)
+    parallax_error = models.FloatField(
+        verbose_name='parallax error', null=True, blank=True,
+        help_text='Parallax uncertainty, in milliarcseconds.'
+    )
+    pm_ra_error = models.FloatField(
+        verbose_name='proper motion RA error', null=True, blank=True,
+        help_text='Proper Motion RA uncertainty, in milliarcsec/year.'
+    )
+    pm_dec_error = models.FloatField(
+        verbose_name='proper motion Dec error', null=True, blank=True,
+        help_text='Proper Motion Dec uncertainty, in milliarcsec/year.'
+    )
 
     def get_classification_type_display(self):
         for key, display in settings.CLASSIFICATION_TYPES:

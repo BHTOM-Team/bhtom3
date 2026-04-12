@@ -21,6 +21,7 @@ from custom_code.data_services.ogle_ews_dataservice import (
     _ra_to_decimal,
 )
 from custom_code.data_services.exoclock_dataservice import ExoClockDataService
+from custom_code.data_services.gaia_dr3_dataservice import GaiaDR3DataService
 from custom_code.bhtom_catalogs.harvesters.simbad import target_from_result
 from custom_code.bhtom_catalogs.harvesters.crts import CRTSHarvester
 from custom_code.bhtom_catalogs.harvesters.gaia_alerts import GaiaAlertsHarvester
@@ -38,6 +39,8 @@ from custom_code.forms import (
 )
 from custom_code.models import TransitEphemeris
 from custom_code.signals import cleanup_target_relations_on_target_delete
+from custom_code.templatetags.custom_target_extras import bhtom_target_data
+from custom_code.templatetags.custom_target_extras import truncate_decimals
 from custom_code.tasks import _build_query_parameters_for_service, _run_service_for_target
 from custom_code.sun_separation import get_live_target_values
 from custom_code.target_derivations import derive_sidereal_target_fields
@@ -325,6 +328,47 @@ class DataServicePersistenceTests(TestCase):
         self.assertEqual(ephemeris.host_name, 'WASP-12')
         self.assertEqual(ephemeris.recent_observations, 26)
 
+    def test_run_service_for_target_persists_gaia_astrometry_fields(self):
+        target = Target.objects.create(
+            name='GaiaDR3_123',
+            type=Target.SIDEREAL,
+            ra=1.0,
+            dec=2.0,
+            epoch=2000.0,
+        )
+
+        class StubService:
+            name = 'GaiaDR3'
+
+            @classmethod
+            def get_form_class(cls):
+                return GaiaDR3DataService.get_form_class()
+
+            def build_query_parameters(self, parameters, **kwargs):
+                return parameters
+
+            def query_targets(self, query_parameters, **kwargs):
+                return [{
+                    'target_updates': {
+                        'pm_ra': 4.5,
+                        'pm_dec': -6.7,
+                        'parallax': 1.2,
+                        'pm_ra_error': 0.11,
+                        'pm_dec_error': 0.22,
+                        'parallax_error': 0.33,
+                    },
+                }]
+
+        _run_service_for_target(target, 'GaiaDR3', StubService, force_all_services=False)
+
+        target.refresh_from_db()
+        self.assertEqual(target.pm_ra, 4.5)
+        self.assertEqual(target.pm_dec, -6.7)
+        self.assertEqual(target.parallax, 1.2)
+        self.assertEqual(target.pm_ra_error, 0.11)
+        self.assertEqual(target.pm_dec_error, 0.22)
+        self.assertEqual(target.parallax_error, 0.33)
+
     def test_build_query_parameters_for_exoclock_uses_cone_search_radius(self):
         target = Target.objects.create(name='Gaia DR3 123', type=Target.SIDEREAL, ra=97.63665, dec=29.672296, epoch=2000.0)
 
@@ -380,6 +424,40 @@ class DataServiceCoordinateFormTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn('ra', form.errors)
+
+
+class GaiaDR3DataServiceTests(TestCase):
+    def test_query_targets_maps_astrometry_and_errors(self):
+        service = GaiaDR3DataService()
+
+        with patch.object(service, 'query_service', return_value={
+            'source': {
+                'source_id': '123',
+                'ra': 12.3,
+                'dec': -45.6,
+                'pmra': 4.5,
+                'pmdec': -6.7,
+                'parallax': 1.2,
+                'pmra_error': 0.11,
+                'pmdec_error': 0.22,
+                'parallax_error': 0.33,
+            },
+            'photometry_rows': [],
+            'spectroscopy_rows': [],
+        }):
+            results = service.query_targets({'source_id': '123'})
+
+        self.assertEqual(len(results), 1)
+        result = results[0]
+        self.assertEqual(result['parallax'], 1.2)
+        self.assertEqual(result['pmra'], 4.5)
+        self.assertEqual(result['pmdec'], -6.7)
+        self.assertEqual(result['target_updates']['parallax'], 1.2)
+        self.assertEqual(result['target_updates']['pm_ra'], 4.5)
+        self.assertEqual(result['target_updates']['pm_dec'], -6.7)
+        self.assertEqual(result['target_updates']['parallax_error'], 0.33)
+        self.assertEqual(result['target_updates']['pm_ra_error'], 0.11)
+        self.assertEqual(result['target_updates']['pm_dec_error'], 0.22)
 
 
 class SimbadHarvesterTests(TestCase):
@@ -492,6 +570,10 @@ class TargetCreateFormVisibilityTests(TestCase):
         form = BhtomSiderealTargetCreateForm()
 
         self.assertIn('classification', form.fields)
+        self.assertIn('parallax', form.fields)
+        self.assertIn('parallax_error', form.fields)
+        self.assertIn('pm_ra_error', form.fields)
+        self.assertIn('pm_dec_error', form.fields)
         self.assertIn('source_name', form.fields)
         self.assertIn('planet_name', form.fields)
         self.assertIn('t0_bjd_tdb', form.fields)
@@ -535,12 +617,16 @@ class TargetCreateFormVisibilityTests(TestCase):
 
     def test_sidereal_update_form_includes_transit_ephemeris_fields(self):
         target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
+        target.parallax_error = 0.33
+        target.save(update_fields=['parallax_error'])
         form = BhtomSiderealTargetUpdateForm(instance=target)
 
         self.assertIn('classification', form.fields)
+        self.assertIn('parallax', form.fields)
         self.assertIn('source_name', form.fields)
         self.assertIn('planet_name', form.fields)
         self.assertIn('priority', form.fields)
+        self.assertEqual(float(form['parallax_error'].value()), 0.33)
 
     def test_target_alias_formset_rejects_duplicate_names_before_save(self):
         target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
@@ -589,6 +675,50 @@ class TargetDeleteCleanupTests(TestCase):
 
         target.aliases.all.return_value.delete.assert_called_once()
         target.transit_ephemeris.delete.assert_called_once()
+
+
+class TargetDetailDataTests(TestCase):
+    def test_truncate_decimals_truncates_without_rounding(self):
+        self.assertEqual(truncate_decimals(2.162599706281586, 4), '2.1625')
+        self.assertEqual(truncate_decimals(-9.795577453601858, 4), '-9.7955')
+        self.assertEqual(truncate_decimals(0.014048762619495392, 4), '0.0140')
+
+    def test_target_data_includes_gaia_astrometry_rows_with_errors(self):
+        target = Target.objects.create(
+            name='GaiaDR3_123',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+            parallax=1.2,
+            pm_ra=4.5,
+            pm_dec=-6.7,
+        )
+        target.parallax_error = 0.33
+        target.pm_ra_error = 0.11
+        target.pm_dec_error = 0.22
+        target.save(update_fields=['parallax_error', 'pm_ra_error', 'pm_dec_error'])
+
+        context = bhtom_target_data(target)
+
+        self.assertEqual(context['astrometry_rows'][0]['label'], 'Parallax (mas)')
+        self.assertEqual(context['astrometry_rows'][0]['value'], 1.2)
+        self.assertEqual(context['astrometry_rows'][0]['error'], 0.33)
+        self.assertEqual(context['astrometry_rows'][1]['error'], 0.11)
+        self.assertEqual(context['astrometry_rows'][2]['error'], 0.22)
+
+    def test_target_data_omits_gaia_astrometry_block_when_all_values_missing(self):
+        target = Target.objects.create(
+            name='GaiaDR3_456',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+        )
+
+        context = bhtom_target_data(target)
+
+        self.assertEqual(context['astrometry_rows'], [])
 
 
 class PlanetaryTransitTargetCreateTests(TestCase):
@@ -681,6 +811,61 @@ class PlanetaryTransitTargetCreateTests(TestCase):
         self.assertEqual(ephemeris.host_name, 'WASP-12')
         self.assertAlmostEqual(ephemeris.period_days, 1.091418859)
 
+    def test_form_valid_persists_gaia_astrometry_error_fields(self):
+        request = RequestFactory().post(reverse('targets:create'))
+        user = get_user_model().objects.create_user(username='gaia-astrometry-create', password='secret')
+        request.user = user
+
+        target = Target.objects.create(
+            name='GaiaDR3_123',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+            parallax=1.2,
+        )
+
+        class DummyForm:
+            instance = target
+            cleaned_data = {
+                'classification': '',
+                'recommended_observing_strategy': 'Observe with cadence.',
+                'parallax_error': 0.33,
+                'pm_ra_error': 0.11,
+                'pm_dec_error': 0.22,
+            }
+
+            def save(self):
+                target.parallax_error = self.cleaned_data['parallax_error']
+                target.pm_ra_error = self.cleaned_data['pm_ra_error']
+                target.pm_dec_error = self.cleaned_data['pm_dec_error']
+                target.save(update_fields=['parallax_error', 'pm_ra_error', 'pm_dec_error'])
+                return target
+
+        extra_formset = Mock()
+        extra_formset.is_valid.return_value = True
+        extra_formset.save.return_value = None
+        names_formset = Mock()
+        names_formset.is_valid.return_value = True
+        names_formset.save.return_value = None
+
+        view = BhtomTargetCreateView()
+        view.request = request
+
+        with patch('custom_code.views.TargetExtraFormset', return_value=extra_formset), \
+             patch('custom_code.views.BhtomTargetNamesFormset', return_value=names_formset), \
+             patch('custom_code.views.Comment.objects.create'), \
+             patch('custom_code.views.get_current_site', return_value=Mock()), \
+             patch('custom_code.views.run_hook'), \
+             patch.object(BhtomTargetCreateView, 'get_success_url', return_value='/targets/1/'):
+            response = view.form_valid(DummyForm())
+
+        self.assertEqual(response.status_code, 302)
+        target.refresh_from_db()
+        self.assertEqual(target.parallax_error, 0.33)
+        self.assertEqual(target.pm_ra_error, 0.11)
+        self.assertEqual(target.pm_dec_error, 0.22)
+
     def test_create_view_prefills_transit_fields_from_exoclock_payload(self):
         request = RequestFactory().get(
             reverse('targets:create'),
@@ -721,6 +906,37 @@ class PlanetaryTransitTargetCreateTests(TestCase):
         self.assertEqual(form.fields['period_days'].initial, 1.091418859)
         self.assertEqual(form.fields['duration_hours'].initial, 2.93)
         self.assertEqual(form.fields['depth_r_mmag'].initial, 17.81)
+
+    def test_create_view_prefills_gaia_astrometry_fields_from_query_string(self):
+        request = RequestFactory().get(
+            reverse('targets:create'),
+            {
+                'type': 'SIDEREAL',
+                'parallax': '1.2',
+                'parallax_error': '0.33',
+                'pm_ra': '4.5',
+                'pm_ra_error': '0.11',
+                'pm_dec': '-6.7',
+                'pm_dec_error': '0.22',
+            },
+        )
+        user = get_user_model().objects.create_user(username='gaia-prefill', password='secret')
+        request.user = user
+
+        view = BhtomTargetCreateView()
+        view.request = request
+        view.object = None
+        view.initial = {}
+        view.get_target_type = Mock(return_value=Target.SIDEREAL)
+
+        form = view.get_form()
+
+        self.assertEqual(form['parallax'].value(), '1.2')
+        self.assertEqual(form['pm_ra'].value(), '4.5')
+        self.assertEqual(form['pm_dec'].value(), '-6.7')
+        self.assertEqual(form['parallax_error'].value(), '0.33')
+        self.assertEqual(form['pm_ra_error'].value(), '0.11')
+        self.assertEqual(form['pm_dec_error'].value(), '0.22')
 
     def test_create_view_prefills_recommended_strategy_from_query_string(self):
         request = RequestFactory().get(
@@ -802,6 +1018,58 @@ class PlanetaryTransitTargetCreateTests(TestCase):
         self.assertIn('planet_name=WASP-12b', location)
         self.assertIn('t0_bjd_tdb=2457368.4973', location)
         self.assertIn('period_days=1.091418859', location)
+
+    def test_create_target_from_query_redirects_with_gaia_astrometry_params(self):
+        cache_key = 'result_1'
+        cache_payload = {
+            'name': 'GaiaDR3_123',
+            'ra': 12.3,
+            'dec': -45.6,
+            'parallax': 1.2,
+            'pmra': 4.5,
+            'pmdec': -6.7,
+            'parallax_error': 0.33,
+            'pm_ra_error': 0.11,
+            'pm_dec_error': 0.22,
+        }
+        cache.set(cache_key, cache_payload, 3600)
+
+        request = RequestFactory().post(
+            reverse('dataservices:create-target'),
+            data={
+                'query_id': '17',
+                'data_service': 'GaiaDR3',
+                'selected_results': ['1'],
+            },
+        )
+        user = get_user_model().objects.create_user(username='gaia-create-query', password='secret')
+        request.user = user
+
+        class StubService:
+            def to_target(self, cached_result):
+                self.cached_result = cached_result
+                return Target.objects.create(
+                    name='GaiaDR3_123',
+                    type=Target.SIDEREAL,
+                    ra=12.3,
+                    dec=-45.6,
+                    epoch=2000.0,
+                    pm_ra=4.5,
+                    pm_dec=-6.7,
+                    parallax=1.2,
+                ), None, None
+
+        with patch('custom_code.views.get_data_service_class', return_value=StubService):
+            response = BhtomCreateTargetFromQueryView.as_view()(request)
+
+        self.assertEqual(response.status_code, 302)
+        location = response['Location']
+        self.assertIn('parallax=1.2', location)
+        self.assertIn('pm_ra=4.5', location)
+        self.assertIn('pm_dec=-6.7', location)
+        self.assertIn('parallax_error=0.33', location)
+        self.assertIn('pm_ra_error=0.11', location)
+        self.assertIn('pm_dec_error=0.22', location)
 
     def test_create_context_hides_empty_groups_field(self):
         request = RequestFactory().get(reverse('targets:create'), {'type': 'SIDEREAL'})
