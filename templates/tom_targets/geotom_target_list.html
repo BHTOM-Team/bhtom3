@@ -116,7 +116,7 @@
         </thead>
         <tbody>
           {% for row in geotom_rows %}
-          <tr>
+          <tr data-target-id="{{ row.target.id }}">
             <td>{{ row.target.name }}</td>
             <td>{{ row.target.norad_id }}</td>
             <td>
@@ -327,6 +327,47 @@
     margin: 14px auto 28px auto;
   }
 
+  .geotom-map-wrap {
+    position: relative;
+    width: min(100%, 960px);
+    max-width: min(100%, 960px);
+    margin: 14px auto 28px auto;
+  }
+
+  .geotom-map-wrap #geotom-altaz-map {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .geotom-map-popup {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+    min-width: 220px;
+    max-width: 280px;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid rgba(71, 168, 216, 0.55);
+    border-radius: 0.55rem;
+    background: rgba(10, 14, 19, 0.94);
+    color: #e8eef8;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  .geotom-map-popup[hidden] {
+    display: none;
+  }
+
+  .geotom-map-popup-title {
+    font-weight: 600;
+    color: #ffffff;
+  }
+
+  .geotom-map-popup-link {
+    font-size: 0.82rem;
+  }
+
   #geotom-altaz-map .js-plotly-plot,
   #geotom-altaz-map .plot-container,
   #geotom-altaz-map .svg-container {
@@ -425,7 +466,7 @@
 <script type="text/javascript" src="//cdn.datatables.net/1.12.1/js/jquery.dataTables.min.js"></script>
 <script>
   $(document).ready(function() {
-    $('#geotom-table').DataTable({
+    var geotomTable = $('#geotom-table').DataTable({
       order: [[3, 'desc']],
       pageLength: 50,
       autoWidth: false,
@@ -434,6 +475,8 @@
         { targets: 10, orderable: false, width: '140px' }
       ]
     });
+
+    window.geotomTable = geotomTable;
   });
 </script>
 {% endblock %}

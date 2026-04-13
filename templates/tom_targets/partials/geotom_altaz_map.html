@@ -4,7 +4,12 @@
     <button id="map-mode-altaz" type="button" class="btn btn-primary">Alt-Az</button>
   </div>
 </div>
-<div id="geotom-altaz-map"></div>
+<div class="geotom-map-wrap">
+  <div id="geotom-altaz-map"></div>
+  <div id="geotom-map-popup" class="geotom-map-popup" hidden>
+    <div id="geotom-map-popup-content"></div>
+  </div>
+</div>
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 <script>
   (function() {
@@ -13,9 +18,81 @@
     var visibilityCurveALTAZ = JSON.parse('{{ geotom_visibility_curve_altaz_json|escapejs }}');
     var sunHADEC = JSON.parse('{{ geotom_sun_hadec_json|escapejs }}');
     var sunALTAZ = JSON.parse('{{ geotom_sun_altaz_json|escapejs }}');
+    var mapElement = document.getElementById('geotom-altaz-map');
+    var popupElement = document.getElementById('geotom-map-popup');
+    var popupContentElement = document.getElementById('geotom-map-popup-content');
+    var selectedTargetId = null;
+    var suppressNextMapClickClear = false;
 
     function formatEstimatedMagnitude(value) {
       return value === null || value === undefined ? '-' : value.toFixed(2);
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function applyTableFilter(targetId) {
+      if (!window.geotomTable || !$.fn.dataTable || !$.fn.dataTable.ext) {
+        return;
+      }
+
+      if (!window.geotomTableSelectionFilter) {
+        window.geotomTableSelectionFilter = function(settings, data, dataIndex) {
+          if (!window.geotomSelectedTargetId) {
+            return true;
+          }
+          if (!settings.nTable || settings.nTable.id !== 'geotom-table') {
+            return true;
+          }
+          var row = settings.aoData[dataIndex] && settings.aoData[dataIndex].nTr;
+          return !!row && row.getAttribute('data-target-id') === String(window.geotomSelectedTargetId);
+        };
+        $.fn.dataTable.ext.search.push(window.geotomTableSelectionFilter);
+      }
+
+      window.geotomSelectedTargetId = targetId || null;
+      window.geotomTable.draw();
+    }
+
+    function getFilteredTargetId() {
+      return window.geotomSelectedTargetId || null;
+    }
+
+    function hidePopup() {
+      popupElement.hidden = true;
+      popupContentElement.innerHTML = '';
+    }
+
+    function clearSelection() {
+      selectedTargetId = null;
+      applyTableFilter(null);
+      hidePopup();
+    }
+
+    function showPopup(target, mode) {
+      var xLabel = mode === 'hadec'
+        ? 'HA: ' + target.hour_angle_hours.toFixed(3) + ' h'
+        : 'Az: ' + target.az_deg.toFixed(2) + '&deg;';
+      var yLabel = mode === 'hadec'
+        ? 'Dec: ' + target.dec_deg.toFixed(3) + '&deg;'
+        : 'Alt: ' + target.alt_deg.toFixed(2) + '&deg;';
+      var linkLabel = getFilteredTargetId() === target.target_id ? 'Show all again' : 'Show only this target below';
+
+      popupContentElement.innerHTML =
+        '<div class="geotom-map-popup-title">' + escapeHtml(target.target_name) + '</div>' +
+        '<div class="small text-muted mb-1">NORAD: ' + escapeHtml(target.norad_id) + '</div>' +
+        '<div>' + xLabel + '</div>' +
+        '<div>' + yLabel + '</div>' +
+        '<div>V (est.): ' + formatEstimatedMagnitude(target.estimated_vmag) + '</div>' +
+        '<div class="mb-2">Range: ' + target.distance_km.toFixed(0) + ' km</div>' +
+        '<a href="#" class="geotom-map-popup-link" data-target-id="' + escapeHtml(target.target_id) + '">' + linkLabel + '</a>';
+      popupElement.hidden = false;
     }
 
     function buildModePayload(mode) {
@@ -165,6 +242,7 @@
         displaylogo: false,
         modeBarButtonsToRemove: ['lasso2d', 'select2d']
       });
+      mapElement.dataset.mode = mode;
       setButtons(mode);
     }
 
@@ -177,5 +255,61 @@
     renderMode('altaz');
     document.getElementById('map-mode-hadec').addEventListener('click', function() { renderMode('hadec'); });
     document.getElementById('map-mode-altaz').addEventListener('click', function() { renderMode('altaz'); });
+
+    mapElement.on('plotly_click', function(eventData) {
+      if (!eventData || !eventData.points || !eventData.points.length) {
+        return;
+      }
+
+      var point = eventData.points[0];
+      var target = targets[point.pointIndex];
+      if (!target) {
+        return;
+      }
+
+      suppressNextMapClickClear = true;
+
+      if (selectedTargetId === target.target_id) {
+        clearSelection();
+        return;
+      }
+
+      selectedTargetId = target.target_id;
+      showPopup(target, mapElement.dataset.mode || 'altaz');
+    });
+
+    mapElement.addEventListener('click', function(event) {
+      if (event.target.closest('.geotom-map-popup-link')) {
+        return;
+      }
+
+      if (suppressNextMapClickClear) {
+        suppressNextMapClickClear = false;
+        return;
+      }
+
+      if (selectedTargetId !== null) {
+        clearSelection();
+      }
+    });
+
+    popupElement.addEventListener('click', function(event) {
+      var filterLink = event.target.closest('.geotom-map-popup-link');
+      if (!filterLink) {
+        return;
+      }
+
+      event.preventDefault();
+      var targetId = filterLink.getAttribute('data-target-id');
+      var numericTargetId = Number(targetId);
+
+      if (getFilteredTargetId() === numericTargetId) {
+        clearSelection();
+        return;
+      }
+
+      applyTableFilter(numericTargetId);
+      filterLink.textContent = 'Show all again';
+    });
   })();
 </script>
