@@ -1,4 +1,5 @@
 import logging
+import re
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord
@@ -44,6 +45,18 @@ def _target_name_from_main_id(main_id: str) -> str:
     if value.upper().startswith('NAME '):
         value = value[5:].strip()
     return value.replace(' ', '_')
+
+
+def _normalize_identifier_for_alias_comparison(value: str) -> str:
+    return re.sub(r'[\s_]+', '_', str(value or '').strip()).casefold()
+
+
+def _build_simbad_aliases(main_id: str, target_name: str, ra: float, dec: float, source_name: str):
+    if not main_id:
+        return []
+    if _normalize_identifier_for_alias_comparison(main_id) == _normalize_identifier_for_alias_comparison(target_name):
+        return []
+    return [{'name': main_id, 'url': _simbad_url(ra, dec), 'source_name': source_name}]
 
 
 def _simbad_url(ra: float, dec: float) -> str:
@@ -134,7 +147,7 @@ def target_from_result(result):
     target.pm_dec = _clean_number(result.get('pmdec'))
     target.parallax = _clean_number(result.get('plx_value'))
     target.name = _target_name_from_main_id(main_id) if main_id else 'SIMBAD'
-    target.extra_aliases = [{'name': main_id, 'url': _simbad_url(target.ra, target.dec), 'source_name': 'Simbad'}] if main_id else []
+    target.extra_aliases = _build_simbad_aliases(main_id, target.name, target.ra, target.dec, 'Simbad')
     return target
 
 
@@ -177,7 +190,7 @@ class SimbadHarvester(AbstractHarvester):
         target.pm_dec = _clean_number(row['pmdec']) if 'pmdec' in row.colnames else None
         target.parallax = _clean_number(row['plx_value']) if 'plx_value' in row.colnames else None
         target.name = _target_name_from_main_id(main_id) if main_id else 'SIMBAD'
-        target.extra_aliases = [{'name': main_id, 'url': _simbad_url(target.ra, target.dec), 'source_name': self.name}] if main_id else []
+        target.extra_aliases = _build_simbad_aliases(main_id, target.name, target.ra, target.dec, self.name)
         logger.info(
             'SIMBAD harvester mapped row with columns=%s main_id=%s ra=%s dec=%s',
             list(row.colnames), main_id, target.ra, target.dec

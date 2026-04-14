@@ -473,6 +473,19 @@ class SimbadHarvesterTests(TestCase):
 
         self.assertEqual(target.epoch, 2000.0)
 
+    def test_target_from_result_does_not_create_alias_matching_normalized_target_name(self):
+        target = target_from_result({
+            'main_id': 'TYC 9194-662-1',
+            'ra': 126.57054084958001,
+            'dec': -67.90756133863,
+            'pmra': None,
+            'pmdec': None,
+            'plx_value': None,
+        })
+
+        self.assertEqual(target.name, 'TYC_9194-662-1')
+        self.assertEqual(target.extra_aliases, [])
+
     def test_other_sidereal_harvesters_set_j2000_epoch(self):
         crts = CRTSHarvester()
         crts.catalog_data = {'name': 'CRTS_J1', 'ra': 12.3, 'dec': -45.6}
@@ -1087,6 +1100,55 @@ class PlanetaryTransitTargetCreateTests(TestCase):
 
         self.assertFalse(context['show_groups_field'])
         self.assertIsNotNone(context['permissions_field'])
+
+    def test_form_valid_with_invalid_inline_formsets_renders_without_querying_broken_transaction(self):
+        request = RequestFactory().post(
+            reverse('targets:create'),
+            data={
+                'type': 'SIDEREAL',
+                'name': 'Gaia24abc',
+                'ra': 12.3,
+                'dec': -45.6,
+                'epoch': 2000.0,
+                'classification': '',
+                'recommended_observing_strategy': 'Observe with cadence.',
+                'permissions': 'PUBLIC',
+                'importance': '1.0',
+                'cadence': '1.0',
+            },
+        )
+        user = get_user_model().objects.create_user(username='target-create-invalid-inline', password='secret')
+        request.user = user
+
+        view = BhtomTargetCreateView()
+        view.request = request
+        view.args = ()
+        view.kwargs = {}
+        view.object = None
+        view.initial = {}
+        view.get_target_type = Mock(return_value=Target.SIDEREAL)
+
+        form = view.get_form()
+        self.assertTrue(form.is_valid(), form.errors)
+
+        extra_formset = Mock()
+        extra_formset.is_valid.return_value = False
+        extra_formset.errors = [{'key': ['Duplicate tag']}]
+        extra_formset.non_form_errors.return_value = ['Extra formset invalid']
+
+        names_formset = Mock()
+        names_formset.is_valid.return_value = False
+        names_formset.errors = [{'name': ['Duplicate alias']}]
+        names_formset.non_form_errors.return_value = ['Names formset invalid']
+
+        with patch('custom_code.views.TargetExtraFormset', return_value=extra_formset), \
+             patch('custom_code.views.BhtomTargetNamesFormset', return_value=names_formset):
+            response = view.form_valid(form)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('object', response.context_data)
+        self.assertFalse(response.context_data['show_groups_field'])
+        self.assertIn('form', response.context_data)
 
     def test_transit_form_normalizes_blank_text_fields_to_empty_strings(self):
         form = BhtomPlanetaryTransitTargetCreateForm(

@@ -14,19 +14,20 @@
   <h3>Update {{ object.name }}</h3>
 {% endif %}
 </ul>
-<form method="post" class="form">
+<form method="post" class="form" novalidate>
   {% csrf_token %}
+  {% bootstrap_form_errors form type='non_fields' %}
   {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
   {% for field in form.visible_fields %}
     {% if field.name == 'classification' %}
-      {% bootstrap_field field show_label=True %}
+      {% bootstrap_field field show_label=True bound_css_class='' %}
       {% if transit_char_fields or transit_fields %}
         <div id="planetary-transit-fields" class="ml-4 pl-3 border-left mt-3">
           {% for transit_field in transit_char_fields %}
-            {% bootstrap_field transit_field show_label=True %}
+            {% bootstrap_field transit_field show_label=True bound_css_class='' %}
           {% endfor %}
           {% for transit_field in transit_fields %}
-            {% bootstrap_field transit_field show_label=True %}
+            {% bootstrap_field transit_field show_label=True bound_css_class='' %}
           {% endfor %}
         </div>
       {% endif %}
@@ -35,40 +36,42 @@
     {% elif field.name == 'recommended_observing_strategy' or field.name == 'permissions' or field.name == 'groups' %}
       {# Rendered in the preferred order below. #}
     {% else %}
-      {% bootstrap_field field show_label=True %}
+      {% bootstrap_field field show_label=True bound_css_class='' %}
     {% endif %}
   {% endfor %}
   {% if 'recommended_observing_strategy' in form.fields %}
-    {% bootstrap_field form.recommended_observing_strategy show_label=True %}
+    {% bootstrap_field form.recommended_observing_strategy show_label=True bound_css_class='' %}
   {% endif %}
   {% if permissions_field %}
-    {% bootstrap_field permissions_field show_label=True %}
+    {% bootstrap_field permissions_field show_label=True bound_css_class='' %}
   {% endif %}
   {% if show_groups_field and groups_field %}
-    {% bootstrap_field groups_field show_label=True %}
+    {% bootstrap_field groups_field show_label=True bound_css_class='' %}
   {% endif %}
 
   {{ names_form.management_form }}
+  {% bootstrap_formset_errors names_form %}
   <h3>Names</h3>
   {% for alias_form in names_form %}
     <div class="form-row align-items-end">
       {% for hidden in alias_form.hidden_fields %}{{ hidden }}{% endfor %}
       <div class="col-md-5">
-        {% bootstrap_field alias_form.name show_label=True %}
+        {% bootstrap_field alias_form.name show_label=True bound_css_class='' %}
       </div>
       <div class="col-md-5">
-        {% bootstrap_field alias_form.url show_label=True %}
+        {% bootstrap_field alias_form.url show_label=True bound_css_class='' %}
       </div>
       <div class="col-md-2">
         {% if alias_form.DELETE %}
-          {% bootstrap_field alias_form.DELETE show_label=True %}
+          {% bootstrap_field alias_form.DELETE show_label=True bound_css_class='' %}
         {% endif %}
       </div>
     </div>
   {% endfor %}
 
   <h3>Tags</h3>
-  {% bootstrap_formset extra_form %}
+  {% bootstrap_formset_errors extra_form %}
+  {% bootstrap_formset extra_form bound_css_class='' %}
   {% buttons %}
     {% if not object %}
       <button type="submit" formaction="{% url 'targets:create' %}" class="btn btn-primary">Submit</button>

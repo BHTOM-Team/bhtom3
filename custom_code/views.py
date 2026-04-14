@@ -90,6 +90,19 @@ EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY = (
     'of the star and the depth of the transit.'
 )
 
+
+def _set_groups_field_visibility(form, queryset):
+    form.fields['groups'].queryset = queryset
+    form.show_groups_field = queryset.exists()
+    return form
+
+
+def _add_inline_formset_errors(form, formset, summary_message):
+    if any(errors for errors in formset.errors):
+        form.add_error(None, summary_message)
+    for error in formset.non_form_errors():
+        form.add_error(None, error)
+
 def _parse_float(value, default=None):
     try:
         return float(value)
@@ -1583,9 +1596,7 @@ class BhtomTargetCreateView(TargetCreateView):
         context['permissions_field'] = form['permissions'] if form and 'permissions' in form.fields else None
         groups_field = form['groups'] if form and 'groups' in form.fields else None
         context['groups_field'] = groups_field
-        context['show_groups_field'] = bool(
-            groups_field and getattr(form.fields['groups'].queryset, 'exists', lambda: False)()
-        )
+        context['show_groups_field'] = bool(groups_field and getattr(form, 'show_groups_field', False))
         alias_payload = _dedupe_alias_rows(_parse_alias_payload(self.request.GET.get('alias_payload')))
         if self.request.method == 'POST':
             context['names_form'] = BhtomTargetNamesFormset(self.request.POST, instance=getattr(self, 'object', None))
@@ -1601,9 +1612,9 @@ class BhtomTargetCreateView(TargetCreateView):
     def get_form(self, *args, **kwargs):
         form = super().get_form(*args, **kwargs)
         if self.request.user.is_superuser:
-            form.fields['groups'].queryset = Group.objects.all()
+            _set_groups_field_visibility(form, Group.objects.all())
         else:
-            form.fields['groups'].queryset = self.request.user.groups.all()
+            _set_groups_field_visibility(form, self.request.user.groups.all())
         if 'recommended_observing_strategy' in form.fields:
             value = self.request.GET.get('recommended_observing_strategy')
             if value not in (None, ''):
@@ -1649,11 +1660,12 @@ class BhtomTargetCreateView(TargetCreateView):
             )
             run_hook('target_post_save', target=self.object, created=True)
             return redirect(self.get_success_url())
-        form.add_error(None, extra.errors)
-        form.add_error(None, extra.non_form_errors())
-        form.add_error(None, names.errors)
-        form.add_error(None, names.non_form_errors())
+        _add_inline_formset_errors(form, extra, 'Please correct the tag errors below.')
+        _add_inline_formset_errors(form, names, 'Please correct the alias errors below.')
         transaction.set_rollback(True)
+        self.object = None
+        form.instance.pk = None
+        form.instance._state.adding = True
         return super().form_invalid(form)
 
 
@@ -1675,14 +1687,20 @@ class BhtomTargetUpdateView(TargetUpdateView):
         context['permissions_field'] = form['permissions'] if form and 'permissions' in form.fields else None
         groups_field = form['groups'] if form and 'groups' in form.fields else None
         context['groups_field'] = groups_field
-        context['show_groups_field'] = bool(
-            groups_field and getattr(form.fields['groups'].queryset, 'exists', lambda: False)()
-        )
+        context['show_groups_field'] = bool(groups_field and getattr(form, 'show_groups_field', False))
         if self.request.method == 'POST':
             context['names_form'] = BhtomTargetNamesFormset(self.request.POST, instance=self.object)
         else:
             context['names_form'] = BhtomTargetNamesFormset(instance=self.object)
         return context
+
+    def get_form(self, *args, **kwargs):
+        form = super().get_form(*args, **kwargs)
+        if self.request.user.is_superuser:
+            _set_groups_field_visibility(form, Group.objects.all())
+        else:
+            _set_groups_field_visibility(form, self.request.user.groups.all())
+        return form
 
     @transaction.atomic
     def form_valid(self, form):
@@ -1699,10 +1717,8 @@ class BhtomTargetUpdateView(TargetUpdateView):
             ):
                 TransitEphemeris.objects.update_or_create(target=self.object, defaults=transit_ephemeris)
             return redirect(self.get_success_url())
-        form.add_error(None, extra.errors)
-        form.add_error(None, extra.non_form_errors())
-        form.add_error(None, names.errors)
-        form.add_error(None, names.non_form_errors())
+        _add_inline_formset_errors(form, extra, 'Please correct the tag errors below.')
+        _add_inline_formset_errors(form, names, 'Please correct the alias errors below.')
         transaction.set_rollback(True)
         return super().form_invalid(form)
 
