@@ -63,6 +63,7 @@ from custom_code.data_services.geosat_dataservice import GeoSatDataService
 from custom_code.tasks import enqueue_target_dataservices_update
 from custom_code.bhtom_catalogs.harvesters import gaia_alerts as gaia_alerts_harvester
 from custom_code.bhtom_catalogs.harvesters import gaia_dr3 as gaia_dr3_harvester
+from custom_code.bhtom_catalogs.harvesters import ogle_ews as ogle_ews_harvester
 from custom_code.bhtom_catalogs.harvesters import simbad as simbad_harvester
 from custom_code.sun_separation import get_live_target_values
 from tom_dataproducts.views import DataProductUploadView
@@ -1346,6 +1347,8 @@ def _get_catalog_matches(service_name, cleaned_data):
         return gaia_alerts_harvester.get_all(term)
     if service_name == 'Gaia DR3':
         return gaia_dr3_harvester.get_all(term)
+    if service_name == 'OGLE EWS':
+        return ogle_ews_harvester.get_all(term)
     if service_name == 'Simbad':
         return simbad_harvester.get_all(
             cleaned_data.get('ra'),
@@ -1363,6 +1366,10 @@ def _build_catalog_target_from_match(service_name, match):
         harvester = gaia_dr3_harvester.GaiaDR3Harvester()
         harvester.catalog_data = match
         return harvester.to_target()
+    if service_name == 'OGLE EWS':
+        harvester = ogle_ews_harvester.OGLEEWSHarvester()
+        harvester.catalog_data = match
+        return harvester.to_target()
     if service_name == 'Simbad':
         return simbad_harvester.target_from_result(match)
     raise ValueError(f'Unsupported catalog multi-match service: {service_name}')
@@ -1373,6 +1380,9 @@ def _build_catalog_result_row(service_name, index, match):
     if service_name == 'Gaia Alerts':
         view_url = f'https://gsaweb.ast.cam.ac.uk/alerts/alert/{target.name}' if target.name else gaia_alerts_harvester.GAIA_ALERTS_CSV_URL
         summary = str(match.get('Comment') or '').strip()
+    elif service_name == 'OGLE EWS':
+        view_url = ogle_ews_harvester.OGLEEWSHarvester.source_url(match)
+        summary = str(match.get('field') or '').strip()
     elif service_name == 'Simbad':
         view_url = simbad_harvester._simbad_url(target.ra, target.dec)
         summary = str(match.get('main_id') or '').strip()

@@ -28,6 +28,7 @@ from custom_code.bhtom_catalogs.harvesters.gaia_alerts import GaiaAlertsHarveste
 from custom_code.bhtom_catalogs.harvesters.gaia_dr3 import GaiaDR3Harvester
 from custom_code.bhtom_catalogs.harvesters.exoclock import ExoClockHarvester
 from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
+from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
 from custom_code.data_services.forms import SimbadQueryForm
 from custom_code.forms import (
     BhtomNonSiderealTargetCreateForm,
@@ -538,6 +539,11 @@ class CatalogServiceRegistrationTests(TestCase):
 
         self.assertIn('ExoClock', get_service_classes())
 
+    def test_ogle_ews_is_listed_in_catalog_services(self):
+        from tom_catalogs.harvester import get_service_classes
+
+        self.assertIn('OGLE EWS', get_service_classes())
+
     def test_exoclock_catalog_query_redirect_prefills_transit_fields(self):
         exoclock = ExoClockHarvester()
         exoclock.catalog_data = {
@@ -576,6 +582,23 @@ class CatalogServiceRegistrationTests(TestCase):
         self.assertIn('t0_bjd_tdb=2457368.4973', location)
         self.assertIn('period_days=1.091418859', location)
         self.assertIn('recommended_observing_strategy=', location)
+
+    def test_ogle_ews_harvester_maps_target_name_and_coordinates(self):
+        harvester = OGLEEWSHarvester()
+        harvester.catalog_data = {
+            'name': '2011-BLG-001',
+            'field': 'BLG',
+            'ra': 270.123456,
+            'dec': -28.654321,
+        }
+
+        target = harvester.to_target()
+
+        self.assertEqual(target.name, 'OGLE-2011-BLG-001')
+        self.assertEqual(target.type, 'SIDEREAL')
+        self.assertEqual(target.epoch, 2000.0)
+        self.assertAlmostEqual(target.ra, 270.123456)
+        self.assertAlmostEqual(target.dec, -28.654321)
 
 
 class TargetCreateFormVisibilityTests(TestCase):
