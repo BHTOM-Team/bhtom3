@@ -29,10 +29,13 @@ class PhotometricClassificationDataService(DataService):
         return PhotometricClassificationQueryForm
 
     def build_query_parameters(self, parameters, **kwargs):
+        from custom_code.data_services.service_utils import resolve_query_coordinates
+        target_name, ra, dec = resolve_query_coordinates(parameters)
         self.query_parameters = {
             'target_id': parameters.get('target_id'),
-            'ra': parameters.get('ra'),
-            'dec': parameters.get('dec'),
+            'target_name': target_name,
+            'ra': ra,
+            'dec': dec,
             'force': bool(parameters.get('force', False)),
         }
         return self.query_parameters

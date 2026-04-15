@@ -1,0 +1,94 @@
+{% extends 'tom_common/base.html' %}
+{% load bootstrap4 crispy_forms_tags %}
+{% block title %}Query a Data Service{% endblock %}
+{% block content %}
+<h2>Data Services</h2>
+
+<form method="get" class="form mb-4">
+    <div class="form-row align-items-end">
+        <div class="col-md-6">
+            <label for="id_data_service_picker">Data service</label>
+            <select
+                id="id_data_service_picker"
+                name="data_service"
+                class="form-control"
+                onchange="this.form.submit()"
+            >
+                <option value="">Select a data service...</option>
+                {% for service_name, service in installed_services.items %}
+                    <option value="{{ service_name }}"{% if service_name == selected_service %} selected{% endif %}>
+                        {{ service_name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <button type="submit" class="btn btn-outline-primary">Open</button>
+            <a href="{% url 'dataservices:query_list' %}" class="btn btn-outline-secondary">Saved Queries</a>
+        </div>
+    </div>
+</form>
+
+{% if selected_service and form %}
+    <h3>{{ selected_service }} Query Form</h3>
+    {% if service_class and service_class.service_notes %}
+        <p class="text-muted">{{ service_class.service_notes }}</p>
+    {% endif %}
+    <form method="post" class="form">
+        {% csrf_token %}
+        {% bootstrap_field form.data_service %}
+        {% if simple_form %}
+            {% include simple_form %}
+
+            <div class="row" x-data="{open: false}">
+                <div class="col mb-2">
+                    <span @click="open = ! open" class="text-primary pointer" x-text="open ? '▾ Advanced' : '▸ Advanced'"></span>
+                    <div x-show="open" class="border p-3 bg-light" x-transition>
+                        {% if advanced_form %}
+                            {% include advanced_form %}
+                        {% else %}
+                            {% crispy form %}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% else %}
+            {% if advanced_form %}
+                {% include advanced_form %}
+            {% else %}
+                {% crispy form %}
+            {% endif %}
+        {% endif %}
+
+        <div class="row align-items-center" x-data="{save: {{ form.query_save.value|lower }}}">
+            <div class="col-1">
+                <div class="form-group">
+                    <div>
+                        {% if object %}
+                            <input type="submit" formaction="{% url 'dataservices:update' object.id %}" name="submit" value="Run" class="btn btn-primary">
+                        {% else %}
+                            <input type="submit" formaction="{% url 'dataservices:create' %}?data_service={{ selected_service|urlencode }}" name="submit" value="Run" class="btn btn-primary">
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-2">
+                <div class="form-check">
+                    <input type="checkbox" name="query_save" class="form-check-input" id="id_query_save" x-model="save">
+                    <label for="id_query_save" class="form-check-label">Save Query</label>
+                </div>
+            </div>
+            <div class="col-5">
+                <span x-show="save" x-transition>
+                    {% bootstrap_field form.query_name show_label=False %}
+                </span>
+            </div>
+        </div>
+    </form>
+    {% if app_version %}
+        <p><em>TOM Toolkit Module (<a href={{ app_link }} target="_blank">{{ selected_service }}</a>) version {{ app_version }}</em></p>
+    {% endif %}
+{% else %}
+    <p class="text-muted">Choose a data service above to show its query fields.</p>
+{% endif %}
+{% endblock %}

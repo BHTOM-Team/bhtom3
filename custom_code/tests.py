@@ -22,6 +22,7 @@ from custom_code.data_services.ogle_ews_dataservice import (
 )
 from custom_code.data_services.exoclock_dataservice import ExoClockDataService
 from custom_code.data_services.gaia_dr3_dataservice import GaiaDR3DataService
+from custom_code.data_services.twomass_dataservice import TwoMASSDataService
 from custom_code.bhtom_catalogs.harvesters.simbad import target_from_result
 from custom_code.bhtom_catalogs.harvesters.crts import CRTSHarvester
 from custom_code.bhtom_catalogs.harvesters.gaia_alerts import GaiaAlertsHarvester
@@ -29,7 +30,8 @@ from custom_code.bhtom_catalogs.harvesters.gaia_dr3 import GaiaDR3Harvester
 from custom_code.bhtom_catalogs.harvesters.exoclock import ExoClockHarvester
 from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
-from custom_code.data_services.forms import SimbadQueryForm
+from custom_code.data_services.forms import GaiaDR3QueryForm, SimbadQueryForm, WISEQueryForm
+from custom_code.data_services.service_utils import resolve_query_coordinates
 from custom_code.forms import (
     BhtomNonSiderealTargetCreateForm,
     BhtomPlanetaryTransitTargetCreateForm,
@@ -426,6 +428,63 @@ class DataServiceCoordinateFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn('ra', form.errors)
 
+    def test_coordinate_form_accepts_target_name_only(self):
+        form = WISEQueryForm(data={'target_name': 'Gaia24abc'})
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_gaia_form_accepts_target_name_only(self):
+        form = GaiaDR3QueryForm(data={'target_name': 'GaiaDR3_123'})
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+
+class DataServiceTargetNameResolutionTests(TestCase):
+    def test_resolve_query_coordinates_uses_primary_target_name(self):
+        Target.objects.create(name='TargetA', type=Target.SIDEREAL, ra=12.3, dec=-45.6, epoch=2000.0)
+
+        target_name, ra, dec = resolve_query_coordinates({'target_name': 'TargetA'})
+
+        self.assertEqual(target_name, 'TargetA')
+        self.assertEqual(ra, 12.3)
+        self.assertEqual(dec, -45.6)
+
+    def test_resolve_query_coordinates_uses_alias(self):
+        target = Target.objects.create(name='TargetB', type=Target.SIDEREAL, ra=98.7, dec=6.5, epoch=2000.0)
+        target.aliases.create(name='AliasB')
+
+        target_name, ra, dec = resolve_query_coordinates({'target_name': 'AliasB'})
+
+        self.assertEqual(target_name, 'AliasB')
+        self.assertEqual(ra, 98.7)
+        self.assertEqual(dec, 6.5)
+
+
+class TwoMASSDataServiceTests(TestCase):
+    def test_query_targets_returns_jhk_photometry(self):
+        service = TwoMASSDataService()
+        raw_response = '\n'.join([
+            'intro',
+            'null|',
+            '12.345 -45.678 0 0 12345678+1234567 13.1 0.02 12.7 0.03 12.4 0.04 0.1 0.0',
+        ])
+
+        with patch('custom_code.data_services.twomass_dataservice.requests.get', return_value=Mock(text=raw_response)):
+            results = service.query_targets({
+                'ra': 12.345,
+                'dec': -45.678,
+                'radius_arcsec': 3.0,
+                'include_photometry': True,
+            })
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], '2MASS_12345678+1234567')
+        self.assertEqual(results[0]['aliases'], ['2MASS_12345678+1234567'])
+        photometry = results[0]['reduced_datums']['photometry']
+        self.assertEqual([datum['value']['filter'] for datum in photometry], ['2MASS(J)', '2MASS(H)', '2MASS(K)'])
+        self.assertEqual(photometry[0]['value']['magnitude'], 13.1)
+        self.assertEqual(photometry[1]['value']['error'], 0.03)
+
 
 class GaiaDR3DataServiceTests(TestCase):
     def test_query_targets_maps_astrometry_and_errors(self):
@@ -543,6 +602,28 @@ class CatalogServiceRegistrationTests(TestCase):
         from tom_catalogs.harvester import get_service_classes
 
         self.assertIn('OGLE EWS', get_service_classes())
+
+    def test_twomass_is_not_listed_in_catalog_services(self):
+        from tom_catalogs.harvester import get_service_classes
+
+        self.assertNotIn('2MASS', get_service_classes())
+
+    def test_twomass_is_listed_in_data_services(self):
+        from custom_code.tasks import _get_data_service_classes
+
+        self.assertIn('2MASS', _get_data_service_classes())
+
+
+class DataServiceSelectorViewTests(TestCase):
+    def test_dataservices_create_without_service_renders_selector_page(self):
+        user = get_user_model().objects.create_user(username='dataservices-selector', password='secret')
+        self.client.force_login(user)
+
+        response = self.client.get(reverse('dataservices:create'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Select a data service')
+        self.assertContains(response, 'Saved Queries')
 
     def test_exoclock_catalog_query_redirect_prefills_transit_fields(self):
         exoclock = ExoClockHarvester()

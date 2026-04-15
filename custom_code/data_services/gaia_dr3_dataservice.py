@@ -190,14 +190,17 @@ class GaiaDR3DataService(DataService):
         return GaiaDR3QueryForm
 
     def build_query_parameters(self, parameters, **kwargs):
+        from custom_code.data_services.service_utils import resolve_query_coordinates
         source_id = (parameters.get('source_id') or '').strip()
         if source_id:
             match = re.search(r'(\d+)', source_id)
             source_id = match.group(1) if match else source_id
+        target_name, ra, dec = resolve_query_coordinates(parameters)
         self.query_parameters = {
+            'target_name': target_name,
             'source_id': source_id,
-            'ra': parameters.get('ra'),
-            'dec': parameters.get('dec'),
+            'ra': ra,
+            'dec': dec,
             'radius_arcsec': parameters.get('radius_arcsec') or 1.0,
             'include_photometry': bool(parameters.get('include_photometry', True)),
             'include_spectroscopy': bool(parameters.get('include_spectroscopy', True)),

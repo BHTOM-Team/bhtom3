@@ -47,18 +47,19 @@ class ExoClockDataService(DataService):
         return ExoClockQueryForm
 
     def build_query_parameters(self, parameters, **kwargs):
+        from custom_code.data_services.service_utils import resolve_query_coordinates
         target_names = parameters.get('target_names') or []
         if isinstance(target_names, str):
             target_names = [target_names]
-        target_name = (parameters.get('target_name') or '').strip()
+        target_name, ra, dec = resolve_query_coordinates(parameters)
         if target_name and target_name not in target_names:
             target_names = [target_name] + list(target_names)
 
         self.query_parameters = {
             'target_name': target_name,
             'target_names': [name for name in target_names if str(name).strip()],
-            'ra': _to_float(parameters.get('ra')),
-            'dec': _to_float(parameters.get('dec')),
+            'ra': _to_float(ra),
+            'dec': _to_float(dec),
             'radius_arcsec': _to_float(parameters.get('radius_arcsec')) or 30.0,
         }
         return self.query_parameters

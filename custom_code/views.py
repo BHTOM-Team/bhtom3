@@ -35,8 +35,12 @@ from tom_catalogs.harvester import MissingDataException
 from tom_targets.forms import TargetExtraFormset
 from tom_targets.models import Target
 from tom_targets.views import TargetCreateView, TargetDetailView, TargetListView, TargetUpdateView
-from tom_dataservices.dataservices import get_data_service_class
-from tom_dataservices.views import CreateTargetFromQueryView
+from tom_dataservices.dataservices import get_data_service_class, get_data_service_classes
+from tom_dataservices.views import (
+    CreateTargetFromQueryView,
+    DataServiceQueryCreateView,
+    DataServiceQueryUpdateView,
+)
 
 from custom_code.filters import BhtomTargetFilterSet
 from custom_code.forms import (
@@ -2135,6 +2139,44 @@ class BhtomCreateTargetFromQueryView(CreateTargetFromQueryView):
         request.session.pop(CATALOG_RESULTS_SESSION_KEY, None)
         request.session.pop(CATALOG_FORM_SESSION_KEY, None)
         return redirect(self._build_create_url(service_name, row))
+
+
+class BhtomDataServiceQueryCreateView(DataServiceQueryCreateView):
+    template_name = 'tom_dataservices/query_form.html'
+    success_url = reverse_lazy('dataservices:run')
+
+    def get_form_class(self):
+        if not self.get_data_service_name():
+            return None
+        return super().get_form_class()
+
+    def get(self, request, *args, **kwargs):
+        if not self.get_data_service_name():
+            return render(request, self.template_name, self.get_context_data(form=None))
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, *args, **kwargs):
+        context = super().get_context_data(*args, **kwargs) if self.get_data_service_name() else {}
+        installed_services = get_data_service_classes()
+        selected_service = self.get_data_service_name()
+        context['installed_services'] = installed_services
+        context['selected_service'] = selected_service
+        context['service_class'] = installed_services.get(selected_service) if selected_service else None
+        return context
+
+
+class BhtomDataServiceQueryUpdateView(DataServiceQueryUpdateView):
+    template_name = 'tom_dataservices/query_form.html'
+    success_url = reverse_lazy('dataservices:run')
+
+    def get_context_data(self, *args, **kwargs):
+        context = super().get_context_data(*args, **kwargs)
+        installed_services = get_data_service_classes()
+        selected_service = self.object.data_service
+        context['installed_services'] = installed_services
+        context['selected_service'] = selected_service
+        context['service_class'] = installed_services.get(selected_service) if selected_service else None
+        return context
 
 
 class GeoTomTargetListView(ListView):

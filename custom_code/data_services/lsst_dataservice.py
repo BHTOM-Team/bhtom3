@@ -66,14 +66,17 @@ class LSSTDataService(DataService):
         return LSSTQueryForm
 
     def build_query_parameters(self, parameters, **kwargs):
+        from custom_code.data_services.service_utils import resolve_query_coordinates
         dia_id = (parameters.get('dia_object_id') or '').strip()
         if dia_id:
             match = re.search(r'([0-9eE\+\-\.]+)', dia_id)
             dia_id = _normalize_lsst_id(match.group(1) if match else dia_id)
+        target_name, ra, dec = resolve_query_coordinates(parameters)
         self.query_parameters = {
+            'target_name': target_name,
             'dia_object_id': dia_id,
-            'ra': parameters.get('ra'),
-            'dec': parameters.get('dec'),
+            'ra': ra,
+            'dec': dec,
             'radius_arcsec': parameters.get('radius_arcsec') or 5.0,
             'include_photometry': bool(parameters.get('include_photometry', True)),
         }

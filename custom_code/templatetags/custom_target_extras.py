@@ -25,6 +25,8 @@ def _guess_alias_source(alias_name, url=''):
         return 'AllWISE'
     if upper.startswith('NEOWISE'):
         return 'NeoWISE'
+    if upper.startswith('2MASS_'):
+        return '2MASS'
     if upper.startswith('PS1_'):
         return 'PS1'
     if upper.startswith('SWIFT'):

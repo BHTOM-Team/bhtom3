@@ -88,9 +88,12 @@ class SimbadDataService(DataService):
         self.simbad.add_votable_fields('propermotions', 'parallax')
 
     def build_query_parameters(self, parameters, **kwargs):
+        from custom_code.data_services.service_utils import resolve_query_coordinates
+        target_name, ra, dec = resolve_query_coordinates(parameters)
         self.query_parameters = {
-            'ra': parameters.get('ra'),
-            'dec': parameters.get('dec'),
+            'target_name': target_name,
+            'ra': ra,
+            'dec': dec,
             'radius_arcsec': 3.0,
         }
         return self.query_parameters

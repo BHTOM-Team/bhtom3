@@ -87,10 +87,13 @@ class GaiaAlertsDataService(DataService):
         return GaiaAlertsQueryForm
 
     def build_query_parameters(self, parameters, **kwargs):
+        from custom_code.data_services.service_utils import resolve_query_coordinates
+        target_name, ra, dec = resolve_query_coordinates(parameters)
         self.query_parameters = {
+            'target_name': target_name,
             'alert_name': (parameters.get('alert_name') or '').strip(),
-            'ra': parameters.get('ra'),
-            'dec': parameters.get('dec'),
+            'ra': ra,
+            'dec': dec,
             'radius_arcsec': parameters.get('radius_arcsec') or 5.0,
             'include_photometry': bool(parameters.get('include_photometry', True)),
         }

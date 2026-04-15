@@ -1,22 +1,22 @@
 import logging
-
-from astropy.time import Time
 from datetime import timezone
-import numpy as np
-import requests
 from io import StringIO
-import pandas as pd
 
-from tom_dataservices.dataservices import DataService
+import numpy as np
+import pandas as pd
+import requests
+from astropy.time import Time
+
 from tom_dataproducts.models import ReducedDatum
+from tom_dataservices.dataservices import DataService
 from tom_targets.models import Target, TargetName
 
-from custom_code.data_services.forms import PanSTARRSQueryForm
+from custom_code.data_services.forms import WISEQueryForm
 
 
 logger = logging.getLogger(__name__)
 
-PS1_QUERY_URL = 'https://catalogs.mast.stsci.edu/panstarrs'
+TWOMASS_QUERY_URL = 'https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?submit=Select&projshort=2MASS'
 
 
 def _to_float(value):
@@ -25,34 +25,29 @@ def _to_float(value):
     except (TypeError, ValueError):
         return None
 
-def _ps1_cat_url(id):
-    return f"{PS1_QUERY_URL}/detections.html?objID={id}"
+
+def _twomass_alias(designation):
+    return f'2MASS_{designation}'
 
 
-def _ps1_alias(id):
-    return f'PS1_{id}'
-
-def _get_ps1_filter_name(filter_id):
-    filter_map = {
-        1: 'g',
-        2: 'r',
-        3: 'i',
-        4: 'z',
-        5: 'y'
-    }
-    return filter_map.get(filter_id, None)
+def _build_twomass_query(ra, dec, radius_arcsec):
+    return (
+        'https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=fp_psc'
+        f'&spatial=cone&radius={radius_arcsec}&radunits=arcsec&objstr={ra}+{dec}'
+        '&outfmt=1&selcols=ra,dec,designation,j_m,j_cmsig,h_m,h_cmsig,k_m,k_cmsig'
+    )
 
 
-class PanSTARRSDataService(DataService):
-    name = 'PS1'
-    verbose_name = 'PS1'
+class TwoMASSDataService(DataService):
+    name = '2MASS'
+    verbose_name = '2MASS'
     update_on_daily_refresh = False
-    info_url = PS1_QUERY_URL
-    service_notes = 'Query Pan-STARRS by coordinates and ingest Pan-STARRS photometry.'
+    info_url = TWOMASS_QUERY_URL
+    service_notes = 'Query 2MASS point sources by coordinates and ingest J/H/K photometry.'
 
     @classmethod
     def get_form_class(cls):
-        return PanSTARRSQueryForm
+        return WISEQueryForm
 
     def build_query_parameters(self, parameters, **kwargs):
         from custom_code.data_services.service_utils import resolve_query_coordinates
@@ -61,7 +56,7 @@ class PanSTARRSDataService(DataService):
             'target_name': target_name,
             'ra': ra,
             'dec': dec,
-            'radius_arcsec': parameters.get('radius_arcsec') or 2.0,
+            'radius_arcsec': parameters.get('radius_arcsec') or 3.0,
             'include_photometry': bool(parameters.get('include_photometry', True)),
         }
         return self.query_parameters
@@ -69,28 +64,37 @@ class PanSTARRSDataService(DataService):
     def query_service(self, query_parameters, **kwargs):
         ra = _to_float(query_parameters.get('ra'))
         dec = _to_float(query_parameters.get('dec'))
-        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 2.0
+        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 3.0
         if ra is None or dec is None:
-            self.query_results = {'lc_data': [], 'source_location': None}
+            self.query_results = {'lc_data': None, 'designation': None, 'source_location': None}
             return self.query_results
 
-        ps1_id = None
         lc_data = None
-        source_location = None
+        designation = None
+        source_location = _build_twomass_query(ra, dec, radius_arcsec)
         try:
-            ps1_response = requests.get(f"https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/detection.csv?ra={ra}&dec={dec}&radius={radius_arcsec/3600.0}")
-            if ps1_response.text.strip():
-                lc_data = pd.read_csv(StringIO(ps1_response.text))
-                ps1_id = lc_data['objID'][0]
-                source_location = _ps1_cat_url(ps1_id)
+            response = requests.get(source_location)
+            if response.text.strip():
+                response_table = response.text.split('null|\n', 1)[1]
+                lc_data = pd.read_csv(
+                    StringIO(response_table),
+                    header=None,
+                    names=[
+                        'ra', 'dec', 'clon', 'clat', 'designation', 'j_m', 'j_cmsig',
+                        'h_m', 'h_cmsig', 'k_m', 'k_cmsig', 'dist', 'angle',
+                    ],
+                    sep=r'\s+',
+                )
+                if len(lc_data) > 0:
+                    designation = str(lc_data.iloc[0]['designation']).strip()
             else:
-                logger.debug('PanSTARRS returned no data for RA=%s Dec=%s', ra, dec)
-        except ValueError:
-            logger.debug('PanSTARRS returned error for RA=%s Dec=%s', ra, dec)
+                logger.debug('2MASS returned no data for RA=%s Dec=%s', ra, dec)
+        except (IndexError, ValueError, requests.RequestException):
+            logger.debug('2MASS returned unparsable data for RA=%s Dec=%s', ra, dec)
 
         self.query_results = {
-            'ps1_id':ps1_id,
             'lc_data': lc_data,
+            'designation': designation,
             'source_location': source_location,
             'ra': ra,
             'dec': dec,
@@ -102,12 +106,11 @@ class PanSTARRSDataService(DataService):
         ra = data.get('ra')
         dec = data.get('dec')
         lc_data = data.get('lc_data')
-        if ra is None or dec is None or len(lc_data) < 1:
+        designation = data.get('designation')
+        if ra is None or dec is None or lc_data is None or len(lc_data) < 1 or not designation:
             return []
 
-        alias = _ps1_alias(data.get('ps1_id'))
-        lc_data = lc_data[lc_data['psfFlux']>0]
-        lc_data = lc_data[lc_data['psfFluxErr']>0]
+        alias = _twomass_alias(designation)
         return [{
             'name': alias,
             'ra': ra,
@@ -158,28 +161,21 @@ class PanSTARRSDataService(DataService):
 
     def _build_photometry_datums(self, lc_data):
         output = []
+        timestamp = Time('2000-01-01T00:00:00', format='isot', scale='utc').to_datetime(timezone=timezone.utc)
         for _, row in lc_data.iterrows():
-            mjd = row['obsTime']
-            psfFlux = row['psfFlux']
-            psfFluxErr = row['psfFluxErr']
-            filterNo = row['filterID']
-            filter = f"PS1({_get_ps1_filter_name(filterNo)})"
-            if mjd is None or psfFlux is None or psfFluxErr is None or filterNo is None:
-                continue
-            snr = psfFlux/psfFluxErr
-            if (snr) > 3:
-                mag = -2.5 * np.log10(psfFlux / 3631)
-                magerr = 1.0857 * (psfFluxErr / psfFlux)
+            if not np.isnan(row.j_m) and not np.isnan(row.j_cmsig):
                 output.append({
-                    'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                    'value': {'filter': filter, 'magnitude': mag, 'error': magerr},
+                    'timestamp': timestamp,
+                    'value': {'filter': '2MASS(J)', 'magnitude': row.j_m, 'error': row.j_cmsig},
                 })
-            else:
-                mag = -2.5 * np.log10((psfFlux) * snr / 3631)
-                magerr = -1
+            if not np.isnan(row.h_m) and not np.isnan(row.h_cmsig):
                 output.append({
-                    'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                    'value': {'filter': filter, 'magnitude': mag, 'error': magerr},
+                    'timestamp': timestamp,
+                    'value': {'filter': '2MASS(H)', 'magnitude': row.h_m, 'error': row.h_cmsig},
                 })
-
+            if not np.isnan(row.k_m) and not np.isnan(row.k_cmsig):
+                output.append({
+                    'timestamp': timestamp,
+                    'value': {'filter': '2MASS(K)', 'magnitude': row.k_m, 'error': row.k_cmsig},
+                })
         return output
