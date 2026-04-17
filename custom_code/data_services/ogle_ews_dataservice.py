@@ -87,6 +87,13 @@ def _ogle_phot_url(name):
     return f'{OGLE_BASE_URL}/{version}/ews/{year}/{field.lower()}-{number}/phot.dat'
 
 
+def _ogle_event_url(name):
+    normalized_name = _normalize_target_name(name)
+    if not normalized_name:
+        return OGLE_EWS_INFO_URL
+    return f'{OGLE_EWS_INFO_URL}/{normalized_name}.html'
+
+
 def _year_from_target_name(name):
     normalized_name = _normalize_target_name(name)
     if not normalized_name:
@@ -200,6 +207,7 @@ class OGLEEWSDataService(DataService):
 
         photometry_by_name = {}
         photometry_urls = {}
+        page_urls = {}
         if query_parameters.get('include_photometry', True):
             for row in matching_rows:
                 name = row.get('name')
@@ -207,6 +215,7 @@ class OGLEEWSDataService(DataService):
                     continue
                 phot_url = _ogle_phot_url(name)
                 photometry_urls[name] = phot_url
+                page_urls[name] = _ogle_event_url(name)
                 try:
                     photometry_by_name[name] = self._fetch_photometry_rows(phot_url)
                 except Exception as exc:
@@ -216,7 +225,8 @@ class OGLEEWSDataService(DataService):
             'alerts': matching_rows,
             'photometry_by_name': photometry_by_name,
             'photometry_urls': photometry_urls,
-            'source_location': next(iter(photometry_urls.values()), self.info_url),
+            'page_urls': page_urls,
+            'source_location': next(iter(page_urls.values()), self.info_url),
             'ra': ra,
             'dec': dec,
         }
@@ -230,7 +240,7 @@ class OGLEEWSDataService(DataService):
 
         target_results = []
         photometry_by_name = data.get('photometry_by_name') or {}
-        photometry_urls = data.get('photometry_urls') or {}
+        page_urls = data.get('page_urls') or {}
         for alert in alerts:
             raw_name = alert.get('name')
             normalized_raw_name = _normalize_target_name(raw_name)
@@ -244,8 +254,8 @@ class OGLEEWSDataService(DataService):
                 'name': name,
                 'ra': ra,
                 'dec': dec,
-                'aliases': [name, normalized_raw_name],
-                'source_location': photometry_urls.get(normalized_raw_name) or self.info_url,
+                'aliases': [name],
+                'source_location': page_urls.get(normalized_raw_name) or self.info_url,
             }
             photometry_rows = photometry_by_name.get(normalized_raw_name)
             if photometry_rows is not None:

@@ -86,6 +86,8 @@ PHOTOMETRY_COLOR_MAP = {
     'ASASSN(g)': ['green', 'cross-thin', 2],
     'ASASSN(V)': ['darkgreen', 'cross-thin', 2],
     'OGLE(I)': ['#800080', 'diamond', 4],
+    'MOA(Red)': ['#ff5a8a', 'diamond-wide', 4],
+    'MOA(Blue)': ['#3b82f6', 'diamond-wide', 4],
     'ATLAS(c)': ['#1f7e7d', 'circle', 2],
     'ATLAS(o)': ['#f88f1e', 'circle', 2],
     'KMTNET(I)': ['#8c4646', 'diamond-tall', 2],
@@ -172,6 +174,8 @@ PHOTOMETRY_LIMITS_COLOR_MAP = {
     'ASASSN(g)': ['green', 'arrow-down-open', 2],
     'ASASSN(V)': ['darkgreen', 'arrow-down-open', 2],
     'OGLE(I)': ['#800080', 'arrow-down-open', 4],
+    'MOA(Red)': ['#ff5a8a', 'arrow-down-open', 4],
+    'MOA(Blue)': ['#3b82f6', 'arrow-down-open', 4],
     'ATLAS(c)': ['#1f7e7d', 'arrow-down-open', 2],
     'ATLAS(o)': ['#f88f1e', 'arrow-down-open', 2],
     'KMTNET(I)': ['#8c4646', 'arrow-down-open', 2],
@@ -258,19 +262,20 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
     for filter_name, filter_values in photometry_data.items():
         if not filter_values.get('magnitude'):
             continue
+        trace_opacity = 0.75 if filter_name.startswith('MOA(') else 0.75
         plot_data.append(
             go.Scatter(
                 x=filter_values['time'],
                 y=filter_values['magnitude'],
                 mode='markers',
-                opacity=0.75,
+                opacity=trace_opacity,
                 marker=dict(
                     color=PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[0],
                     symbol=PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[1],
                     size=1.2 * PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[2],
                 ),
                 name=filter_name,
-                error_y=dict(type='data', array=filter_values['error'], visible=True, thickness=0.5),
+                error_y=dict(type='data', array=filter_values['error'], visible=True, thickness=0.5, width=0),
                 text=mjds_to_plot[filter_name],
                 customdata=list(zip(filter_values['customdata'], filter_values['link'])),
                 hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>MJD= %{text:.6f}'

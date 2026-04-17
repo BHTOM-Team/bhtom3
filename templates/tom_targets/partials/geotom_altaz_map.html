@@ -22,6 +22,7 @@
     var popupElement = document.getElementById('geotom-map-popup');
     var popupContentElement = document.getElementById('geotom-map-popup-content');
     var selectedTargetId = null;
+    var renderedTargets = [];
     var suppressNextMapClickClear = false;
 
     function formatEstimatedMagnitude(value) {
@@ -39,6 +40,7 @@
 
     function applyTableFilter(targetId) {
       if (!window.geotomTable || !$.fn.dataTable || !$.fn.dataTable.ext) {
+        window.geotomSelectedTargetId = targetId || null;
         return;
       }
 
@@ -72,7 +74,55 @@
     function clearSelection() {
       selectedTargetId = null;
       applyTableFilter(null);
+      renderMode(mapElement.dataset.mode || 'altaz');
       hidePopup();
+    }
+
+    function getTargetById(targetId) {
+      for (var i = 0; i < targets.length; i++) {
+        if (Number(targets[i].target_id) === Number(targetId)) {
+          return targets[i];
+        }
+      }
+      return null;
+    }
+
+    function getVisibleTargets() {
+      var filteredTargetId = getFilteredTargetId();
+      if (filteredTargetId === null) {
+        return targets;
+      }
+
+      var target = getTargetById(filteredTargetId);
+      return target ? [target] : [];
+    }
+
+    function setSelectedTarget(targetId, showPopup) {
+      var numericTargetId = targetId === null || targetId === undefined ? null : Number(targetId);
+      var target = numericTargetId === null ? null : getTargetById(numericTargetId);
+      if (numericTargetId !== null && !target) {
+        clearSelection();
+        return;
+      }
+
+      selectedTargetId = numericTargetId;
+      applyTableFilter(numericTargetId);
+      renderMode(mapElement.dataset.mode || 'altaz');
+
+      if (target && showPopup) {
+        showPopup(target, mapElement.dataset.mode || 'altaz');
+      } else {
+        hidePopup();
+      }
+    }
+
+    function toggleSelectedTarget(targetId) {
+      var numericTargetId = Number(targetId);
+      if (selectedTargetId === numericTargetId) {
+        clearSelection();
+        return;
+      }
+      setSelectedTarget(numericTargetId, true);
     }
 
     function showPopup(target, mode) {
@@ -96,6 +146,7 @@
     }
 
     function buildModePayload(mode) {
+      var visibleTargets = getVisibleTargets();
       var x = [];
       var y = [];
       var text = [];
@@ -106,8 +157,10 @@
       var curve = mode === 'hadec' ? visibilityCurveHADEC : visibilityCurveALTAZ;
       var sun = mode === 'hadec' ? sunHADEC : sunALTAZ;
 
-      for (var i = 0; i < targets.length; i++) {
-        var t = targets[i];
+      renderedTargets = visibleTargets;
+
+      for (var i = 0; i < visibleTargets.length; i++) {
+        var t = visibleTargets[i];
         if (mode === 'hadec') {
           x.push(t.hour_angle_hours);
           y.push(t.dec_deg);
@@ -244,6 +297,13 @@
       });
       mapElement.dataset.mode = mode;
       setButtons(mode);
+
+      if (selectedTargetId !== null) {
+        var selectedTarget = getTargetById(selectedTargetId);
+        if (selectedTarget) {
+          showPopup(selectedTarget, mode);
+        }
+      }
     }
 
     Plotly.newPlot('geotom-altaz-map', [], {}, {
@@ -262,20 +322,16 @@
       }
 
       var point = eventData.points[0];
-      var target = targets[point.pointIndex];
+      if (point.curveNumber !== 1) {
+        return;
+      }
+      var target = renderedTargets[point.pointIndex];
       if (!target) {
         return;
       }
 
       suppressNextMapClickClear = true;
-
-      if (selectedTargetId === target.target_id) {
-        clearSelection();
-        return;
-      }
-
-      selectedTargetId = target.target_id;
-      showPopup(target, mapElement.dataset.mode || 'altaz');
+      toggleSelectedTarget(target.target_id);
     });
 
     mapElement.addEventListener('click', function(event) {
@@ -300,16 +356,10 @@
       }
 
       event.preventDefault();
-      var targetId = filterLink.getAttribute('data-target-id');
-      var numericTargetId = Number(targetId);
-
-      if (getFilteredTargetId() === numericTargetId) {
-        clearSelection();
-        return;
-      }
-
-      applyTableFilter(numericTargetId);
-      filterLink.textContent = 'Show all again';
+      toggleSelectedTarget(filterLink.getAttribute('data-target-id'));
     });
+
+    window.geotomToggleTargetSelection = toggleSelectedTarget;
+    window.geotomClearTargetSelection = clearSelection;
   })();
 </script>

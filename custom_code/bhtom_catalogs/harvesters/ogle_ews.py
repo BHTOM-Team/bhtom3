@@ -5,6 +5,7 @@ from tom_catalogs.harvester import AbstractHarvester
 from custom_code.data_services.ogle_ews_dataservice import (
     OGLE_EWS_INFO_URL,
     OGLEEWSDataService,
+    _ogle_event_url,
     _normalize_target_name,
     _prefixed_target_name,
     _to_float,
@@ -58,4 +59,4 @@ class OGLEEWSHarvester(AbstractHarvester):
         normalized_name = _normalize_target_name(raw_name)
         if not normalized_name:
             return OGLE_EWS_INFO_URL
-        return f'{OGLE_EWS_INFO_URL}/{normalized_name}.html'
+        return _ogle_event_url(normalized_name)

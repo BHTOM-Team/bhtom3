@@ -143,6 +143,50 @@ class OGLEEWSQueryForm(BaseQueryForm):
         return cleaned
 
 
+class MOAQueryForm(BaseQueryForm):
+    target_name = forms.CharField(
+        required=False,
+        label='MOA event name',
+        help_text='You can enter 2019-BLG-397, MOA-2019-BLG-397, or use RA+Dec.',
+    )
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, label='Search radius (arcsec)')
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include lightcurve photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        has_name = bool((cleaned.get('target_name') or '').strip())
+        has_coords = cleaned.get('ra') is not None and cleaned.get('dec') is not None
+        if not has_name and not has_coords:
+            raise forms.ValidationError('Provide MOA event name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 5.0
+        return cleaned
+
+
+class KMTQueryForm(BaseQueryForm):
+    target_name = forms.CharField(
+        required=False,
+        label='KMT event name',
+        help_text='You can enter KMT-2017-BLG-2573 or use RA+Dec.',
+    )
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, label='Search radius (arcsec)')
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include lightcurve photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        has_name = bool((cleaned.get('target_name') or '').strip())
+        has_coords = cleaned.get('ra') is not None and cleaned.get('dec') is not None
+        if not has_name and not has_coords:
+            raise forms.ValidationError('Provide KMT event name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 5.0
+        return cleaned
+
+
 class ExoClockQueryForm(BaseQueryForm):
     target_name = forms.CharField(required=False, label='ExoClock planet name')
     ra = ra_field()

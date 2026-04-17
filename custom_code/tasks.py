@@ -56,6 +56,88 @@ def _count_returned_reduced_datums(reduced_datums):
             continue
     return total
 
+
+def _cleanup_moa_aliases(target, result, service_name):
+    if service_name != 'MOA':
+        return
+
+    aliases = result.get('aliases') or []
+    canonical_names = {
+        str(alias.get('name') if isinstance(alias, dict) else alias).strip()
+        for alias in aliases
+        if str(alias.get('name') if isinstance(alias, dict) else alias).strip()
+    }
+    canonical_names = {name for name in canonical_names if name.upper().startswith('MOA-')}
+    if not canonical_names:
+        return
+
+    alias_url = str((result or {}).get('source_location') or '').strip()
+    for canonical_name in canonical_names:
+        bare_name = canonical_name[4:]
+
+        canonical_alias = target.aliases.filter(name=canonical_name).first()
+        if canonical_alias is not None and alias_url:
+            TargetAliasInfo.objects.update_or_create(
+                target_name=canonical_alias,
+                defaults={'url': alias_url, 'source_name': service_name},
+            )
+
+        stale_alias = target.aliases.filter(name=bare_name).first()
+        if stale_alias is not None:
+            stale_alias.delete()
+
+
+def _cleanup_ogle_aliases(target, result, service_name):
+    if service_name != 'OGLEEWS':
+        return
+
+    aliases = result.get('aliases') or []
+    canonical_names = {
+        str(alias.get('name') if isinstance(alias, dict) else alias).strip()
+        for alias in aliases
+        if str(alias.get('name') if isinstance(alias, dict) else alias).strip()
+    }
+    canonical_names = {name for name in canonical_names if name.upper().startswith('OGLE-')}
+    if not canonical_names:
+        return
+
+    alias_url = str((result or {}).get('source_location') or '').strip()
+    for canonical_name in canonical_names:
+        bare_name = canonical_name[5:]
+
+        canonical_alias = target.aliases.filter(name=canonical_name).first()
+        if canonical_alias is not None and alias_url:
+            TargetAliasInfo.objects.update_or_create(
+                target_name=canonical_alias,
+                defaults={'url': alias_url, 'source_name': service_name},
+            )
+
+        stale_alias = target.aliases.filter(name=bare_name).first()
+        if stale_alias is not None:
+            stale_alias.delete()
+
+
+def _cleanup_wise_aliases(target, result, service_name):
+    if service_name not in {'AllWISE', 'NeoWISE'}:
+        return
+
+    alias_url = str((result or {}).get('source_location') or '').strip()
+    canonical_alias = target.aliases.filter(name='WISE').first()
+    if canonical_alias is not None and alias_url:
+        TargetAliasInfo.objects.update_or_create(
+            target_name=canonical_alias,
+            defaults={'url': alias_url, 'source_name': 'WISE'},
+        )
+
+    stale_patterns = (
+        r'(?i)^allwise\+j',
+        r'(?i)^neowise\+j',
+    )
+    for alias in list(target.aliases.all()):
+        alias_name = str(alias.name or '').strip()
+        if any(re.match(pattern, alias_name) for pattern in stale_patterns):
+            alias.delete()
+
 def _get_data_service_classes():
     """
     Compatibility wrapper for TOM Toolkit versions with different
@@ -212,6 +294,9 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
                 alias_urls_updated += 1
             if created:
                 aliases_added += 1
+        _cleanup_ogle_aliases(target, result, service_name)
+        _cleanup_moa_aliases(target, result, service_name)
+        _cleanup_wise_aliases(target, result, service_name)
         reduced_datums = result.get('reduced_datums')
         if reduced_datums:
             datapoints_returned += _count_returned_reduced_datums(reduced_datums)
@@ -298,6 +383,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         ogle_ews_name = _extract_ogle_ews_name(target)
         if ogle_ews_name:
             query_parameters['target_name'] = ogle_ews_name
+    elif 'target_name' in form_fields and service_name == 'KMT':
+        kmt_name = _extract_kmt_name(target)
+        if kmt_name:
+            query_parameters['target_name'] = kmt_name
     elif 'target_name' in form_fields and service_name == 'ExoClock':
         query_parameters['radius_arcsec'] = max(float(query_parameters.get('radius_arcsec', 30.0)), 30.0)
         query_parameters['target_name'] = target.name
@@ -339,4 +428,12 @@ def _extract_ogle_ews_name(target):
         match = re.match(r'(?i)^(?:OGLE[-\s]?)?(\d{4}-[A-Z]{3}-\d{4})$', value.strip())
         if match:
             return match.group(1).upper()
+    return None
+
+
+def _extract_kmt_name(target):
+    for value in _iter_target_names(target):
+        match = re.match(r'(?i)^(?:KMT[-\s]?)?(\d{4}-BLG-\d{1,5})$', value.strip())
+        if match:
+            return f'KMT-{match.group(1).upper()}'
     return None

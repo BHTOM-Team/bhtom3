@@ -26,8 +26,8 @@ def _to_float(value):
         return None
 
 
-def _allwise_alias(ra,dec):
-    return f'ALLWISE+J{ra}_{dec}'
+def _wise_target_name(ra, dec):
+    return f'WISE+J{ra}_{dec}'
 
 def _build_wise_query(ra,dec,rad):
     ra = str(ra)
@@ -106,13 +106,13 @@ class AllWISEDataService(DataService):
         if ra is None or dec is None or len(lc_data) < 1:
             return []
 
-        alias = _allwise_alias(ra,dec)
+        target_name = _wise_target_name(ra, dec)
 
         return [{
-            'name': alias,
+            'name': target_name,
             'ra': ra,
             'dec': dec,
-            'aliases': [alias],
+            'aliases': ['WISE'],
             'reduced_datums': {'photometry': self._build_photometry_datums(lc_data)},
             'source_location': data.get('source_location'),
         }]

@@ -15,20 +15,34 @@ from custom_code.data_services.ogle_ews_dataservice import (
     OGLEEWSDataService,
     _dec_to_decimal,
     _normalize_target_name,
+    _ogle_event_url,
     _ogle_phot_url,
     _parse_lenses_rows,
     _parse_photometry_rows,
     _ra_to_decimal,
 )
+from custom_code.data_services.moa_dataservice import (
+    MOADataService,
+    _event_suffix_candidates,
+    _extract_calibration,
+    _normalize_event_name as _normalize_moa_event_name,
+    _parse_photometry_rows as _parse_moa_photometry_rows,
+    _parse_event_page,
+)
+from custom_code.data_services.allwise_dataservice import AllWISEDataService
 from custom_code.data_services.exoclock_dataservice import ExoClockDataService
 from custom_code.data_services.gaia_dr3_dataservice import GaiaDR3DataService
+from custom_code.data_services.kmt_dataservice import KMTDataService, _event_id as _kmt_event_id, _normalize_event_name as _normalize_kmt_event_name
+from custom_code.data_services.neowise_dataservice import NeoWISEDataService
 from custom_code.data_services.twomass_dataservice import TwoMASSDataService
 from custom_code.bhtom_catalogs.harvesters.simbad import target_from_result
 from custom_code.bhtom_catalogs.harvesters.crts import CRTSHarvester
 from custom_code.bhtom_catalogs.harvesters.gaia_alerts import GaiaAlertsHarvester
 from custom_code.bhtom_catalogs.harvesters.gaia_dr3 import GaiaDR3Harvester
 from custom_code.bhtom_catalogs.harvesters.exoclock import ExoClockHarvester
+from custom_code.bhtom_catalogs.harvesters.kmt import KMTHarvester
 from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
+from custom_code.bhtom_catalogs.harvesters.moa import MOAHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
 from custom_code.data_services.forms import GaiaDR3QueryForm, SimbadQueryForm, WISEQueryForm
 from custom_code.data_services.service_utils import resolve_query_coordinates
@@ -181,8 +195,12 @@ class OGLEEWSDataServiceTests(TestCase):
             })
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]['name'], '2011-BLG-0001')
-        self.assertEqual(results[0]['aliases'], ['2011-BLG-0001'])
+        self.assertEqual(results[0]['name'], 'OGLE-2011-BLG-0001')
+        self.assertEqual(results[0]['aliases'], ['OGLE-2011-BLG-0001'])
+        self.assertEqual(
+            results[0]['source_location'],
+            'https://www.astrouw.edu.pl/ogle/ogle4/ews/2011-BLG-0001.html',
+        )
         photometry = results[0]['reduced_datums']['photometry']
         self.assertEqual(len(photometry), 1)
         self.assertEqual(photometry[0]['value']['filter'], 'OGLE(I)')
@@ -193,6 +211,10 @@ class OGLEEWSDataServiceTests(TestCase):
         self.assertEqual(
             _ogle_phot_url('OGLE-2011-BLG-0001'),
             'https://www.astrouw.edu.pl/ogle/ogle4/ews/2011/blg-0001/phot.dat',
+        )
+        self.assertEqual(
+            _ogle_event_url('OGLE-2011-BLG-0001'),
+            'https://www.astrouw.edu.pl/ogle/ogle4/ews/2011-BLG-0001.html',
         )
         self.assertEqual(
             _parse_photometry_rows('2455260.85336 17.131 0.015 5.94 1033.0\n')[0],
@@ -272,6 +294,155 @@ class ExoClockDataServiceTests(TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['name'], 'WASP-12b')
+
+
+class MOADataServiceTests(TestCase):
+    def test_helpers_normalize_names_and_parse_calibration(self):
+        self.assertEqual(_normalize_moa_event_name('2019-BLG-397'), 'MOA-2019-BLG-0397')
+        self.assertEqual(_normalize_moa_event_name('MOA-2019-BLG-0397'), 'MOA-2019-BLG-0397')
+        self.assertEqual(_event_suffix_candidates('MOA-2019-BLG-0397'), ['2019-BLG-397', '2019-BLG-0397'])
+
+        calibration = _extract_calibration('I = 27.6026 - 2.5 log10(Delta Flux + 0.0000)')
+        self.assertEqual(calibration['band'], 'Red')
+        self.assertEqual(calibration['reference_flux'], 0.0)
+        self.assertEqual(calibration['zeropoint'], 27.6026)
+
+        zero_calibration = _extract_calibration('I = 0.0000 - 2.5 log10(Δ Flux + 0.0000)')
+        self.assertEqual(zero_calibration['band'], 'Red')
+        self.assertEqual(zero_calibration['reference_flux'], 0.0)
+        self.assertEqual(zero_calibration['zeropoint'], 0.0)
+
+    def test_parse_photometry_rows_skips_comments_and_converts_jd_to_mjd(self):
+        rows = _parse_moa_photometry_rows(
+            '#\n'
+            '# RUN B39558\n'
+            '2453658.854530 -192.7525 1155.2324 B300-gb5-R-1 5.528922 3745.0595 0.981619 100.00\n'
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['jd'], 2453658.85453)
+        self.assertAlmostEqual(rows[0]['mjd'], 53658.35453)
+        self.assertEqual(rows[0]['dflux'], -192.7525)
+
+    def test_parse_photometry_rows_skips_invalid_zero_jd_rows(self):
+        rows = _parse_moa_photometry_rows(
+            '0.000000 501.5265 340.0248 B4480-gb5-R-1 3.054723 3091.8946 0.886509 0.00\n'
+            '2453658.854530 -192.7525 1155.2324 B300-gb5-R-1 5.528922 3745.0595 0.981619 100.00\n'
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['jd'], 2453658.85453)
+
+    def test_parse_event_page_extracts_metadata_calibration_and_photometry_link(self):
+        parsed = _parse_event_page(
+            '''
+            <div id="metadata">
+              <table><tr><td>RA:</td><td align="right">+18:10:53.91</td></tr>
+              <tr><td>Dec:</td><td align="right">-25:44:46.00</td></tr></table>
+            </div>
+            <div id="micro">
+              <table><tr><td>t<sub>E</sub></td><td>=</td><td align="right">62.94</td></tr></table>
+            </div>
+            <div id="external"><a href="phot/2019-BLG-397">Photometry data file (gzipped file)</a></div>
+            <div id="calib"><p>I = 27.6026 - 2.5 log<sub>10</sub>(&Delta; Flux + 0.0000)</p></div>
+            '''
+        )
+
+        self.assertEqual(parsed['metadata']['RA'], '+18:10:53.91')
+        self.assertEqual(parsed['metadata']['Dec'], '-25:44:46.00')
+        self.assertEqual(parsed['micro']['tE'], '62.94')
+        self.assertEqual(parsed['phot_href'], 'phot/2019-BLG-397')
+        self.assertEqual(parsed['calibration_equation'], 'I = 27.6026 - 2.5 log10(Δ Flux + 0.0000)')
+
+    def test_parse_event_page_accepts_malformed_calibration_block(self):
+        parsed = _parse_event_page(
+            '''
+            <div id="external"><a href="phot/2003-BLG-008">Photometry data file (gzipped file)</a></div>
+            <div id="calib">
+            <h4>Calibration</h4>
+            <p>I = 0.0000 - 2.5 log<sub>10</sub>(&Delta; Flux + 0.0000)
+            </html>
+            '''
+        )
+
+        self.assertEqual(parsed['phot_href'], 'phot/2003-BLG-008')
+        self.assertEqual(parsed['calibration_equation'], 'I = 0.0000 - 2.5 log10(Δ Flux + 0.0000)')
+
+    def test_query_targets_by_name_includes_calibrated_photometry(self):
+        service = MOADataService()
+        catalog_rows = [{
+            'Event': 'MOA-2019-BLG-0397',
+            'ra_deg': '272.724625',
+            'dec_deg': '-25.7461111111',
+        }]
+        event_page = {
+            'event_name': 'MOA-2019-BLG-0397',
+            'page_url': 'https://moaprime.massey.ac.nz/moaarchive/event/2019-BLG-397',
+            'phot_url': 'https://moaprime.massey.ac.nz/moaarchive/event/phot/2019-BLG-397',
+            'calibration_equation': 'I = 27.6026 - 2.5 log10(Delta Flux + 1000.0)',
+        }
+        calibrated_rows = [
+            {'jd': 2458796.19, 'magnitude': 20.1026, 'error': 0.0109, 'filter': 'MOA(Red)'},
+        ]
+
+        with patch.object(service, '_fetch_catalog_rows', return_value=catalog_rows), patch.object(
+            service, '_fetch_event_page', return_value=event_page
+        ), patch.object(service, '_fetch_calibrated_photometry', return_value=calibrated_rows):
+            results = service.query_targets({'target_name': '2019-BLG-397', 'include_photometry': True})
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'MOA-2019-BLG-0397')
+        self.assertEqual(results[0]['aliases'], ['MOA-2019-BLG-0397'])
+        photometry = results[0]['reduced_datums']['photometry']
+        self.assertEqual(len(photometry), 1)
+        self.assertEqual(
+            results[0]['source_location'],
+            'https://moaprime.massey.ac.nz/moaarchive/event/2019-BLG-397',
+        )
+        self.assertEqual(photometry[0]['value']['filter'], 'MOA(Red)')
+        self.assertAlmostEqual(photometry[0]['value']['magnitude'], 20.1026)
+
+    def test_fetch_calibrated_photometry_warns_when_flux_calibration_missing(self):
+        service = MOADataService()
+        event_page = {
+            'event_name': 'MOA-2003-BLG-0008',
+            'phot_url': 'https://example.invalid/moa.dat.gz',
+            'calibration_equation': 'I = 0.0000 - 2.5 log10(Δ Flux + 0.0000)',
+        }
+        response = Mock()
+        response.content = b'2452909.10 123.0 4.0 frame\n'
+        response.text = '2452909.10 123.0 4.0 frame\n'
+
+        with patch.object(service, '_request', return_value=response), patch(
+            'custom_code.data_services.moa_dataservice.logger.warning'
+        ) as mocked_warning:
+            rows = service._fetch_calibrated_photometry(event_page)
+
+        self.assertEqual(rows, [])
+        mocked_warning.assert_called_with(
+            'MOA data exists for %s but no flux calibration is provided.',
+            'MOA-2003-BLG-0008',
+        )
+
+    def test_fetch_calibrated_photometry_drops_points_with_mag_errors_above_one_mag(self):
+        service = MOADataService()
+        event_page = {
+            'event_name': 'MOA-2013-BLG-0008',
+            'phot_url': 'https://example.invalid/moa.dat.gz',
+            'calibration_equation': 'I = 27.6026 - 2.5 log10(Δ Flux + 1000.0)',
+        }
+        response = Mock()
+        response.content = (
+            b'2453658.854530 1000.0 100.0 frame\n'
+            b'2453658.903580 10.0 100.0 frame\n'
+        )
+        response.text = response.content.decode('utf-8')
+
+        with patch.object(service, '_request', return_value=response):
+            rows = service._fetch_calibrated_photometry(event_page)
+
+        self.assertEqual(len(rows), 1)
+        self.assertLessEqual(rows[0]['error'], 1.0)
 
 
 class DataServicePersistenceTests(TestCase):
@@ -520,6 +691,76 @@ class GaiaDR3DataServiceTests(TestCase):
         self.assertEqual(result['target_updates']['pm_dec_error'], 0.22)
 
 
+class WISEDataServiceTests(TestCase):
+    def test_allwise_uses_single_wise_alias(self):
+        service = AllWISEDataService()
+        lc_data = __import__('pandas').DataFrame([
+            {'mjd': 58000.0, 'w1mpro': 12.3, 'w1sigmpro': 0.1, 'w2mpro': 11.9, 'w2sigmpro': 0.1},
+        ])
+
+        with patch.object(service, 'query_service', return_value={
+            'lc_data': lc_data,
+            'source_location': service.info_url,
+            'ra': 12.3,
+            'dec': -45.6,
+        }):
+            results = service.query_targets({'ra': 12.3, 'dec': -45.6})
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'WISE+J12.3_-45.6')
+        self.assertEqual(results[0]['aliases'], ['WISE'])
+
+    def test_neowise_uses_single_wise_alias(self):
+        service = NeoWISEDataService()
+        lc_data = __import__('pandas').DataFrame([
+            {'mjd': 59000.0, 'w1mpro': 12.3, 'w1sigmpro': 0.1, 'w2mpro': 11.9, 'w2sigmpro': 0.1},
+        ])
+
+        with patch.object(service, 'query_service', return_value={
+            'lc_data': lc_data,
+            'source_location': service.info_url,
+            'ra': 12.3,
+            'dec': -45.6,
+        }):
+            results = service.query_targets({'ra': 12.3, 'dec': -45.6})
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'WISE+J12.3_-45.6')
+        self.assertEqual(results[0]['aliases'], ['WISE'])
+
+
+class KMTDataServiceTests(TestCase):
+    def test_helpers_normalize_name_and_event_id(self):
+        self.assertEqual(_normalize_kmt_event_name('2017-BLG-2573'), 'KMT-2017-BLG-2573')
+        self.assertEqual(_normalize_kmt_event_name('KMT-2017-BLG-2573'), 'KMT-2017-BLG-2573')
+        self.assertEqual(_kmt_event_id('KMT-2017-BLG-2573'), 'KB172573')
+
+    def test_query_targets_by_name_includes_photometry(self):
+        service = KMTDataService()
+        catalog_rows = [{
+            'Event': 'KMT-2017-BLG-2573',
+            'ra_deg': '266.54918',
+            'dec_deg': '-25.62171',
+        }]
+        photometry_rows = [{
+            'hjd': 2457870.11524,
+            'magnitude': 19.31,
+            'error': 0.03,
+            'facility': 'CTIO_KMTC',
+            'filter': 'KMT(I)',
+        }]
+
+        with patch.object(service, '_fetch_catalog_rows', return_value=catalog_rows), patch.object(
+            service, '_fetch_photometry_rows', return_value=photometry_rows
+        ):
+            results = service.query_targets({'target_name': 'KMT-2017-BLG-2573', 'include_photometry': True})
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'KMT-2017-BLG-2573')
+        self.assertEqual(results[0]['aliases'], ['KMT-2017-BLG-2573'])
+        self.assertIn('photometry', results[0]['reduced_datums'])
+
+
 class SimbadHarvesterTests(TestCase):
     def test_target_from_result_sets_j2000_epoch(self):
         target = target_from_result({
@@ -559,10 +800,18 @@ class SimbadHarvesterTests(TestCase):
         lsst = LSSTHarvester()
         lsst.catalog_data = {'lsst_id': '456', 'ra': 12.3, 'dec': -45.6}
 
+        moa = MOAHarvester()
+        moa.catalog_data = {'Event': 'MOA-2019-BLG-0397', 'ra_deg': '12.3', 'dec_deg': '-45.6'}
+
+        kmt = KMTHarvester()
+        kmt.catalog_data = {'Event': 'KMT-2017-BLG-2573', 'ra_deg': '12.3', 'dec_deg': '-45.6'}
+
         self.assertEqual(crts.to_target().epoch, 2000.0)
         self.assertEqual(gaia_alerts.to_target().epoch, 2000.0)
         self.assertEqual(gaia_dr3.to_target().epoch, 2000.0)
         self.assertEqual(lsst.to_target().epoch, 2000.0)
+        self.assertEqual(moa.to_target().epoch, 2000.0)
+        self.assertEqual(kmt.to_target().epoch, 2000.0)
 
     def test_exoclock_harvester_maps_target_and_host_alias(self):
         exoclock = ExoClockHarvester()
@@ -603,6 +852,16 @@ class CatalogServiceRegistrationTests(TestCase):
 
         self.assertIn('OGLE EWS', get_service_classes())
 
+    def test_moa_is_listed_in_catalog_services(self):
+        from tom_catalogs.harvester import get_service_classes
+
+        self.assertIn('MOA', get_service_classes())
+
+    def test_kmt_is_listed_in_catalog_services(self):
+        from tom_catalogs.harvester import get_service_classes
+
+        self.assertIn('KMT', get_service_classes())
+
     def test_twomass_is_not_listed_in_catalog_services(self):
         from tom_catalogs.harvester import get_service_classes
 
@@ -612,6 +871,16 @@ class CatalogServiceRegistrationTests(TestCase):
         from custom_code.tasks import _get_data_service_classes
 
         self.assertIn('2MASS', _get_data_service_classes())
+
+    def test_moa_is_listed_in_data_services(self):
+        from custom_code.tasks import _get_data_service_classes
+
+        self.assertIn('MOA', _get_data_service_classes())
+
+    def test_kmt_is_listed_in_data_services(self):
+        from custom_code.tasks import _get_data_service_classes
+
+        self.assertIn('KMT', _get_data_service_classes())
 
 
 class DataServiceSelectorViewTests(TestCase):
@@ -680,6 +949,38 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertEqual(target.epoch, 2000.0)
         self.assertAlmostEqual(target.ra, 270.123456)
         self.assertAlmostEqual(target.dec, -28.654321)
+
+    def test_moa_harvester_maps_target_name_and_coordinates(self):
+        harvester = MOAHarvester()
+        harvester.catalog_data = {
+            'Event': 'MOA-2019-BLG-0397',
+            'ra_deg': '272.724625',
+            'dec_deg': '-25.7461111111',
+        }
+
+        target = harvester.to_target()
+
+        self.assertEqual(target.name, 'MOA-2019-BLG-0397')
+        self.assertEqual(target.type, 'SIDEREAL')
+        self.assertEqual(target.epoch, 2000.0)
+        self.assertAlmostEqual(target.ra, 272.724625)
+        self.assertAlmostEqual(target.dec, -25.7461111111)
+
+    def test_kmt_harvester_maps_target_name_and_coordinates(self):
+        harvester = KMTHarvester()
+        harvester.catalog_data = {
+            'Event': 'KMT-2017-BLG-2573',
+            'ra_deg': '266.54918',
+            'dec_deg': '-25.62171',
+        }
+
+        target = harvester.to_target()
+
+        self.assertEqual(target.name, 'KMT-2017-BLG-2573')
+        self.assertEqual(target.type, 'SIDEREAL')
+        self.assertEqual(target.epoch, 2000.0)
+        self.assertAlmostEqual(target.ra, 266.54918)
+        self.assertAlmostEqual(target.dec, -25.62171)
 
 
 class TargetCreateFormVisibilityTests(TestCase):
