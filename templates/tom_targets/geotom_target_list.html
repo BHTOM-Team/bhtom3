@@ -145,16 +145,16 @@
     <table id="geotom-table" class="table table-hover">
       <thead>
         <tr>
-          <th><span class="geotom-th-label">Name</span></th>
-          <th><span class="geotom-th-label">NORAD</span></th>
-          <th><span class="geotom-th-label">Class</span></th>
-          <th><span class="geotom-th-label">Alt</span><span class="geotom-th-unit">[deg]</span></th>
-          <th><span class="geotom-th-label">Az</span><span class="geotom-th-unit">[deg]</span></th>
-          <th><span class="geotom-th-label">Hour Angle</span><span class="geotom-th-unit">[HH:MM:SS]</span></th>
-          <th><span class="geotom-th-label">RA (ICRF)</span><span class="geotom-th-unit">[HH:MM:SS]</span></th>
-          <th><span class="geotom-th-label">Dec</span><span class="geotom-th-unit">[DD:MM:SS]</span></th>
-          <th><span class="geotom-th-label">V (est.)</span><span class="geotom-th-unit">[mag]</span></th>
-          <th><span class="geotom-th-label">Updated</span></th>
+          <th><span class="geotom-th-label">Name<span class="geotom-sort-indicator" aria-hidden="true">⇅</span></span></th>
+          <th><span class="geotom-th-label">NORAD<span class="geotom-sort-indicator" aria-hidden="true">⇅</span></span></th>
+          <th><span class="geotom-th-label">Class<span class="geotom-sort-indicator" aria-hidden="true">⇅</span></span></th>
+          <th><span class="geotom-th-label">Alt<span class="geotom-sort-indicator" aria-hidden="true">⇅</span></span><span class="geotom-th-unit">[deg]</span></th>
+          <th><span class="geotom-th-label">Az<span class="geotom-sort-indicator" aria-hidden="true">⇅</span></span><span class="geotom-th-unit">[deg]</span></th>
+          <th><span class="geotom-th-label">Hour Angle<span class="geotom-sort-indicator" aria-hidden="true">⇅</span></span><span class="geotom-th-unit">[HH:MM:SS]</span></th>
+          <th><span class="geotom-th-label">RA (ICRF)<span class="geotom-sort-indicator" aria-hidden="true">⇅</span></span><span class="geotom-th-unit">[HH:MM:SS]</span></th>
+          <th><span class="geotom-th-label">Dec<span class="geotom-sort-indicator" aria-hidden="true">⇅</span></span><span class="geotom-th-unit">[DD:MM:SS]</span></th>
+          <th><span class="geotom-th-label">V (est.)<span class="geotom-sort-indicator" aria-hidden="true">⇅</span></span><span class="geotom-th-unit">[mag]</span></th>
+          <th><span class="geotom-th-label">Updated<span class="geotom-sort-indicator" aria-hidden="true">⇅</span></span></th>
           <th><span class="geotom-th-label">Action</span></th>
         </tr>
       </thead>
@@ -359,8 +359,16 @@
     padding-bottom: 0.55rem;
   }
 
-  #geotom-table tbody tr:first-child td {
+  #geotom-table thead tr + tr {
+    display: none !important;
+  }
+
+  #geotom-table tbody td {
     border-top: 0 !important;
+  }
+
+  #geotom-table tbody tr + tr td {
+    border-top: 1px solid #f0f0f0 !important;
   }
 
   #geotom-table tbody td {
@@ -378,6 +386,25 @@
     font-weight: 500;
     color: #9fb0c6;
     margin-top: 0.15rem;
+  }
+
+  .geotom-th-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .geotom-sort-indicator {
+    display: inline-block;
+    min-width: 0.85rem;
+    color: #9aa0a6;
+    font-size: 0.85rem;
+    line-height: 1;
+  }
+
+  .geotom-sort-indicator.is-active {
+    color: #2b9ecb;
+    font-size: 0.75rem;
   }
 
   .geotom-target-link {
@@ -490,36 +517,18 @@
     }
   }
 
-  table.dataTable thead th.sorting,
-  table.dataTable thead th.sorting_asc,
-  table.dataTable thead th.sorting_desc {
-    position: relative;
-    padding-right: 1.4rem;
+  #geotom-table.dataTable thead th.sorting,
+  #geotom-table.dataTable thead th.sorting_asc,
+  #geotom-table.dataTable thead th.sorting_desc {
     cursor: pointer;
   }
 
-  table.dataTable thead th.sorting::after {
-    content: '⇅';
-    position: absolute;
-    right: 0.45rem;
-    color: #9aa0a6;
-    font-size: 0.85rem;
-  }
-
-  table.dataTable thead th.sorting_asc::after {
-    content: '▲';
-    position: absolute;
-    right: 0.45rem;
-    color: #2b9ecb;
-    font-size: 0.75rem;
-  }
-
-  table.dataTable thead th.sorting_desc::after {
-    content: '▼';
-    position: absolute;
-    right: 0.45rem;
-    color: #2b9ecb;
-    font-size: 0.75rem;
+  #geotom-table.dataTable thead th::before,
+  #geotom-table.dataTable thead th::after,
+  #geotom-table.dataTable thead td::before,
+  #geotom-table.dataTable thead td::after {
+    content: none !important;
+    display: none !important;
   }
 </style>
 <script>
@@ -555,6 +564,34 @@
         { targets: 10, orderable: false, width: '140px' }
       ]
     });
+
+    function updateSortIndicators() {
+      var currentOrder = geotomTable.order();
+      var activeColumn = currentOrder.length ? currentOrder[0][0] : null;
+      var activeDirection = currentOrder.length ? currentOrder[0][1] : null;
+
+      $('#geotom-table thead th').each(function(index) {
+        var indicator = $(this).find('.geotom-sort-indicator');
+        if (!indicator.length) {
+          return;
+        }
+
+        indicator.removeClass('is-active').text('');
+
+        if (index === 10) {
+          return;
+        }
+
+        if (activeColumn === index) {
+          indicator.addClass('is-active').text(activeDirection === 'desc' ? '▼' : '▲');
+        } else {
+          indicator.text('⇅');
+        }
+      });
+    }
+
+    updateSortIndicators();
+    geotomTable.on('draw.dt order.dt', updateSortIndicators);
 
     window.geotomTable = geotomTable;
 
