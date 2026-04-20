@@ -3,12 +3,13 @@ import re
 
 from django.apps import apps
 from django.conf import settings
+from django.db import IntegrityError
 from django.db import close_old_connections
 from django.utils.module_loading import import_string
 from django_tasks import task
 
 from tom_dataproducts.models import ReducedDatum
-from tom_targets.models import Target
+from tom_targets.models import Target, TargetName
 from custom_code.last_photometry import refresh_target_last_photometry
 from custom_code.models import TargetAliasInfo, TransitEphemeris
 from custom_code.priority import refresh_target_priority
@@ -55,6 +56,40 @@ def _count_returned_reduced_datums(reduced_datums):
         except TypeError:
             continue
     return total
+
+
+def _get_or_create_target_alias(target, alias_name):
+    alias_name = str(alias_name or '').strip()
+    if not alias_name:
+        return None, False
+
+    alias_obj = TargetName.objects.filter(name=alias_name).first()
+    if alias_obj is not None:
+        if alias_obj.target_id != target.id:
+            logger.warning(
+                'Skipping alias "%s" for target %s because it already belongs to target %s.',
+                alias_name,
+                target.name,
+                alias_obj.target_id,
+            )
+            return None, False
+        return alias_obj, False
+
+    try:
+        return TargetName.objects.create(target=target, name=alias_name), True
+    except IntegrityError:
+        alias_obj = TargetName.objects.filter(name=alias_name).first()
+        if alias_obj is None:
+            raise
+        if alias_obj.target_id != target.id:
+            logger.warning(
+                'Skipping alias "%s" for target %s because it was created concurrently for target %s.',
+                alias_name,
+                target.name,
+                alias_obj.target_id,
+            )
+            return None, False
+        return alias_obj, False
 
 
 def _cleanup_moa_aliases(target, result, service_name):
@@ -283,7 +318,9 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
             if not alias_data['name']:
                 continue
             aliases_found += 1
-            alias_obj, created = target.aliases.get_or_create(name=alias_data['name'])
+            alias_obj, created = _get_or_create_target_alias(target, alias_data['name'])
+            if alias_obj is None:
+                continue
             alias_url = _resolve_alias_url(alias_data, result, service)
             source_name = alias_data['source_name'] or service_name
             if alias_url or source_name:

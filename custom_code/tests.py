@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.test.client import RequestFactory
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from tom_targets.models import Target
+from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.ogle_ews_dataservice import (
     OGLEEWSDataService,
@@ -30,6 +30,7 @@ from custom_code.data_services.moa_dataservice import (
     _parse_event_page,
 )
 from custom_code.data_services.allwise_dataservice import AllWISEDataService
+from custom_code.data_services.asassn_dataservice import ASASSNDataService
 from custom_code.data_services.exoclock_dataservice import ExoClockDataService
 from custom_code.data_services.gaia_dr3_dataservice import GaiaDR3DataService
 from custom_code.data_services.kmt_dataservice import KMTDataService, _event_id as _kmt_event_id, _normalize_event_name as _normalize_kmt_event_name
@@ -543,6 +544,43 @@ class DataServicePersistenceTests(TestCase):
         self.assertEqual(target.pm_dec_error, 0.22)
         self.assertEqual(target.parallax_error, 0.33)
 
+    def test_run_service_for_target_skips_alias_owned_by_another_target(self):
+        owner = Target.objects.create(
+            name='OwnerTarget',
+            type=Target.SIDEREAL,
+            ra=10.0,
+            dec=20.0,
+            epoch=2000.0,
+        )
+        TargetName.objects.create(target=owner, name='SharedAlias')
+        target = Target.objects.create(
+            name='OtherTarget',
+            type=Target.SIDEREAL,
+            ra=30.0,
+            dec=40.0,
+            epoch=2000.0,
+        )
+
+        class StubService:
+            name = 'ExoClock'
+
+            @classmethod
+            def get_form_class(cls):
+                return ExoClockDataService.get_form_class()
+
+            def build_query_parameters(self, parameters, **kwargs):
+                return parameters
+
+            def query_targets(self, query_parameters, **kwargs):
+                return [{
+                    'aliases': [{'name': 'SharedAlias', 'url': 'https://example.invalid/shared'}],
+                }]
+
+        _run_service_for_target(target, 'ExoClock', StubService, force_all_services=False)
+
+        self.assertFalse(target.aliases.filter(name='SharedAlias').exists())
+        self.assertEqual(TargetName.objects.get(name='SharedAlias').target_id, owner.id)
+
     def test_build_query_parameters_for_exoclock_uses_cone_search_radius(self):
         target = Target.objects.create(name='Gaia DR3 123', type=Target.SIDEREAL, ra=97.63665, dec=29.672296, epoch=2000.0)
 
@@ -689,6 +727,23 @@ class GaiaDR3DataServiceTests(TestCase):
         self.assertEqual(result['target_updates']['parallax_error'], 0.33)
         self.assertEqual(result['target_updates']['pm_ra_error'], 0.11)
         self.assertEqual(result['target_updates']['pm_dec_error'], 0.22)
+
+
+class ASASSNDataServiceTests(TestCase):
+    def test_query_targets_handles_missing_lightcurve_tables(self):
+        service = ASASSNDataService()
+
+        with patch.object(service, 'query_service', return_value={
+            'asassn_id': '123',
+            'lc_filtered': None,
+            'lc_limits': None,
+            'source_location': 'https://example.invalid/asassn/123',
+            'ra': 12.3,
+            'dec': -45.6,
+        }):
+            results = service.query_targets({'ra': 12.3, 'dec': -45.6})
+
+        self.assertEqual(results, [])
 
 
 class WISEDataServiceTests(TestCase):

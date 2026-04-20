@@ -116,7 +116,9 @@ class ASASSNDataService(DataService):
         dec = data.get('dec')
         lc_limits = data.get('lc_limits')
         lc_filtered = data.get('lc_filtered')
-        if ra is None or dec is None or (len(lc_filtered)+len(lc_limits)) < 1:
+        filtered_count = len(lc_filtered) if lc_filtered is not None else 0
+        limits_count = len(lc_limits) if lc_limits is not None else 0
+        if ra is None or dec is None or (filtered_count + limits_count) < 1:
             return []
 
         alias = _asassn_alias(data.get('asassn_id'))
@@ -193,34 +195,36 @@ class ASASSNDataService(DataService):
 
     def _build_photometry_datums(self, lc_filtered,lc_limits):
         output = []
-        for _, datum in lc_filtered.iterrows():
-            try:
-                mjd = _to_float(datum.jd - 2400000.5)
-                mag = _to_float(datum.mag)
-                magerr = _to_float(datum.mag_err)
-                filter = "ASASSN(" + datum.phot_filter + ")"
-                if mjd is None or mag is None or magerr is None:
+        if lc_filtered is not None:
+            for _, datum in lc_filtered.iterrows():
+                try:
+                    mjd = _to_float(datum.jd - 2400000.5)
+                    mag = _to_float(datum.mag)
+                    magerr = _to_float(datum.mag_err)
+                    filter = "ASASSN(" + datum.phot_filter + ")"
+                    if mjd is None or mag is None or magerr is None:
+                        continue
+                    output.append({
+                        'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
+                        'value': {'filter': filter, 'magnitude': mag, 'error': magerr},
+                    })
+                except TypeError:
                     continue
-                output.append({
-                    'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                    'value': {'filter': filter, 'magnitude': mag, 'error': magerr},
-                })
-            except TypeError:
-                continue
 
-        for _, datum in lc_limits.iterrows():
-            try:
-                mjd = _to_float(datum.jd - 2400000.5)
-                mag = _to_float(datum.limit)
-                magerr = _to_float(-1.0)
-                filter = "ASASSN(" + datum.phot_filter + ")"
-                if mjd is None or mag is None or magerr is None:
+        if lc_limits is not None:
+            for _, datum in lc_limits.iterrows():
+                try:
+                    mjd = _to_float(datum.jd - 2400000.5)
+                    mag = _to_float(datum.limit)
+                    magerr = _to_float(-1.0)
+                    filter = "ASASSN(" + datum.phot_filter + ")"
+                    if mjd is None or mag is None or magerr is None:
+                        continue
+                    output.append({
+                        'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
+                        'value': {'filter': filter, 'magnitude': mag, 'error': magerr},
+                    })
+                except TypeError:
                     continue
-                output.append({
-                    'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                    'value': {'filter': filter, 'magnitude': mag, 'error': magerr},
-                })
-            except TypeError:
-                continue
 
         return output
