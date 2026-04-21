@@ -46,3 +46,13 @@ In a separate terminal and correct env (LW has bhtom3env alias) run:
 `./manage.py refresh_dataservices_daily --importance-gt 0 --enqueue`
 
 this will enqueue daily updataes of the data services for all targets with importance>0 as well as their Sun distance.
+
+------
+For visata (test production server)
+
+There are two lunchd setups running automatically, using dns entry from GoDaddy: bhtom3.bhtom.space
+No need to run anything. The https certificate will exprire in July 2026, needs renewal.
+
+settings.py
+settings.production.py
+
