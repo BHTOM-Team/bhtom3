@@ -3,7 +3,7 @@
     <tr>
       <th><input type="checkbox" id="selectAll"/></th>
       {% for column in results.0.keys %}
-        {% if column != 'reduced_datums' and column != 'transit_source_name' and column != 'transit_source_url' and column != 'transit_planet_name' and column != 'transit_host_name' and column != 'transit_t0_bjd_tdb' and column != 'transit_t0_unc' and column != 'transit_period_days' and column != 'transit_period_unc' and column != 'transit_duration_hours' and column != 'transit_depth_r_mmag' and column != 'transit_v_mag' and column != 'transit_r_mag' and column != 'transit_gaia_g_mag' %}
+        {% if column != 'reduced_datums' and column != 'target_updates' and column != 'transit_ephemeris_updates' and column != 'transit_source_name' and column != 'transit_source_url' and column != 'transit_planet_name' and column != 'transit_host_name' and column != 'transit_t0_bjd_tdb' and column != 'transit_t0_unc' and column != 'transit_period_days' and column != 'transit_period_unc' and column != 'transit_duration_hours' and column != 'transit_depth_r_mmag' and column != 'transit_v_mag' and column != 'transit_r_mag' and column != 'transit_gaia_g_mag' %}
           <th>{{ column|capfirst }}</th>
         {% endif %}
       {% endfor %}
@@ -29,7 +29,7 @@
       >
         <td><input type="checkbox" name="selected_results" value="{{ result.id }}"/></td>
         {% for key, value in result.items %}
-          {% if key != 'reduced_datums' and key != 'transit_source_name' and key != 'transit_source_url' and key != 'transit_planet_name' and key != 'transit_host_name' and key != 'transit_t0_bjd_tdb' and key != 'transit_t0_unc' and key != 'transit_period_days' and key != 'transit_period_unc' and key != 'transit_duration_hours' and key != 'transit_depth_r_mmag' and key != 'transit_v_mag' and key != 'transit_r_mag' and key != 'transit_gaia_g_mag' %}
+          {% if key != 'reduced_datums' and key != 'target_updates' and key != 'transit_ephemeris_updates' and key != 'transit_source_name' and key != 'transit_source_url' and key != 'transit_planet_name' and key != 'transit_host_name' and key != 'transit_t0_bjd_tdb' and key != 'transit_t0_unc' and key != 'transit_period_days' and key != 'transit_period_unc' and key != 'transit_duration_hours' and key != 'transit_depth_r_mmag' and key != 'transit_v_mag' and key != 'transit_r_mag' and key != 'transit_gaia_g_mag' %}
             <td>{{ value }}</td>
           {% endif %}
         {% endfor %}

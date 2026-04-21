@@ -45,7 +45,7 @@ from custom_code.bhtom_catalogs.harvesters.kmt import KMTHarvester
 from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
 from custom_code.bhtom_catalogs.harvesters.moa import MOAHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
-from custom_code.data_services.forms import GaiaDR3QueryForm, SimbadQueryForm, WISEQueryForm
+from custom_code.data_services.forms import ExoClockQueryForm, GaiaDR3QueryForm, SimbadQueryForm, WISEQueryForm
 from custom_code.data_services.service_utils import resolve_query_coordinates
 from custom_code.forms import (
     BhtomNonSiderealTargetCreateForm,
@@ -295,6 +295,73 @@ class ExoClockDataServiceTests(TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['name'], 'WASP-12b')
+
+    def test_query_targets_with_advanced_filters_returns_matching_transits(self):
+        service = ExoClockDataService()
+        catalog = {
+            'NearTransit': {
+                'name': 'NearTransit',
+                'star': 'NearStar',
+                'ra_j2000': '06:30:32.7966',
+                'dec_j2000': '+29:40:20.266',
+                'v_mag': 11.0,
+                'depth_r_mmag': 20.0,
+                't0_bjd_tdb': 2461137.5,
+                'period_days': 2.0,
+            },
+            'TooLateTransit': {
+                'name': 'TooLateTransit',
+                'star': 'LateStar',
+                'ra_j2000': '06:31:00.0000',
+                'dec_j2000': '+30:00:00.000',
+                'v_mag': 10.0,
+                'depth_r_mmag': 21.0,
+                't0_bjd_tdb': 2461139.5,
+                'period_days': 5.0,
+            },
+            'TooFaint': {
+                'name': 'TooFaint',
+                'star': 'FaintStar',
+                'ra_j2000': '06:32:00.0000',
+                'dec_j2000': '+31:00:00.000',
+                'v_mag': 14.5,
+                'depth_r_mmag': 30.0,
+                't0_bjd_tdb': 2461137.4,
+                'period_days': 2.0,
+            },
+        }
+
+        with patch.object(service, 'query_service', return_value={'catalog': catalog, 'source_location': service.info_url}), \
+             patch('custom_code.data_services.exoclock_dataservice.compute_sun_separation', return_value=120.0):
+            results = service.query_targets({
+                'target_names': [],
+                'ra': None,
+                'dec': None,
+                'radius_arcsec': 30.0,
+                'magnitude_limit': 12.0,
+                'eclipse_depth_min': 15.0,
+                'declination_min': 20.0,
+                'declination_max': 40.0,
+                'sun_distance_min': 90.0,
+                'compute_from_date': Time('2026-04-21T00:00:00', scale='utc'),
+                'transit_within_days': 3.0,
+            })
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'NearTransit')
+        self.assertEqual(results[0]['sun_distance_deg'], 120.0)
+        self.assertGreater(float(results[0]['next_transit_in_days']), 0.0)
+
+    def test_exoclock_form_accepts_advanced_filters_without_name_or_coords(self):
+        form = ExoClockQueryForm(data={'transit_within_days': '2.5'})
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_exoclock_form_requires_range_when_compute_date_given(self):
+        form = ExoClockQueryForm(data={'compute_from_date': '2026-04-21T12:00'})
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('transit_within_days', form.errors)
 
 
 class MOADataServiceTests(TestCase):
@@ -1018,6 +1085,19 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertContains(response, 'Select a data service')
         self.assertContains(response, 'Saved Queries')
 
+    def test_dataservices_create_exoclock_renders_advanced_filter_fields(self):
+        user = get_user_model().objects.create_user(username='dataservices-exoclock-form', password='secret')
+        self.client.force_login(user)
+
+        response = self.client.get(reverse('dataservices:create'), {'data_service': 'ExoClock'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Other Criteria')
+        self.assertContains(response, 'Magnitude limit')
+        self.assertContains(response, 'Eclipse depth min')
+        self.assertContains(response, 'Compute from date')
+        self.assertContains(response, 'Next transit within')
+
     def test_exoclock_catalog_query_redirect_prefills_transit_fields(self):
         exoclock = ExoClockHarvester()
         exoclock.catalog_data = {
@@ -1262,6 +1342,20 @@ class TargetDetailDataTests(TestCase):
             ra=12.3,
             dec=-45.6,
             epoch=2000.0,
+        )
+
+        context = bhtom_target_data(target)
+
+        self.assertEqual(context['astrometry_rows'], [])
+
+    def test_target_data_omits_gaia_astrometry_block_when_values_are_empty_strings(self):
+        target = Target.objects.create(
+            name='GaiaDR3_789',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+            gaia_variability_type='',
         )
 
         context = bhtom_target_data(target)

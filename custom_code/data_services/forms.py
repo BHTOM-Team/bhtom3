@@ -192,15 +192,66 @@ class ExoClockQueryForm(BaseQueryForm):
     ra = ra_field()
     dec = dec_field()
     radius_arcsec = forms.FloatField(required=False, initial=30.0, min_value=0.1, label='Search radius (arcsec)')
+    magnitude_limit = forms.FloatField(
+        required=False,
+        label='Magnitude limit',
+        help_text='Maximum host-star V magnitude.',
+    )
+    eclipse_depth_min = forms.FloatField(
+        required=False,
+        label='Eclipse depth min (mmag)',
+        help_text='Minimum transit depth in millimagnitudes.',
+    )
+    declination_min = forms.FloatField(required=False, min_value=-90.0, max_value=90.0, label='Declination min (deg)')
+    declination_max = forms.FloatField(required=False, min_value=-90.0, max_value=90.0, label='Declination max (deg)')
+    sun_distance_min = forms.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=180.0,
+        label='Sun distance min (deg)',
+        help_text='Minimum Sun-target separation at the compute time.',
+    )
+    compute_from_date = forms.DateTimeField(
+        required=False,
+        label='Compute from date (UTC)',
+        widget=forms.DateTimeInput(attrs={'type': 'datetime-local', 'step': 1}),
+        input_formats=['%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M'],
+    )
+    transit_within_days = forms.FloatField(
+        required=False,
+        min_value=0.0,
+        label='Next transit within (days)',
+        help_text='Return only planets whose next transit occurs within this many days from the compute time.',
+    )
 
     def clean(self):
         cleaned = super().clean()
         has_name = bool((cleaned.get('target_name') or '').strip())
         has_coords = cleaned.get('ra') is not None and cleaned.get('dec') is not None
-        if not has_name and not has_coords:
-            raise forms.ValidationError('Provide ExoClock target name or RA+Dec.')
+        has_advanced = any(
+            cleaned.get(field_name) not in (None, '')
+            for field_name in (
+                'magnitude_limit',
+                'eclipse_depth_min',
+                'declination_min',
+                'declination_max',
+                'sun_distance_min',
+                'compute_from_date',
+                'transit_within_days',
+            )
+        )
+        if not has_name and not has_coords and not has_advanced:
+            raise forms.ValidationError('Provide ExoClock target name, RA+Dec, or at least one advanced filter.')
         if cleaned.get('radius_arcsec') is None:
             cleaned['radius_arcsec'] = 30.0
+        if (
+            cleaned.get('declination_min') is not None
+            and cleaned.get('declination_max') is not None
+            and cleaned['declination_min'] > cleaned['declination_max']
+        ):
+            self.add_error('declination_max', 'Declination max must be greater than or equal to declination min.')
+        if cleaned.get('compute_from_date') and cleaned.get('transit_within_days') is None:
+            self.add_error('transit_within_days', 'Provide a day range when using Compute from date.')
         return cleaned
 
 

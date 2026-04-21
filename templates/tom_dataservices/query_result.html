@@ -15,6 +15,7 @@
     <input type="hidden" name="query_id" value="{{ query.id }}"/>
     <input type="submit" value="Open Target Create Form" class="btn btn-primary"/>
   </div>
+  <p class="mt-3 mb-2"><strong>{{ results|length }}</strong> target{{ results|length|pluralize }} returned.</p>
   <div id="dataservice-query-result-feedback" class="alert alert-warning mt-2 d-none" role="alert"></div>
   {% include query_results_table %}
 </form>

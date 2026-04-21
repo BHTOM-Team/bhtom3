@@ -106,7 +106,7 @@ def bhtom_target_data(target):
             'numeric': False,
         },
     ]
-    astrometry_rows = [row for row in astrometry_rows if row['value'] is not None]
+    astrometry_rows = [row for row in astrometry_rows if row['value'] not in (None, '')]
     other_names = []
     for alias in target.aliases.all().select_related('alias_info'):
         alias_info = getattr(alias, 'alias_info', None)

@@ -36,8 +36,77 @@
     {% endif %}
     <form method="post" class="form">
         {% csrf_token %}
+        {% for hidden in form.hidden_fields %}
+            {% if hidden.name != 'data_service' %}
+                {{ hidden }}
+            {% endif %}
+        {% endfor %}
+        {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
         {% bootstrap_field form.data_service %}
-        {% if simple_form %}
+        {% if selected_service == 'ExoClock' %}
+            {% bootstrap_field form.target_name %}
+            <div class="form-row">
+                <div class="col-md-4">
+                    {% bootstrap_field form.ra %}
+                </div>
+                <div class="col-md-4">
+                    {% bootstrap_field form.dec %}
+                </div>
+                <div class="col-md-4">
+                    {% bootstrap_field form.radius_arcsec %}
+                </div>
+            </div>
+            <div class="mb-2">
+                <button
+                    class="btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-toggle="collapse"
+                    data-target="#exoclock-advanced-filters"
+                    aria-expanded="{% if form.magnitude_limit.value or form.eclipse_depth_min.value or form.declination_min.value or form.declination_max.value or form.sun_distance_min.value or form.compute_from_date.value or form.transit_within_days.value or form.magnitude_limit.errors or form.eclipse_depth_min.errors or form.declination_min.errors or form.declination_max.errors or form.sun_distance_min.errors or form.compute_from_date.errors or form.transit_within_days.errors %}true{% else %}false{% endif %}"
+                    aria-controls="exoclock-advanced-filters"
+                >
+                    Other Criteria
+                </button>
+            </div>
+            <div
+                id="exoclock-advanced-filters"
+                class="collapse{% if form.magnitude_limit.value or form.eclipse_depth_min.value or form.declination_min.value or form.declination_max.value or form.sun_distance_min.value or form.compute_from_date.value or form.transit_within_days.value or form.magnitude_limit.errors or form.eclipse_depth_min.errors or form.declination_min.errors or form.declination_max.errors or form.sun_distance_min.errors or form.compute_from_date.errors or form.transit_within_days.errors %} show{% endif %}"
+            >
+                <div class="border rounded p-3 mb-3 bg-light">
+                    <div class="form-row">
+                        <div class="col-md-4">
+                            {% bootstrap_field form.magnitude_limit %}
+                        </div>
+                        <div class="col-md-4">
+                            {% bootstrap_field form.eclipse_depth_min %}
+                        </div>
+                        <div class="col-md-4">
+                            {% bootstrap_field form.sun_distance_min %}
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="col-md-6">
+                            {% bootstrap_field form.declination_min %}
+                        </div>
+                        <div class="col-md-6">
+                            {% bootstrap_field form.declination_max %}
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="col-md-6">
+                            {% bootstrap_field form.compute_from_date %}
+                        </div>
+                        <div class="col-md-6">
+                            {% bootstrap_field form.transit_within_days %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% elif simple_form %}
             {% include simple_form %}
 
             <div class="row" x-data="{open: false}">
