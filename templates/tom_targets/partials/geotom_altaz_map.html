@@ -306,6 +306,15 @@
       }
     }
 
+    function updateData(nextData) {
+      targets = nextData.targets || [];
+      visibilityCurveHADEC = nextData.visibility_curve_hadec || [];
+      visibilityCurveALTAZ = nextData.visibility_curve_altaz || [];
+      sunHADEC = nextData.sun_hadec || {};
+      sunALTAZ = nextData.sun_altaz || {};
+      renderMode(mapElement.dataset.mode || 'altaz');
+    }
+
     Plotly.newPlot('geotom-altaz-map', [], {}, {
       responsive: true,
       displaylogo: false,
@@ -361,5 +370,6 @@
 
     window.geotomToggleTargetSelection = toggleSelectedTarget;
     window.geotomClearTargetSelection = clearSelection;
+    window.geotomUpdateMapData = updateData;
   })();
 </script>

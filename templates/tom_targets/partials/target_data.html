@@ -92,7 +92,7 @@
 <dl class="row">
   {% for row in astrometry_rows %}
   <dt class="col-sm-6">{{ row.label }}</dt>
-  <dd class="col-sm-6">{{ row.value|truncate_decimals:4 }}{% if row.error != None %} +- {{ row.error|truncate_decimals:4 }}{% endif %}</dd>
+  <dd class="col-sm-6">{% if row.numeric %}{{ row.value|truncate_decimals:4 }}{% else %}{{ row.value }}{% endif %}{% if row.error != None %} +- {{ row.error|truncate_decimals:4 }}{% endif %}</dd>
   {% endfor %}
 </dl>
 {% endif %}

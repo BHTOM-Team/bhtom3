@@ -156,13 +156,11 @@ def _cleanup_wise_aliases(target, result, service_name):
     if service_name not in {'AllWISE', 'NeoWISE'}:
         return
 
-    alias_url = str((result or {}).get('source_location') or '').strip()
-    canonical_alias = target.aliases.filter(name='WISE').first()
-    if canonical_alias is not None and alias_url:
-        TargetAliasInfo.objects.update_or_create(
-            target_name=canonical_alias,
-            defaults={'url': alias_url, 'source_name': 'WISE'},
-        )
+    current_alias_names = {
+        str(alias.get('name') if isinstance(alias, dict) else alias).strip()
+        for alias in (result or {}).get('aliases') or []
+        if str(alias.get('name') if isinstance(alias, dict) else alias).strip()
+    }
 
     stale_patterns = (
         r'(?i)^allwise\+j',
@@ -170,7 +168,9 @@ def _cleanup_wise_aliases(target, result, service_name):
     )
     for alias in list(target.aliases.all()):
         alias_name = str(alias.name or '').strip()
-        if any(re.match(pattern, alias_name) for pattern in stale_patterns):
+        is_stale_generated = any(re.match(pattern, alias_name) for pattern in stale_patterns)
+        is_stale_literal = alias_name.upper() == 'WISE'
+        if (is_stale_generated or is_stale_literal) and alias_name not in current_alias_names:
             alias.delete()
 
 def _get_data_service_classes():

@@ -82,19 +82,28 @@ def bhtom_target_data(target):
             'label': 'Parallax (mas)',
             'value': target.parallax,
             'error': getattr(target, 'parallax_error', None),
+            'numeric': True,
             'error_label': 'Parallax error (mas)',
         },
         {
             'label': 'Proper Motion RA (mas/yr)',
             'value': target.pm_ra,
             'error': getattr(target, 'pm_ra_error', None),
+            'numeric': True,
             'error_label': 'Proper Motion RA error (mas/yr)',
         },
         {
             'label': 'Proper Motion Dec (mas/yr)',
             'value': target.pm_dec,
             'error': getattr(target, 'pm_dec_error', None),
+            'numeric': True,
             'error_label': 'Proper Motion Dec error (mas/yr)',
+        },
+        {
+            'label': 'Variability Type',
+            'value': getattr(target, 'gaia_variability_type', None),
+            'error': None,
+            'numeric': False,
         },
     ]
     astrometry_rows = [row for row in astrometry_rows if row['value'] is not None]

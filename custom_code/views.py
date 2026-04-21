@@ -147,6 +147,113 @@ def _resolve_list_calculation_time(request):
     return now_utc, now_utc.strftime('%Y-%m-%dT%H:%M:%S'), ''
 
 
+def _format_geotom_row(target, sat):
+    row = {"target": target}
+    if sat is None:
+        row.update({
+            "alt_deg": None,
+            "az_deg": None,
+            "hour_angle_hours": None,
+            "ra_icrf_hours": None,
+            "dec_deg": None,
+            "estimated_vmag": None,
+            "solar_elongation_deg": None,
+            "is_visible": False,
+            "hour_angle_sex": "-",
+            "ra_icrf_sex": "-",
+            "dec_sex": "-",
+        })
+        return row
+
+    is_visible = sat["alt_deg"] > 0 and sat["solar_elongation_deg"] >= 90.0
+    row.update({
+        "alt_deg": sat["alt_deg"],
+        "az_deg": sat["az_deg"],
+        "hour_angle_hours": sat["hour_angle_hours"],
+        "ra_icrf_hours": sat["ra_icrf_hours"],
+        "dec_deg": sat["dec_deg"],
+        "solar_elongation_deg": sat["solar_elongation_deg"],
+        "is_visible": is_visible,
+        "estimated_vmag": sat["estimated_vmag"],
+        "hour_angle_sex": _hours_to_hms(sat["hour_angle_hours"]),
+        "ra_icrf_sex": _hours_to_hms_astro(sat["ra_icrf_hours"]),
+        "dec_sex": _deg_to_dms(sat["dec_deg"]),
+    })
+    return row
+
+
+def _build_geotom_payload(object_list, observer, calculation_time_utc, visible_only=False):
+    map_targets = []
+    geotom_rows = []
+    for target in object_list:
+        sat = geosat_alt_az_from_tle(
+            tle_name=target.tle_name or target.name,
+            tle_line1=target.tle_line1,
+            tle_line2=target.tle_line2,
+            observer_lat_deg=observer['lat_deg'],
+            observer_lon_deg=observer['lon_deg'],
+            observer_elevation_m=observer['elevation_m'],
+            when_utc=calculation_time_utc,
+        )
+        row = _format_geotom_row(target, sat)
+        if visible_only and not row['is_visible']:
+            continue
+        geotom_rows.append(row)
+
+        if sat is None:
+            continue
+
+        plot_ha_hours, plot_dec_deg = altaz_to_hadec_point(
+            sat['alt_deg'],
+            sat['az_deg'],
+            observer['lat_deg'],
+        )
+        map_targets.append({
+            'target_id': target.pk,
+            'target_name': target.name,
+            'norad_id': target.norad_id,
+            'is_debris': bool(target.is_debris),
+            'tle_name': sat['tle_name'],
+            'alt_deg': sat['alt_deg'],
+            'az_deg': sat['az_deg'],
+            'hour_angle_hours': plot_ha_hours,
+            'dec_deg': plot_dec_deg,
+            'solar_elongation_deg': sat['solar_elongation_deg'],
+            'distance_km': sat['distance_km'],
+            'estimated_vmag': sat['estimated_vmag'],
+        })
+
+    sun_curve_altaz = sun_visibility_curve(
+        observer_lat_deg=observer['lat_deg'],
+        observer_lon_deg=observer['lon_deg'],
+        observer_elevation_m=observer['elevation_m'],
+        when_utc=calculation_time_utc,
+    )
+    sun_hadec = altaz_to_hadec_point(
+        sun_curve_altaz['sun_alt_deg'],
+        sun_curve_altaz['sun_az_deg'],
+        observer['lat_deg'],
+    )
+
+    return {
+        'rows': geotom_rows,
+        'targets': map_targets,
+        'visibility_curve_altaz': sun_curve_altaz['curve_points'],
+        'visibility_curve_hadec': convert_altaz_curve_to_hadec(
+            sun_curve_altaz['curve_points'],
+            observer_lat_deg=observer['lat_deg'],
+        ),
+        'sun_altaz': {
+            'az_deg': sun_curve_altaz['sun_az_deg'],
+            'alt_deg': sun_curve_altaz['sun_alt_deg'],
+        },
+        'sun_hadec': {
+            'ha_hours': sun_hadec[0],
+            'dec_deg': sun_hadec[1],
+        },
+    }
+
+
 def _resolve_list_observer(request, observer_presets=None, default_key='warsaw', include_unspecified=False):
     observer_presets = observer_presets or LIST_OBSERVER_PRESETS
     saved = request.session.get(TARGET_LIST_OBSERVER_SESSION_KEY, {}) if hasattr(request, 'session') else {}
@@ -2049,6 +2156,11 @@ class BhtomCreateTargetFromQueryView(CreateTargetFromQueryView):
             parallax = cached_result.get('parallax')
         if parallax not in (None, ''):
             target_params['parallax'] = parallax
+        gaia_variability_type = getattr(target, 'gaia_variability_type', None)
+        if gaia_variability_type in (None, ''):
+            gaia_variability_type = cached_result.get('gaia_variability_type')
+        if gaia_variability_type not in (None, ''):
+            target_params['gaia_variability_type'] = gaia_variability_type
         for key in ('parallax_error', 'pm_ra_error', 'pm_dec_error'):
             value = cached_result.get(key)
             if value not in (None, ''):
@@ -2213,109 +2325,22 @@ class GeoTomTargetListView(ListView):
         visible_only = str(self.request.GET.get('visible_only', '')).lower() in ('1', 'true', 'yes', 'on')
 
         object_list = context.get('object_list', [])
-        map_targets = []
-        geotom_rows = []
-        for target in object_list:
-            row = {"target": target}
-            sat = geosat_alt_az_from_tle(
-                tle_name=target.tle_name or target.name,
-                tle_line1=target.tle_line1,
-                tle_line2=target.tle_line2,
-                observer_lat_deg=observer['lat_deg'],
-                observer_lon_deg=observer['lon_deg'],
-                observer_elevation_m=observer['elevation_m'],
-                when_utc=calculation_time_utc,
-            )
-            if sat is None:
-                row.update({
-                    "alt_deg": None,
-                    "az_deg": None,
-                    "hour_angle_hours": None,
-                    "ra_icrf_hours": None,
-                    "dec_deg": None,
-                    "estimated_vmag": None,
-                    "hour_angle_sex": "-",
-                    "ra_icrf_sex": "-",
-                    "dec_sex": "-",
-                })
-                if not visible_only:
-                    geotom_rows.append(row)
-                continue
-
-            is_visible = sat["alt_deg"] > 0 and sat["solar_elongation_deg"] >= 90.0
-            row.update({
-                "alt_deg": sat["alt_deg"],
-                "az_deg": sat["az_deg"],
-                "hour_angle_hours": sat["hour_angle_hours"],
-                "ra_icrf_hours": sat["ra_icrf_hours"],
-                "dec_deg": sat["dec_deg"],
-                "solar_elongation_deg": sat["solar_elongation_deg"],
-                "is_visible": is_visible,
-                "estimated_vmag": sat["estimated_vmag"],
-                "hour_angle_sex": _hours_to_hms(sat["hour_angle_hours"]),
-                "ra_icrf_sex": _hours_to_hms_astro(sat["ra_icrf_hours"]),
-                "dec_sex": _deg_to_dms(sat["dec_deg"]),
-            })
-            if visible_only and not is_visible:
-                continue
-            geotom_rows.append(row)
-            plot_ha_hours, plot_dec_deg = altaz_to_hadec_point(
-                sat['alt_deg'],
-                sat['az_deg'],
-                observer['lat_deg'],
-            )
-
-            map_targets.append({
-                'target_id': target.pk,
-                'target_name': target.name,
-                'norad_id': target.norad_id,
-                'is_debris': bool(target.is_debris),
-                'tle_name': sat['tle_name'],
-                'alt_deg': sat['alt_deg'],
-                'az_deg': sat['az_deg'],
-                'hour_angle_hours': plot_ha_hours,
-                'dec_deg': plot_dec_deg,
-                'solar_elongation_deg': sat['solar_elongation_deg'],
-                'distance_km': sat['distance_km'],
-                'estimated_vmag': sat['estimated_vmag'],
-            })
-
-        context['geotom_targets_json'] = json.dumps(map_targets)
-        sun_curve_altaz = sun_visibility_curve(
-            observer_lat_deg=observer['lat_deg'],
-            observer_lon_deg=observer['lon_deg'],
-            observer_elevation_m=observer['elevation_m'],
-            when_utc=calculation_time_utc,
-        )
-        context['geotom_visibility_curve_altaz_json'] = json.dumps(sun_curve_altaz['curve_points'])
-        sun_hadec = altaz_to_hadec_point(
-            sun_curve_altaz['sun_alt_deg'],
-            sun_curve_altaz['sun_az_deg'],
-            observer['lat_deg'],
-        )
-        context['geotom_visibility_curve_hadec_json'] = json.dumps(
-            convert_altaz_curve_to_hadec(
-                sun_curve_altaz['curve_points'],
-                observer_lat_deg=observer['lat_deg'],
-            )
-        )
-        context['geotom_sun_altaz_json'] = json.dumps({
-            'az_deg': sun_curve_altaz['sun_az_deg'],
-            'alt_deg': sun_curve_altaz['sun_alt_deg'],
-        })
-        context['geotom_sun_hadec_json'] = json.dumps({
-            'ha_hours': sun_hadec[0],
-            'dec_deg': sun_hadec[1],
-        })
-        context['geotom_rows'] = geotom_rows
+        payload = _build_geotom_payload(object_list, observer, calculation_time_utc, visible_only=visible_only)
+        context['geotom_targets_json'] = json.dumps(payload['targets'])
+        context['geotom_visibility_curve_altaz_json'] = json.dumps(payload['visibility_curve_altaz'])
+        context['geotom_visibility_curve_hadec_json'] = json.dumps(payload['visibility_curve_hadec'])
+        context['geotom_sun_altaz_json'] = json.dumps(payload['sun_altaz'])
+        context['geotom_sun_hadec_json'] = json.dumps(payload['sun_hadec'])
+        context['geotom_rows'] = payload['rows']
         paginator = context.get('paginator')
         if visible_only:
-            context['target_count'] = len(geotom_rows)
+            context['target_count'] = len(payload['rows'])
         else:
             context['target_count'] = paginator.count if paginator else len(object_list)
         context['geotom_generated_utc'] = calculation_time_utc
         context['geotom_generated_utc_input'] = calculation_time_input
         context['geotom_time_error'] = calculation_time_error
+        context['geotom_live_mode'] = not (self.request.GET.get('time_utc') or '').strip()
         context['filter_values'] = {
             'name': (self.request.GET.get('name') or '').strip(),
             'norad_id': (self.request.GET.get('norad_id') or '').strip(),
@@ -2327,7 +2352,60 @@ class GeoTomTargetListView(ListView):
             {'key': key, 'name': value['name']}
             for key, value in self.OBSERVER_PRESETS.items()
         ]
+        context['geotom_live_update_url'] = reverse('geotom-live-data')
         return context
+
+
+class GeoTomLiveDataView(View):
+    OBSERVER_PRESETS = LIST_OBSERVER_PRESETS
+
+    def get(self, request, *args, **kwargs):
+        observer = _resolve_list_observer(request, observer_presets=self.OBSERVER_PRESETS)
+        calculation_time_utc, _, calculation_time_error = _resolve_list_calculation_time(request)
+        visible_only = str(request.GET.get('visible_only', '')).lower() in ('1', 'true', 'yes', 'on')
+
+        queryset = GeoTarget.objects.all().order_by('name')
+        name = (request.GET.get('name') or '').strip()
+        norad = (request.GET.get('norad_id') or '').strip()
+        object_class = (request.GET.get('object_class') or 'all').strip().lower()
+
+        if name:
+            queryset = queryset.filter(Q(name__icontains=name) | Q(tle_name__icontains=name))
+        if norad:
+            try:
+                queryset = queryset.filter(norad_id=int(norad))
+            except ValueError:
+                queryset = queryset.none()
+        if object_class == 'debris':
+            queryset = queryset.filter(is_debris=True)
+        elif object_class == 'satellite':
+            queryset = queryset.filter(is_debris=False)
+
+        payload = _build_geotom_payload(queryset[:500], observer, calculation_time_utc, visible_only=visible_only)
+        rows = []
+        for row in payload['rows']:
+            rows.append({
+                'target_id': row['target'].pk,
+                'alt_deg': row['alt_deg'],
+                'az_deg': row['az_deg'],
+                'hour_angle_sex': row['hour_angle_sex'],
+                'ra_icrf_sex': row['ra_icrf_sex'],
+                'dec_sex': row['dec_sex'],
+                'estimated_vmag': row['estimated_vmag'],
+            })
+
+        return JsonResponse({
+            'generated_utc': calculation_time_utc.strftime('%Y-%m-%dT%H:%M:%S'),
+            'generated_utc_display': calculation_time_utc.strftime('%Y-%m-%d %H:%M:%S'),
+            'live_mode': not (request.GET.get('time_utc') or '').strip(),
+            'time_error': calculation_time_error,
+            'rows': rows,
+            'targets': payload['targets'],
+            'visibility_curve_altaz': payload['visibility_curve_altaz'],
+            'visibility_curve_hadec': payload['visibility_curve_hadec'],
+            'sun_altaz': payload['sun_altaz'],
+            'sun_hadec': payload['sun_hadec'],
+        })
 
 
 class GeoTomAddSatView(LoginRequiredMixin, FormView):

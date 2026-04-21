@@ -55,7 +55,7 @@ from custom_code.forms import (
     BhtomSiderealTargetUpdateForm,
     BhtomTargetNamesFormset,
 )
-from custom_code.models import TransitEphemeris
+from custom_code.models import GeoTarget, TransitEphemeris
 from custom_code.signals import cleanup_target_relations_on_target_delete
 from custom_code.templatetags.custom_target_extras import bhtom_target_data
 from custom_code.templatetags.custom_target_extras import truncate_decimals
@@ -531,6 +531,7 @@ class DataServicePersistenceTests(TestCase):
                         'pm_ra_error': 0.11,
                         'pm_dec_error': 0.22,
                         'parallax_error': 0.33,
+                        'gaia_variability_type': 'RR',
                     },
                 }]
 
@@ -543,6 +544,7 @@ class DataServicePersistenceTests(TestCase):
         self.assertEqual(target.pm_ra_error, 0.11)
         self.assertEqual(target.pm_dec_error, 0.22)
         self.assertEqual(target.parallax_error, 0.33)
+        self.assertEqual(target.gaia_variability_type, 'RR')
 
     def test_run_service_for_target_skips_alias_owned_by_another_target(self):
         owner = Target.objects.create(
@@ -710,6 +712,7 @@ class GaiaDR3DataServiceTests(TestCase):
                 'pmra_error': 0.11,
                 'pmdec_error': 0.22,
                 'parallax_error': 0.33,
+                'gaia_variability_type': 'RR',
             },
             'photometry_rows': [],
             'spectroscopy_rows': [],
@@ -727,6 +730,8 @@ class GaiaDR3DataServiceTests(TestCase):
         self.assertEqual(result['target_updates']['parallax_error'], 0.33)
         self.assertEqual(result['target_updates']['pm_ra_error'], 0.11)
         self.assertEqual(result['target_updates']['pm_dec_error'], 0.22)
+        self.assertEqual(result['gaia_variability_type'], 'RR')
+        self.assertEqual(result['target_updates']['gaia_variability_type'], 'RR')
 
 
 class ASASSNDataServiceTests(TestCase):
@@ -747,7 +752,7 @@ class ASASSNDataServiceTests(TestCase):
 
 
 class WISEDataServiceTests(TestCase):
-    def test_allwise_uses_single_wise_alias(self):
+    def test_allwise_uses_allwise_catalog_alias(self):
         service = AllWISEDataService()
         lc_data = __import__('pandas').DataFrame([
             {'mjd': 58000.0, 'w1mpro': 12.3, 'w1sigmpro': 0.1, 'w2mpro': 11.9, 'w2sigmpro': 0.1},
@@ -755,6 +760,7 @@ class WISEDataServiceTests(TestCase):
 
         with patch.object(service, 'query_service', return_value={
             'lc_data': lc_data,
+            'alias': 'WISEA J123456.78+123456.7',
             'source_location': service.info_url,
             'ra': 12.3,
             'dec': -45.6,
@@ -763,9 +769,29 @@ class WISEDataServiceTests(TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['name'], 'WISE+J12.3_-45.6')
-        self.assertEqual(results[0]['aliases'], ['WISE'])
+        self.assertEqual(
+            results[0]['aliases'],
+            [{'name': 'WISEA J123456.78+123456.7', 'source_name': 'AllWISE'}],
+        )
 
-    def test_neowise_uses_single_wise_alias(self):
+    def test_allwise_falls_back_to_generated_alias(self):
+        service = AllWISEDataService()
+        lc_data = __import__('pandas').DataFrame([
+            {'mjd': 58000.0, 'w1mpro': 12.3, 'w1sigmpro': 0.1, 'w2mpro': 11.9, 'w2sigmpro': 0.1},
+        ])
+
+        with patch.object(service, 'query_service', return_value={
+            'lc_data': lc_data,
+            'alias': None,
+            'source_location': service.info_url,
+            'ra': 12.3,
+            'dec': -45.6,
+        }):
+            results = service.query_targets({'ra': 12.3, 'dec': -45.6})
+
+        self.assertEqual(results[0]['aliases'], [{'name': 'AllWISE+J12.3_-45.6', 'source_name': 'AllWISE'}])
+
+    def test_neowise_uses_allwise_catalog_alias(self):
         service = NeoWISEDataService()
         lc_data = __import__('pandas').DataFrame([
             {'mjd': 59000.0, 'w1mpro': 12.3, 'w1sigmpro': 0.1, 'w2mpro': 11.9, 'w2sigmpro': 0.1},
@@ -773,6 +799,7 @@ class WISEDataServiceTests(TestCase):
 
         with patch.object(service, 'query_service', return_value={
             'lc_data': lc_data,
+            'alias': 'WISEA J123456.78+123456.7',
             'source_location': service.info_url,
             'ra': 12.3,
             'dec': -45.6,
@@ -781,7 +808,49 @@ class WISEDataServiceTests(TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['name'], 'WISE+J12.3_-45.6')
-        self.assertEqual(results[0]['aliases'], ['WISE'])
+        self.assertEqual(
+            results[0]['aliases'],
+            [{'name': 'WISEA J123456.78+123456.7', 'source_name': 'AllWISE'}],
+        )
+
+    def test_neowise_falls_back_to_generated_alias(self):
+        service = NeoWISEDataService()
+        lc_data = __import__('pandas').DataFrame([
+            {'mjd': 59000.0, 'w1mpro': 12.3, 'w1sigmpro': 0.1, 'w2mpro': 11.9, 'w2sigmpro': 0.1},
+        ])
+
+        with patch.object(service, 'query_service', return_value={
+            'lc_data': lc_data,
+            'alias': None,
+            'source_location': service.info_url,
+            'ra': 12.3,
+            'dec': -45.6,
+        }):
+            results = service.query_targets({'ra': 12.3, 'dec': -45.6})
+
+        self.assertEqual(results[0]['aliases'], [{'name': 'NeoWISE+J12.3_-45.6', 'source_name': 'NeoWISE'}])
+
+    def test_run_service_for_target_replaces_literal_wise_alias(self):
+        target = Target.objects.create(name='Gaia24abc', type='SIDEREAL', ra=12.3, dec=-45.6, epoch=2000.0)
+        target.aliases.create(name='WISE')
+
+        class FakeAllWISEService:
+            def build_query_parameters(self, parameters):
+                return parameters
+
+            def query_targets(self, built_parameters):
+                return [{
+                    'aliases': [{'name': 'WISEA J123456.78+123456.7', 'source_name': 'AllWISE'}],
+                    'source_location': 'https://example.invalid/wise',
+                }]
+
+            def to_reduced_datums(self, target, reduced_datums):
+                return None
+
+        _run_service_for_target(target, 'AllWISE', FakeAllWISEService)
+
+        self.assertFalse(target.aliases.filter(name='WISE').exists())
+        self.assertTrue(target.aliases.filter(name='WISEA J123456.78+123456.7').exists())
 
 
 class KMTDataServiceTests(TestCase):
@@ -1047,6 +1116,7 @@ class TargetCreateFormVisibilityTests(TestCase):
         self.assertIn('parallax_error', form.fields)
         self.assertIn('pm_ra_error', form.fields)
         self.assertIn('pm_dec_error', form.fields)
+        self.assertIn('gaia_variability_type', form.fields)
         self.assertIn('source_name', form.fields)
         self.assertIn('planet_name', form.fields)
         self.assertIn('t0_bjd_tdb', form.fields)
@@ -1091,7 +1161,8 @@ class TargetCreateFormVisibilityTests(TestCase):
     def test_sidereal_update_form_includes_transit_ephemeris_fields(self):
         target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
         target.parallax_error = 0.33
-        target.save(update_fields=['parallax_error'])
+        target.gaia_variability_type = 'RR'
+        target.save(update_fields=['parallax_error', 'gaia_variability_type'])
         form = BhtomSiderealTargetUpdateForm(instance=target)
 
         self.assertIn('classification', form.fields)
@@ -1100,6 +1171,7 @@ class TargetCreateFormVisibilityTests(TestCase):
         self.assertIn('planet_name', form.fields)
         self.assertIn('priority', form.fields)
         self.assertEqual(float(form['parallax_error'].value()), 0.33)
+        self.assertEqual(form['gaia_variability_type'].value(), 'RR')
 
     def test_target_alias_formset_rejects_duplicate_names_before_save(self):
         target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
@@ -1166,6 +1238,7 @@ class TargetDetailDataTests(TestCase):
             parallax=1.2,
             pm_ra=4.5,
             pm_dec=-6.7,
+            gaia_variability_type='RR',
         )
         target.parallax_error = 0.33
         target.pm_ra_error = 0.11
@@ -1179,6 +1252,8 @@ class TargetDetailDataTests(TestCase):
         self.assertEqual(context['astrometry_rows'][0]['error'], 0.33)
         self.assertEqual(context['astrometry_rows'][1]['error'], 0.11)
         self.assertEqual(context['astrometry_rows'][2]['error'], 0.22)
+        self.assertEqual(context['astrometry_rows'][3]['label'], 'Variability Type')
+        self.assertEqual(context['astrometry_rows'][3]['value'], 'RR')
 
     def test_target_data_omits_gaia_astrometry_block_when_all_values_missing(self):
         target = Target.objects.create(
@@ -1391,6 +1466,7 @@ class PlanetaryTransitTargetCreateTests(TestCase):
                 'pm_ra_error': '0.11',
                 'pm_dec': '-6.7',
                 'pm_dec_error': '0.22',
+                'gaia_variability_type': 'RR',
             },
         )
         user = get_user_model().objects.create_user(username='gaia-prefill', password='secret')
@@ -1410,6 +1486,7 @@ class PlanetaryTransitTargetCreateTests(TestCase):
         self.assertEqual(form['parallax_error'].value(), '0.33')
         self.assertEqual(form['pm_ra_error'].value(), '0.11')
         self.assertEqual(form['pm_dec_error'].value(), '0.22')
+        self.assertEqual(form['gaia_variability_type'].value(), 'RR')
 
     def test_create_view_prefills_recommended_strategy_from_query_string(self):
         request = RequestFactory().get(
@@ -1504,6 +1581,7 @@ class PlanetaryTransitTargetCreateTests(TestCase):
             'parallax_error': 0.33,
             'pm_ra_error': 0.11,
             'pm_dec_error': 0.22,
+            'gaia_variability_type': 'RR',
         }
         cache.set(cache_key, cache_payload, 3600)
 
@@ -1530,6 +1608,7 @@ class PlanetaryTransitTargetCreateTests(TestCase):
                     pm_ra=4.5,
                     pm_dec=-6.7,
                     parallax=1.2,
+                    gaia_variability_type='RR',
                 ), None, None
 
         with patch('custom_code.views.get_data_service_class', return_value=StubService):
@@ -1543,6 +1622,7 @@ class PlanetaryTransitTargetCreateTests(TestCase):
         self.assertIn('parallax_error=0.33', location)
         self.assertIn('pm_ra_error=0.11', location)
         self.assertIn('pm_dec_error=0.22', location)
+        self.assertIn('gaia_variability_type=RR', location)
 
     def test_create_context_hides_empty_groups_field(self):
         request = RequestFactory().get(reverse('targets:create'), {'type': 'SIDEREAL'})
@@ -1915,3 +1995,61 @@ class TargetListViewTests(TestCase):
         self.assertEqual(first_response.status_code, 200)
         self.assertEqual(second_response.status_code, 200)
         self.assertContains(second_response, 'Ostrowik (52.087981, 21.41614, 120.0 m)')
+
+
+class GeoTomViewTests(TestCase):
+    def setUp(self):
+        self.target = GeoTarget.objects.create(
+            norad_id=12345,
+            name='TEST-SAT',
+            tle_name='TEST-SAT',
+            tle_line1='1 12345U 98067A   26112.50000000  .00000000  00000-0  00000-0 0  9991',
+            tle_line2='2 12345   0.0164  90.0000 0001000   0.0000 180.0000  1.00270000    05',
+        )
+
+    def test_geotom_list_defaults_to_live_mode(self):
+        response = self.client.get(reverse('geotom-list'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="geotom-generated-time" class="geotom-generated-time" data-live-mode="1"')
+        self.assertContains(response, 'id="geotom-filter-time-utc" type="hidden" name="time_utc" value=""')
+
+    def test_geotom_list_uses_fixed_mode_for_custom_time(self):
+        response = self.client.get(reverse('geotom-list'), {'time_utc': '2026-04-21T12:34:56'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-live-mode="0"')
+        self.assertContains(response, 'name="time_utc" value="2026-04-21T12:34:56"')
+
+    def test_geotom_live_data_returns_rows_and_map_payload(self):
+        sat_payload = {
+            'tle_name': 'TEST-SAT',
+            'alt_deg': 12.3456,
+            'az_deg': 234.5678,
+            'ra_icrf_hours': 5.5,
+            'dec_deg': -12.25,
+            'hour_angle_hours': 1.25,
+            'distance_km': 41000.0,
+            'solar_elongation_deg': 120.0,
+            'phase_angle_deg': 60.0,
+            'estimated_vmag': 10.12,
+            'computed_at_utc': None,
+        }
+        sun_payload = {
+            'sun_alt_deg': -20.0,
+            'sun_az_deg': 180.0,
+            'curve_points': [{'az_deg': 180.0, 'alt_deg': 0.0}],
+        }
+
+        with patch('custom_code.views.geosat_alt_az_from_tle', return_value=sat_payload), \
+             patch('custom_code.views.sun_visibility_curve', return_value=sun_payload):
+            response = self.client.get(reverse('geotom-live-data'))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['live_mode'])
+        self.assertEqual(payload['rows'][0]['target_id'], self.target.pk)
+        self.assertEqual(payload['rows'][0]['hour_angle_sex'], '01:15:00')
+        self.assertEqual(payload['rows'][0]['ra_icrf_sex'], '05:30:00')
+        self.assertEqual(payload['rows'][0]['dec_sex'], '-12:15:00')
+        self.assertAlmostEqual(payload['targets'][0]['alt_deg'], 12.3456)

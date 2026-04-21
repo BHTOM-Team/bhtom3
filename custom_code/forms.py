@@ -209,6 +209,7 @@ class GaiaAstrometryFormMixin(forms.Form):
     parallax_error = forms.FloatField(required=False, widget=forms.HiddenInput())
     pm_ra_error = forms.FloatField(required=False, widget=forms.HiddenInput())
     pm_dec_error = forms.FloatField(required=False, widget=forms.HiddenInput())
+    gaia_variability_type = forms.CharField(required=False, widget=forms.HiddenInput())
 
 
 class BhtomSiderealTargetCreateForm(GaiaAstrometryFormMixin, PlanetaryTransitTargetFormMixin, SiderealTargetCreateForm):
@@ -237,7 +238,7 @@ class BhtomSiderealTargetCreateForm(GaiaAstrometryFormMixin, PlanetaryTransitTar
     class Meta(SiderealTargetCreateForm.Meta):
         fields = tuple(dict.fromkeys(
             tuple(getattr(SiderealTargetCreateForm.Meta, 'fields', ()))
-            + ('parallax', 'parallax_error', 'pm_ra_error', 'pm_dec_error')
+            + ('parallax', 'parallax_error', 'pm_ra_error', 'pm_dec_error', 'gaia_variability_type')
         ))
 
 

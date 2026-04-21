@@ -34,6 +34,17 @@ def _to_float(value):
         return None
 
 
+def _to_text(value):
+    if value is None:
+        return None
+    if hasattr(value, 'item'):
+        value = value.item()
+    if isinstance(value, bytes):
+        value = value.decode('utf-8', errors='ignore')
+    text = str(value).strip()
+    return text or None
+
+
 def _value_to_python(value):
     mask = getattr(value, 'mask', None)
     if mask is not None:
@@ -77,7 +88,7 @@ def _ensure_sequence(value):
     return [value]
 
 
-def _build_box_prefilter(ra_deg, dec_deg, radius_deg):
+def _build_box_prefilter(ra_deg, dec_deg, radius_deg, column_prefix=''):
     cos_dec = abs(math.cos(math.radians(dec_deg)))
     # Prevent exploding RA span near the poles.
     cos_dec = max(cos_dec, 1e-6)
@@ -90,21 +101,28 @@ def _build_box_prefilter(ra_deg, dec_deg, radius_deg):
     if ra_half_width >= 180.0:
         ra_clause = '1 = 1'
     elif ra_min <= ra_max:
-        ra_clause = f'ra BETWEEN {ra_min} AND {ra_max}'
+        ra_clause = f'{column_prefix}ra BETWEEN {ra_min} AND {ra_max}'
     else:
-        ra_clause = f'(ra >= {ra_min} OR ra <= {ra_max})'
+        ra_clause = f'({column_prefix}ra >= {ra_min} OR {column_prefix}ra <= {ra_max})'
 
-    return f'({ra_clause}) AND dec BETWEEN {dec_min} AND {dec_max}'
+    return f'({ra_clause}) AND {column_prefix}dec BETWEEN {dec_min} AND {dec_max}'
 
 
 def _build_source_query(where_clause, extra_columns=''):
     columns = (
-        'source_id, ra, dec, pmra, pmdec, parallax, '
-        'pmra_error, pmdec_error, parallax_error, has_xp_sampled'
+        'g.source_id, g.ra, g.dec, g.pmra, g.pmdec, g.parallax, '
+        'g.pmra_error, g.pmdec_error, g.parallax_error, g.has_xp_sampled, '
+        'vcr.best_class_name AS gaia_variability_type'
     )
     if extra_columns:
         columns = f'{columns}, {extra_columns}'
-    return f'SELECT TOP 1 {columns} FROM gaiadr3.gaia_source WHERE {where_clause}'
+    return (
+        f'SELECT TOP 1 {columns} '
+        'FROM gaiadr3.gaia_source AS g '
+        'LEFT OUTER JOIN gaiadr3.vari_classifier_result AS vcr '
+        "ON g.source_id = vcr.source_id AND vcr.classifier_name = 'n_transits:5+' "
+        f'WHERE {where_clause}'
+    )
 
 
 def _build_aip_epoch_query(source_id):
@@ -216,7 +234,7 @@ class GaiaDR3DataService(DataService):
         source_origin = None
 
         if source_id and str(source_id).isdigit():
-            query = _build_source_query(f'source_id = {source_id}')
+            query = _build_source_query(f'g.source_id = {source_id}')
             source_row = self._query_source_esa(query)
             source_origin = 'esa' if source_row else None
             if source_row is None:
@@ -227,12 +245,12 @@ class GaiaDR3DataService(DataService):
             ra_deg = float(ra)
             dec_deg = float(dec)
             radius_deg = radius_arcsec / 3600.0
-            box_prefilter = _build_box_prefilter(ra_deg, dec_deg, radius_deg)
+            box_prefilter = _build_box_prefilter(ra_deg, dec_deg, radius_deg, column_prefix='g.')
             query = (
                 _build_source_query(
                     f'{box_prefilter} '
-                    f' AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) <= {radius_deg}',
-                    f'DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) AS dist',
+                    f' AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) <= {radius_deg}',
+                    f'DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) AS dist',
                 )
                 + ' ORDER BY dist ASC'
             )
@@ -284,6 +302,7 @@ class GaiaDR3DataService(DataService):
             return []
 
         source_id = source.get('SOURCE_ID', source.get('source_id'))
+        variability_type = _to_text(source.get('gaia_variability_type', source.get('GAIA_VARIABILITY_TYPE')))
         target_result = {
             'name': f'GaiaDR3_{source_id}',
             'ra': _to_float(source.get('ra')),
@@ -294,6 +313,7 @@ class GaiaDR3DataService(DataService):
             'pm_ra_error': _to_float(source.get('pmra_error')),
             'pm_dec_error': _to_float(source.get('pmdec_error')),
             'parallax_error': _to_float(source.get('parallax_error')),
+            'gaia_variability_type': variability_type,
             'aliases': [f'GaiaDR3_{source_id}'],
             'target_updates': {
                 key: value
@@ -307,6 +327,7 @@ class GaiaDR3DataService(DataService):
                     'pm_ra_error': _to_float(source.get('pmra_error')),
                     'pm_dec_error': _to_float(source.get('pmdec_error')),
                     'parallax_error': _to_float(source.get('parallax_error')),
+                    'gaia_variability_type': variability_type,
                 }.items()
                 if value is not None
             },
@@ -327,6 +348,7 @@ class GaiaDR3DataService(DataService):
             pm_ra=target_result.get('pmra'),
             pm_dec=target_result.get('pmdec'),
             parallax=target_result.get('parallax'),
+            gaia_variability_type=target_result.get('gaia_variability_type'),
         )
 
     def create_aliases_from_query(self, alias_results, **kwargs):

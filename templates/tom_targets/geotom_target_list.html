@@ -6,9 +6,12 @@
   <div class="geotom-top-layout w-100">
     <div class="targets-main-col">
     <div class="geotom-generated-time-wrap mb-1">
-      <div class="geotom-generated-time">
+      <div id="geotom-generated-time" class="geotom-generated-time" data-live-mode="{% if geotom_live_mode %}1{% else %}0{% endif %}" data-live-url="{{ geotom_live_update_url }}">
         Generated (UT): {{ geotom_generated_utc|date:"Y-m-d H:i:s" }}
       </div>
+      <button id="geotom-live-toggle" type="button" class="geotom-live-toggle{% if geotom_live_mode %} is-live{% endif %}" aria-pressed="{% if geotom_live_mode %}true{% else %}false{% endif %}">
+        Live
+      </button>
       <button class="btn btn-outline-secondary btn-sm geotom-time-toggle" type="button" data-toggle="collapse" data-target="#geotom-time-picker" aria-expanded="false" aria-controls="geotom-time-picker">
         Change
       </button>
@@ -107,7 +110,7 @@
         <input type="hidden" name="lat" value="{{ geotom_observer.input_lat }}">
         <input type="hidden" name="lon" value="{{ geotom_observer.input_lon }}">
         <input type="hidden" name="elev" value="{{ geotom_observer.input_elev }}">
-        <input type="hidden" name="time_utc" value="{{ geotom_generated_utc_input }}">
+        <input id="geotom-filter-time-utc" type="hidden" name="time_utc" value="{% if geotom_live_mode %}{% else %}{{ geotom_generated_utc_input }}{% endif %}">
         <div class="form-group">
           <label for="id_name">Name</label>
           <input id="id_name" class="form-control" type="text" name="name" value="{{ filter_values.name }}">
@@ -129,7 +132,7 @@
             Visible Only
           </button>
           {% if filter_values.visible_only %}
-          <a href="?name={{ filter_values.name|urlencode }}&norad_id={{ filter_values.norad_id|urlencode }}&object_class={{ filter_values.object_class|urlencode }}&observer={{ geotom_observer.key|urlencode }}&lat={{ geotom_observer.input_lat|urlencode }}&lon={{ geotom_observer.input_lon|urlencode }}&elev={{ geotom_observer.input_elev|urlencode }}&time_utc={{ geotom_generated_utc_input|urlencode }}" class="btn btn-outline-secondary">Show All</a>
+          <a href="?name={{ filter_values.name|urlencode }}&norad_id={{ filter_values.norad_id|urlencode }}&object_class={{ filter_values.object_class|urlencode }}&observer={{ geotom_observer.key|urlencode }}&lat={{ geotom_observer.input_lat|urlencode }}&lon={{ geotom_observer.input_lon|urlencode }}&elev={{ geotom_observer.input_elev|urlencode }}{% if not geotom_live_mode %}&time_utc={{ geotom_generated_utc_input|urlencode }}{% endif %}" class="btn btn-outline-secondary">Show All</a>
           {% endif %}
         </div>
         {% if filter_values.visible_only %}
@@ -172,12 +175,12 @@
             <span class="geotom-class-badge geotom-class-satellite">Satellite</span>
             {% endif %}
           </td>
-          <td>{% if row.alt_deg is not None %}{{ row.alt_deg|floatformat:3 }}{% else %}-{% endif %}</td>
-          <td>{% if row.az_deg is not None %}{{ row.az_deg|floatformat:3 }}{% else %}-{% endif %}</td>
-          <td>{{ row.hour_angle_sex }}</td>
-          <td>{{ row.ra_icrf_sex }}</td>
-          <td>{{ row.dec_sex }}</td>
-          <td>{% if row.estimated_vmag is not None %}{{ row.estimated_vmag|floatformat:2 }}{% else %}-{% endif %}</td>
+          <td class="geotom-alt-cell">{% if row.alt_deg is not None %}{{ row.alt_deg|floatformat:3 }}{% else %}-{% endif %}</td>
+          <td class="geotom-az-cell">{% if row.az_deg is not None %}{{ row.az_deg|floatformat:3 }}{% else %}-{% endif %}</td>
+          <td class="geotom-ha-cell">{{ row.hour_angle_sex }}</td>
+          <td class="geotom-ra-cell">{{ row.ra_icrf_sex }}</td>
+          <td class="geotom-dec-cell">{{ row.dec_sex }}</td>
+          <td class="geotom-vmag-cell">{% if row.estimated_vmag is not None %}{{ row.estimated_vmag|floatformat:2 }}{% else %}-{% endif %}</td>
           <td class="geotom-updated-cell">
             <div>{{ row.target.modified|date:"Y-m-d" }}</div>
             <div>{{ row.target.modified|date:"H:i" }}</div>
@@ -252,6 +255,32 @@
   .geotom-generated-time {
     color: #c7d7ec;
     font-size: 0.95rem;
+  }
+
+  .geotom-live-toggle {
+    border: 1px solid #c43b3b;
+    background: transparent;
+    color: #ff6b6b;
+    border-radius: 999px;
+    padding: 0.08rem 0.55rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.25;
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+
+  .geotom-live-toggle:hover,
+  .geotom-live-toggle:focus {
+    outline: none;
+    color: #ffd7d7;
+    border-color: #e05a5a;
+  }
+
+  .geotom-live-toggle.is-live {
+    background: rgba(196, 59, 59, 0.22);
+    color: #ff8d8d;
+    border-color: #e05a5a;
   }
 
   .geotom-generated-time-wrap {
@@ -546,6 +575,196 @@
 
     observerSelect.addEventListener('change', setCustomState);
     setCustomState();
+  })();
+</script>
+<script>
+  (function() {
+    var generatedTimeElement = document.getElementById('geotom-generated-time');
+    var liveToggleButton = document.getElementById('geotom-live-toggle');
+    var timeInput = document.getElementById('id_time_utc');
+    var filterTimeInput = document.getElementById('geotom-filter-time-utc');
+    if (!generatedTimeElement || !liveToggleButton || !timeInput || !filterTimeInput) return;
+
+    var liveDataUrl = generatedTimeElement.getAttribute('data-live-url');
+    var liveMode = generatedTimeElement.getAttribute('data-live-mode') === '1';
+    var pollTimer = null;
+    var requestInFlight = false;
+    var lastMapRefreshMs = 0;
+    var MAP_REFRESH_INTERVAL_MS = 5000;
+
+    function currentUtcInputValue() {
+      var now = new Date();
+      return now.getUTCFullYear() + '-' +
+        String(now.getUTCMonth() + 1).padStart(2, '0') + '-' +
+        String(now.getUTCDate()).padStart(2, '0') + 'T' +
+        String(now.getUTCHours()).padStart(2, '0') + ':' +
+        String(now.getUTCMinutes()).padStart(2, '0') + ':' +
+        String(now.getUTCSeconds()).padStart(2, '0');
+    }
+
+    function updateLiveToggleState() {
+      liveToggleButton.classList.toggle('is-live', liveMode);
+      liveToggleButton.setAttribute('aria-pressed', liveMode ? 'true' : 'false');
+      liveToggleButton.title = liveMode ? 'Pause live updates' : 'Resume live updates from current UTC';
+    }
+
+    function isCurrentUtcValue(value) {
+      if (!value) {
+        return true;
+      }
+      var parsed = new Date(value + 'Z');
+      if (Number.isNaN(parsed.getTime())) {
+        return false;
+      }
+      return Math.abs(Date.now() - parsed.getTime()) <= 1500;
+    }
+
+    function setLiveMode(nextLiveMode) {
+      liveMode = nextLiveMode;
+      generatedTimeElement.setAttribute('data-live-mode', nextLiveMode ? '1' : '0');
+      filterTimeInput.value = nextLiveMode ? '' : timeInput.value;
+      updateLiveToggleState();
+
+      if (!nextLiveMode) {
+        stopPolling();
+      }
+    }
+
+    function updateGeneratedTimeLabel(displayValue) {
+      generatedTimeElement.textContent = 'Generated (UT): ' + displayValue;
+    }
+
+    function formatDecimal(value, digits) {
+      return value === null || value === undefined ? '-' : Number(value).toFixed(digits);
+    }
+
+    function getTableRowByTargetId(targetId) {
+      return document.querySelector('#geotom-table tbody tr[data-target-id="' + String(targetId) + '"]');
+    }
+
+    function applyTableRows(rows) {
+      for (var i = 0; i < rows.length; i++) {
+        var rowData = rows[i];
+        var rowElement = getTableRowByTargetId(rowData.target_id);
+        if (!rowElement) {
+          continue;
+        }
+
+        rowElement.querySelector('.geotom-alt-cell').textContent = formatDecimal(rowData.alt_deg, 3);
+        rowElement.querySelector('.geotom-az-cell').textContent = formatDecimal(rowData.az_deg, 3);
+        rowElement.querySelector('.geotom-ha-cell').textContent = rowData.hour_angle_sex || '-';
+        rowElement.querySelector('.geotom-ra-cell').textContent = rowData.ra_icrf_sex || '-';
+        rowElement.querySelector('.geotom-dec-cell').textContent = rowData.dec_sex || '-';
+        rowElement.querySelector('.geotom-vmag-cell').textContent = formatDecimal(rowData.estimated_vmag, 2);
+      }
+    }
+
+    function buildLiveUrl() {
+      var params = new URLSearchParams(window.location.search);
+      if (liveMode) {
+        params.delete('time_utc');
+      } else {
+        params.set('time_utc', timeInput.value);
+      }
+      return liveDataUrl + '?' + params.toString();
+    }
+
+    function scheduleNextPoll(delayMs) {
+      if (!liveMode) {
+        return;
+      }
+      if (pollTimer) {
+        window.clearTimeout(pollTimer);
+      }
+      pollTimer = window.setTimeout(pollLiveData, delayMs);
+    }
+
+    function stopPolling() {
+      if (pollTimer) {
+        window.clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    function shouldRefreshMap() {
+      var now = Date.now();
+      if (now - lastMapRefreshMs < MAP_REFRESH_INTERVAL_MS) {
+        return false;
+      }
+      lastMapRefreshMs = now;
+      return true;
+    }
+
+    function pollLiveData() {
+      if (!liveMode || requestInFlight) {
+        return;
+      }
+
+      if (document.visibilityState === 'hidden') {
+        scheduleNextPoll(1000);
+        return;
+      }
+
+      requestInFlight = true;
+      fetch(buildLiveUrl(), { credentials: 'same-origin' })
+        .then(function(response) {
+          if (!response.ok) {
+            throw new Error('GeoTOM live update failed.');
+          }
+          return response.json();
+        })
+        .then(function(payload) {
+          updateGeneratedTimeLabel(payload.generated_utc_display);
+          timeInput.value = payload.generated_utc;
+          filterTimeInput.value = '';
+          applyTableRows(payload.rows || []);
+          if (typeof window.geotomUpdateMapData === 'function' && shouldRefreshMap()) {
+            window.geotomUpdateMapData(payload);
+          }
+        })
+        .catch(function() {
+          setLiveMode(false);
+        })
+        .finally(function() {
+          requestInFlight = false;
+          if (liveMode) {
+            scheduleNextPoll(1000);
+          }
+        });
+    }
+
+    function syncLiveStateWithInput() {
+      if (isCurrentUtcValue(timeInput.value)) {
+        if (!liveMode) {
+          setLiveMode(true);
+          pollLiveData();
+        }
+        return;
+      }
+      setLiveMode(false);
+    }
+
+    liveToggleButton.addEventListener('click', function() {
+      if (liveMode) {
+        setLiveMode(false);
+        return;
+      }
+
+      timeInput.value = currentUtcInputValue();
+      setLiveMode(true);
+      pollLiveData();
+    });
+
+    timeInput.addEventListener('input', syncLiveStateWithInput);
+    timeInput.addEventListener('change', syncLiveStateWithInput);
+    updateLiveToggleState();
+
+    if (liveMode) {
+      filterTimeInput.value = '';
+      pollLiveData();
+    } else {
+      filterTimeInput.value = timeInput.value;
+    }
   })();
 </script>
 <script src="https://code.jquery.com/jquery-3.6.1.min.js" integrity="sha256-o88AwQnZB+VDvE9tvIXrMQaPlFFSUTR+nldQm1LuPXQ=" crossorigin="anonymous"></script>

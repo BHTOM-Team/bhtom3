@@ -12,6 +12,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import WISEQueryForm
+from custom_code.data_services.wise_alias_utils import fetch_allwise_alias
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,11 @@ def _to_float(value):
 
 def _wise_target_name(ra, dec):
     return f'WISE+J{ra}_{dec}'
+
+
+def _fallback_alias(ra, dec):
+    return f'AllWISE+J{ra}_{dec}'
+
 
 def _build_wise_query(ra,dec,rad):
     ra = str(ra)
@@ -67,10 +73,11 @@ class AllWISEDataService(DataService):
         dec = _to_float(query_parameters.get('dec'))
         radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 5.0
         if ra is None or dec is None:
-            self.query_results = {'lc_data': [], 'source_location': None}
+            self.query_results = {'lc_data': [], 'alias': None, 'source_location': None}
             return self.query_results
 
         lc_data = None
+        alias = None
         source_location = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?submit=Select&projshort=WISE"
         try:
             wise_response = requests.get(_build_wise_query(ra,dec,radius_arcsec))
@@ -85,13 +92,15 @@ class AllWISEDataService(DataService):
                 ],
                 sep=r'\s+'
             )
+                alias = fetch_allwise_alias(ra, dec, radius_arcsec)
             else:
                 logger.debug('ALLWISE returned no data for RA=%s Dec=%s', ra, dec)
-        except ValueError:
+        except (IndexError, ValueError, requests.RequestException):
             logger.debug('ALLWISE returned error for RA=%s Dec=%s', ra, dec)
 
         self.query_results = {
             'lc_data': lc_data,
+            'alias': alias,
             'source_location': source_location,
             'ra': ra,
             'dec': dec,
@@ -103,16 +112,17 @@ class AllWISEDataService(DataService):
         ra = data.get('ra')
         dec = data.get('dec')
         lc_data = data.get('lc_data')
-        if ra is None or dec is None or len(lc_data) < 1:
+        if ra is None or dec is None or lc_data is None or len(lc_data) < 1:
             return []
 
         target_name = _wise_target_name(ra, dec)
+        alias_name = data.get('alias') or _fallback_alias(ra, dec)
 
         return [{
             'name': target_name,
             'ra': ra,
             'dec': dec,
-            'aliases': ['WISE'],
+            'aliases': [{'name': alias_name, 'source_name': self.name}],
             'reduced_datums': {'photometry': self._build_photometry_datums(lc_data)},
             'source_location': data.get('source_location'),
         }]
@@ -127,7 +137,13 @@ class AllWISEDataService(DataService):
         )
 
     def create_aliases_from_query(self, alias_results, **kwargs):
-        return [TargetName(name=alias) for alias in alias_results]
+        aliases = []
+        for alias in alias_results:
+            alias_name = alias.get('name') if isinstance(alias, dict) else alias
+            alias_name = str(alias_name or '').strip()
+            if alias_name:
+                aliases.append(TargetName(name=alias_name))
+        return aliases
 
     def create_reduced_datums_from_query(self, target, data=None, data_type=None, **kwargs):
         if data_type != 'photometry' or not data:

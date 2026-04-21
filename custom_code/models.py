@@ -104,6 +104,13 @@ class BhtomTarget(BaseTarget):
         verbose_name='proper motion Dec error', null=True, blank=True,
         help_text='Proper Motion Dec uncertainty, in milliarcsec/year.'
     )
+    gaia_variability_type = models.CharField(
+        max_length=64,
+        verbose_name='Gaia variability type',
+        null=True,
+        blank=True,
+        help_text='Gaia DR3 variability class from vari_classifier_result.best_class_name.',
+    )
 
     def get_classification_type_display(self):
         for key, display in settings.CLASSIFICATION_TYPES:
