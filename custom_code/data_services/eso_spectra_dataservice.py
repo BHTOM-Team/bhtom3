@@ -132,43 +132,20 @@ class ESOSpectraDataService(DataService):
         return [TargetName(name=alias) for alias in alias_results]
 
     def create_reduced_datums_from_query(self, target, data=None, data_type=None, **kwargs):
-        if data_type != 'photometry' or not data:
+        if data_type != 'spectroscopy' or not data:
             return
         source_location = kwargs.get('source_location') or self.info_url
-
         for datum in data:
-            try:
-                ReducedDatum.objects.get_or_create(
-                    target=target,
-                    data_type='photometry',
-                    timestamp=datum['timestamp'],
-                    value=datum['value'],
-                    defaults={
-                        'source_name': self.name,
-                        'source_location': source_location,
-                    },
-                )
-            except IntegrityError:
-                # Another process inserted it concurrently; retry with get
-                try:
-                    ReducedDatum.objects.get(
-                        target=target,
-                        data_type='photometry',
-                        timestamp=datum['timestamp'],
-                        value=datum['value'],
-                    )
-                except ReducedDatum.DoesNotExist:
-                    # Rare case: still doesn't exist, retry in a transaction
-                    with transaction.atomic():
-                        ReducedDatum.objects.create(
-                            target=target,
-                            data_type='photometry',
-                            timestamp=datum['timestamp'],
-                            value=datum['value'],
-                            source_name=self.name,
-                            source_location=source_location,
-                        )
-
+            ReducedDatum.objects.get_or_create(
+                target=target,
+                data_type='spectroscopy',
+                timestamp=datum['timestamp'],
+                value=datum['value'],
+                defaults={
+                    'source_name': self.name,
+                    'source_location': source_location,
+                },
+            )
 
     def to_reduced_datums(self, target, data_results=None, **kwargs):
         if not data_results:
@@ -194,9 +171,12 @@ class ESOSpectraDataService(DataService):
             spec_data = spec_hdul[1].data
             spec_wave = spec_data['WAVE'][0]
             spec_flux = spec_data['FLUX'][0]
+            mask = spec_flux > 0
+            spec_wave_pos = spec_wave[mask]
+            spec_flux_pos = spec_flux[mask]
             spectrum = Spectrum1D(
-                        flux=spec_flux * u.erg / u.s / u.cm**2 / u.AA,
-                        spectral_axis=spec_wave * u.AA,)
+                        flux=spec_flux_pos * u.erg / u.s / u.cm**2 / u.AA,
+                        spectral_axis=spec_wave_pos * u.AA,)
             serialized = serializer.serialize(spectrum)
             serialized.update({
                     'filter': f'{tel}-{instr}',
