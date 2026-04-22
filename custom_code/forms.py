@@ -87,7 +87,9 @@ class TargetAliasInlineFormSet(BaseInlineFormSet):
 
             normalized_name = name.casefold()
             if normalized_name == target_name:
-                raise ValidationError(f'Alias "{name}" cannot match the target name.')
+                # Some data services return the canonical target name as an alias.
+                # Treat that as a no-op instead of blocking unrelated target edits.
+                continue
             if normalized_name in seen_names:
                 raise ValidationError(f'Alias "{name}" is duplicated.')
             seen_names.add(normalized_name)

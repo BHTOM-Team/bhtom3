@@ -2,6 +2,7 @@ from django import template
 from django.conf import settings
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 
+from custom_code.astrometry import can_compute_current_coordinates
 
 register = template.Library()
 
@@ -64,8 +65,8 @@ def truncate_decimals(value, places=4):
         return value
 
 
-@register.inclusion_tag('tom_targets/partials/target_data.html')
-def bhtom_target_data(target):
+@register.inclusion_tag('tom_targets/partials/target_data.html', takes_context=True)
+def bhtom_target_data(context, target):
     extras = {
         k['name']: target.extra_fields.get(k['name'])
         for k in settings.EXTRA_FIELDS
@@ -125,8 +126,11 @@ def bhtom_target_data(target):
     except Exception:
         transit_ephemeris = None
     return {
+        'request': context.get('request'),
         'target': target,
         'astrometry_rows': astrometry_rows,
+        'show_current_coords_button': can_compute_current_coordinates(target),
+        'current_coords': context.get('current_coords'),
         'extras': extras,
         'tags': tags,
         'target_other_names': other_names,

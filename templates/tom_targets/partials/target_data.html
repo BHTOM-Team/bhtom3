@@ -88,13 +88,27 @@
 </dl>
 
 {% if astrometry_rows %}
-<p>Gaia parameters</p>
+<p>
+  Gaia parameters
+  {% if show_current_coords_button %}
+  <a href="?compute_current_coords=1{% if request.GET.tab %}&tab={{ request.GET.tab|urlencode }}{% endif %}" class="btn btn-sm btn-outline-success ml-2">
+    Compute current Ra/Dec
+  </a>
+  {% endif %}
+</p>
 <dl class="row">
   {% for row in astrometry_rows %}
   <dt class="col-sm-6">{{ row.label }}</dt>
   <dd class="col-sm-6">{% if row.numeric %}{{ row.value|truncate_decimals:4 }}{% else %}{{ row.value }}{% endif %}{% if row.error != None %} +- {{ row.error|truncate_decimals:4 }}{% endif %}</dd>
   {% endfor %}
 </dl>
+{% if current_coords %}
+<div class="alert alert-success py-2">
+  Current coordinates at {{ current_coords.computed_at_utc|date:"Y-m-d H:i:s" }} UT:
+  RA={{ current_coords.ra_deg|truncate_decimals:6 }} deg ({{ current_coords.ra_hms }}),
+  Dec={{ current_coords.dec_deg|truncate_decimals:6 }} deg ({{ current_coords.dec_dms }}).
+</div>
+{% endif %}
 {% endif %}
 
 {% if transit_ephemeris %}

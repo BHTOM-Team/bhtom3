@@ -62,6 +62,9 @@ def _get_or_create_target_alias(target, alias_name):
     alias_name = str(alias_name or '').strip()
     if not alias_name:
         return None, False
+    if alias_name.casefold() == str(target.name or '').strip().casefold():
+        logger.info('Skipping alias "%s" for target %s because it matches the primary target name.', alias_name, target.name)
+        return None, False
 
     alias_obj = TargetName.objects.filter(name=alias_name).first()
     if alias_obj is not None:

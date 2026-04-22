@@ -43,6 +43,7 @@ from tom_dataservices.views import (
 )
 
 from custom_code.filters import BhtomTargetFilterSet
+from custom_code.astrometry import can_compute_current_coordinates, compute_current_coordinates
 from custom_code.forms import (
     BhtomCatalogQueryForm,
     BhtomNonSiderealTargetCreateForm,
@@ -1859,6 +1860,8 @@ class BhtomTargetDetailView(TargetDetailView):
             })
         other_names.sort(key=lambda row: (row['source_name'].lower(), row['name'].lower()))
         context['target_other_names'] = other_names
+        if self.request.GET.get('compute_current_coords') == '1' and can_compute_current_coordinates(target):
+            context['current_coords'] = compute_current_coordinates(target)
         return context
 
 

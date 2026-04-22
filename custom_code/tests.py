@@ -29,6 +29,7 @@ from custom_code.data_services.moa_dataservice import (
     _parse_photometry_rows as _parse_moa_photometry_rows,
     _parse_event_page,
 )
+from custom_code.astrometry import can_compute_current_coordinates, compute_current_coordinates
 from custom_code.data_services.allwise_dataservice import AllWISEDataService
 from custom_code.data_services.asassn_dataservice import ASASSNDataService
 from custom_code.data_services.exoclock_dataservice import ExoClockDataService
@@ -60,6 +61,7 @@ from custom_code.signals import cleanup_target_relations_on_target_delete
 from custom_code.templatetags.custom_target_extras import bhtom_target_data
 from custom_code.templatetags.custom_target_extras import truncate_decimals
 from custom_code.tasks import _build_query_parameters_for_service, _run_service_for_target
+from custom_code.tasks import _get_or_create_target_alias
 from custom_code.sun_separation import get_live_target_values
 from custom_code.target_derivations import derive_sidereal_target_fields
 from custom_code.views import (
@@ -801,6 +803,51 @@ class GaiaDR3DataServiceTests(TestCase):
         self.assertEqual(result['target_updates']['gaia_variability_type'], 'RR')
 
 
+class AliasHandlingTests(TestCase):
+    def test_alias_formset_allows_alias_matching_primary_target_name(self):
+        target = Target.objects.create(
+            name='GaiaDR3_2929359977275703552',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+        )
+        alias = TargetName.objects.create(target=target, name='GaiaDR3_2929359977275703552')
+
+        formset = BhtomTargetNamesFormset(
+            data={
+                'aliases-TOTAL_FORMS': '1',
+                'aliases-INITIAL_FORMS': '1',
+                'aliases-MIN_NUM_FORMS': '0',
+                'aliases-MAX_NUM_FORMS': '1000',
+                'aliases-0-id': str(alias.id),
+                'aliases-0-target': str(target.id),
+                'aliases-0-name': 'GaiaDR3_2929359977275703552',
+                'aliases-0-url': 'https://gea.esac.esa.int/archive/',
+                'aliases-0-source_name': 'GaiaDR3',
+            },
+            instance=target,
+            prefix='aliases',
+        )
+
+        self.assertTrue(formset.is_valid(), formset.errors)
+
+    def test_get_or_create_target_alias_skips_primary_target_name(self):
+        target = Target.objects.create(
+            name='GaiaDR3_2929359977275703552',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+        )
+
+        alias_obj, created = _get_or_create_target_alias(target, 'GaiaDR3_2929359977275703552')
+
+        self.assertIsNone(alias_obj)
+        self.assertFalse(created)
+        self.assertFalse(target.aliases.filter(name='GaiaDR3_2929359977275703552').exists())
+
+
 class ASASSNDataServiceTests(TestCase):
     def test_query_targets_handles_missing_lightcurve_tables(self):
         service = ASASSNDataService()
@@ -1325,7 +1372,7 @@ class TargetDetailDataTests(TestCase):
         target.pm_dec_error = 0.22
         target.save(update_fields=['parallax_error', 'pm_ra_error', 'pm_dec_error'])
 
-        context = bhtom_target_data(target)
+        context = bhtom_target_data({'request': Mock(), 'current_coords': None}, target)
 
         self.assertEqual(context['astrometry_rows'][0]['label'], 'Parallax (mas)')
         self.assertEqual(context['astrometry_rows'][0]['value'], 1.2)
@@ -1344,7 +1391,7 @@ class TargetDetailDataTests(TestCase):
             epoch=2000.0,
         )
 
-        context = bhtom_target_data(target)
+        context = bhtom_target_data({'request': Mock(), 'current_coords': None}, target)
 
         self.assertEqual(context['astrometry_rows'], [])
 
@@ -1358,9 +1405,100 @@ class TargetDetailDataTests(TestCase):
             gaia_variability_type='',
         )
 
-        context = bhtom_target_data(target)
+        context = bhtom_target_data({'request': Mock(), 'current_coords': None}, target)
 
         self.assertEqual(context['astrometry_rows'], [])
+
+    def test_target_data_exposes_current_coordinate_button_only_for_significant_gaia_astrometry(self):
+        eligible_target = Target.objects.create(
+            name='GaiaDR3_eligible',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+            parallax=1.2,
+            pm_ra=4.5,
+            pm_dec=-6.7,
+        )
+        eligible_target.parallax_error = 0.33
+        eligible_target.save(update_fields=['parallax_error'])
+
+        ineligible_target = Target.objects.create(
+            name='GaiaDR3_ineligible',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+            parallax=1.2,
+            pm_ra=4.5,
+            pm_dec=-6.7,
+        )
+        ineligible_target.parallax_error = 0.8
+        ineligible_target.save(update_fields=['parallax_error'])
+
+        eligible_context = bhtom_target_data({'request': Mock(), 'current_coords': None}, eligible_target)
+        ineligible_context = bhtom_target_data({'request': Mock(), 'current_coords': None}, ineligible_target)
+
+        self.assertTrue(eligible_context['show_current_coords_button'])
+        self.assertFalse(ineligible_context['show_current_coords_button'])
+
+    def test_compute_current_coordinates_propagates_target_to_requested_time(self):
+        target = Target(
+            name='GaiaDR3_motion',
+            type=Target.SIDEREAL,
+            ra=120.0,
+            dec=22.0,
+            epoch=2000.0,
+            parallax=10.0,
+            pm_ra=100.0,
+            pm_dec=-50.0,
+        )
+        target.parallax_error = 2.0
+
+        result = compute_current_coordinates(target, now=Time('2026-04-22T12:00:00', scale='utc'))
+
+        self.assertNotEqual(round(result['ra_deg'], 6), 120.0)
+        self.assertNotEqual(round(result['dec_deg'], 6), 22.0)
+        self.assertEqual(result['computed_at_utc'].date().isoformat(), '2026-04-22')
+
+    def test_target_detail_view_renders_current_coordinate_message(self):
+        target = Target.objects.create(
+            name='GaiaDR3_view',
+            type=Target.SIDEREAL,
+            ra=120.0,
+            dec=22.0,
+            epoch=2000.0,
+            parallax=10.0,
+            pm_ra=100.0,
+            pm_dec=-50.0,
+        )
+        target.parallax_error = 2.0
+        target.save(update_fields=['parallax_error'])
+
+        response = self.client.get(reverse('targets:detail', kwargs={'pk': target.pk}), {'compute_current_coords': '1'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Compute current Ra/Dec')
+        self.assertContains(response, 'Current coordinates at')
+
+
+class GaiaCurrentCoordinateComputationTests(TestCase):
+    def test_can_compute_current_coordinates_requires_good_parallax_signal_to_noise(self):
+        target = Target(
+            name='GaiaDR3_threshold',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+            parallax=1.2,
+            pm_ra=4.5,
+            pm_dec=-6.7,
+        )
+        target.parallax_error = 0.6
+        self.assertFalse(can_compute_current_coordinates(target))
+
+        target.parallax_error = 0.5
+        self.assertTrue(can_compute_current_coordinates(target))
 
 
 class PlanetaryTransitTargetCreateTests(TestCase):
