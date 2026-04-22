@@ -2,15 +2,17 @@ import logging
 
 from astropy.time import Time
 from datetime import timezone
-from django.db import IntegrityError, transaction
 
 from specutils import Spectrum1D
 import astropy.units as u
+from astropy.table import MaskedColumn, Column
 
 import pyvo
 import requests
 from astropy.io import fits
+from astropy.table import Table
 from io import BytesIO
+import numpy as np
 
 from tom_dataservices.dataservices import DataService
 from tom_dataproducts.models import ReducedDatum
@@ -161,31 +163,41 @@ class ESOSpectraDataService(DataService):
     def _build_spectroscopy_datums(self, spec_table):
         output = []
         for tab in spec_table:
-            serializer = SpectrumSerializer()
-            spec_res = requests.get(f"https://dataportal.eso.org/dataPortal/file/{tab['dp_id']}")
-            spec_hdul = fits.open(BytesIO(spec_res.content))
-            time_mjd = spec_hdul[0].header['MJD-OBS']
-            target_id = spec_hdul[0].header['HIERARCH ESO OBS ID']
-            tel = spec_hdul[0].header['TELESCOP']
-            instr = spec_hdul[0].header['INSTRUME']
-            spec_data = spec_hdul[1].data
-            spec_wave = spec_data['WAVE'][0]
-            spec_flux = spec_data['FLUX'][0]
-            mask = spec_flux > 0
-            spec_wave_pos = spec_wave[mask]
-            spec_flux_pos = spec_flux[mask]
-            spectrum = Spectrum1D(
-                        flux=spec_flux_pos * u.erg / u.s / u.cm**2 / u.AA,
-                        spectral_axis=spec_wave_pos * u.AA,)
-            serialized = serializer.serialize(spectrum)
-            serialized.update({
-                    'filter': f'{tel}-{instr}',
-                    'source_id': str(target_id),
-                    'spectrum_type': 'ESO_spectrum',})
+            try:
+                serializer = SpectrumSerializer()
+                spec_res = requests.get(f"https://dataportal.eso.org/dataPortal/file/{tab['dp_id']}")
+                spec_hdul = fits.open(BytesIO(spec_res.content))
+                time_mjd = spec_hdul[0].header['MJD-OBS']
+                target_id = spec_hdul[0].header['HIERARCH ESO OBS ID']
+                tel = spec_hdul[0].header['TELESCOP']
+                instr = spec_hdul[0].header['INSTRUME']
+                spec_data = Table.read(BytesIO(spec_res.content), format="fits")
+                if isinstance(spec_data['WAVE'], Column):
+                    spec_wave = spec_data['WAVE'].data[0]
+                else:
+                    spec_wave = spec_data['WAVE'][0].data
+                if isinstance(spec_data['FLUX'], MaskedColumn):
+                    spec_flux = spec_data['FLUX'][0].data
+                else:
+                    spec_flux = spec_data['FLUX'].data[0]
 
-            output.append({
-                'timestamp': Time(time_mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                'value': serialized,
-                })
+                mask = (~np.isnan(spec_flux)) & (spec_flux > 0)
+                spec_wave_pos = spec_wave[mask]
+                spec_flux_pos = spec_flux[mask]
+                spectrum = Spectrum1D(
+                            flux=spec_flux_pos * spec_data['FLUX'].unit,
+                            spectral_axis=spec_wave_pos * spec_data['WAVE'].unit,)
+                serialized = serializer.serialize(spectrum)
+                serialized.update({
+                        'filter': f'{tel}-{instr}',
+                        'source_id': str(target_id),
+                        'spectrum_type': 'ESO_spectrum',})
+
+                output.append({
+                    'timestamp': Time(time_mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
+                    'value': serialized,
+                    })
+            except Exception as e:
+                continue
 
         return output

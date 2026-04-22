@@ -405,7 +405,7 @@ def custom_spectroscopy_for_target(context, target, dataproduct=None):
             flux_other_data.append(
                 go.Scatter(
                     x=spectrum.wavelength.value,
-                    y=spectrum.flux.value,
+                    y=spectrum.flux.to(u.erg / (u.cm**2 * u.s * u.AA)).value,
                     name=label,
                     hovertemplate='lambda=%{x:.2f}<br>flux=%{y:.4e}<extra>%{fullData.name}</extra>',
                 )
