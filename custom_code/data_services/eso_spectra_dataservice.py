@@ -4,8 +4,6 @@ from astropy.time import Time
 from datetime import timezone
 
 from specutils import Spectrum1D
-import astropy.units as u
-from astropy.table import MaskedColumn, Column
 
 import pyvo
 import requests
@@ -172,15 +170,8 @@ class ESOSpectraDataService(DataService):
                 tel = spec_hdul[0].header['TELESCOP']
                 instr = spec_hdul[0].header['INSTRUME']
                 spec_data = Table.read(BytesIO(spec_res.content), format="fits")
-                if isinstance(spec_data['WAVE'], Column):
-                    spec_wave = spec_data['WAVE'].data[0]
-                else:
-                    spec_wave = spec_data['WAVE'][0].data
-                if isinstance(spec_data['FLUX'], MaskedColumn):
-                    spec_flux = spec_data['FLUX'][0].data
-                else:
-                    spec_flux = spec_data['FLUX'].data[0]
-
+                spec_wave = spec_data['WAVE'][0]
+                spec_flux = spec_data['FLUX'][0]
                 mask = (~np.isnan(spec_flux)) & (spec_flux > 0)
                 spec_wave_pos = spec_wave[mask]
                 spec_flux_pos = spec_flux[mask]
