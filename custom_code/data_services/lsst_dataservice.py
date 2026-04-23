@@ -77,7 +77,7 @@ class LSSTDataService(DataService):
             'dia_object_id': dia_id,
             'ra': ra,
             'dec': dec,
-            'radius_arcsec': parameters.get('radius_arcsec') or 5.0,
+            'radius_arcsec': parameters.get('radius_arcsec') or 2.0,
             'include_photometry': bool(parameters.get('include_photometry', True)),
         }
         return self.query_parameters
@@ -86,7 +86,7 @@ class LSSTDataService(DataService):
         dia_id = query_parameters.get('dia_object_id')
         ra = query_parameters.get('ra')
         dec = query_parameters.get('dec')
-        radius_arcsec = float(query_parameters.get('radius_arcsec') or 5.0)
+        radius_arcsec = float(query_parameters.get('radius_arcsec') or 2.0)
 
         object_rows = []
         source_rows = []
@@ -100,7 +100,7 @@ class LSSTDataService(DataService):
                     '/api/v1/sources',
                     {
                         'diaObjectId': str(dia_id),
-                        'columns': 'r:diaObjectId,r:midpointMjdTai,r:psfFlux,r:psfFluxErr,r:band',
+                        'columns': 'r:diaObjectId,r:midpointMjdTai,r:scienceFlux,r:scienceFluxErr,r:band',
                         'output-format': 'json',
                     }
                 )
@@ -109,7 +109,7 @@ class LSSTDataService(DataService):
                         '/api/v1/sources',
                         {
                             'objectId': str(dia_id),
-                            'columns': 'r:diaObjectId,r:midpointMjdTai,r:psfFlux,r:psfFluxErr,r:band',
+                            'columns': 'r:diaObjectId,r:midpointMjdTai,r:scienceFlux,r:scienceFluxErr,r:band',
                             'output-format': 'json',
                         }
                     )
@@ -139,7 +139,7 @@ class LSSTDataService(DataService):
                             '/api/v1/sources',
                             {
                                 'diaObjectId': str(resolved_id),
-                                'columns': 'r:diaObjectId,r:midpointMjdTai,r:psfFlux,r:psfFluxErr,r:band',
+                                'columns': 'r:diaObjectId,r:midpointMjdTai,r:scienceFlux,r:scienceFluxErr,r:band',
                                 'output-format': 'json',
                             }
                         )
@@ -212,19 +212,30 @@ class LSSTDataService(DataService):
         output = []
         for row in rows:
             mjd = _to_float(_first_present(row, ('r:midpointMjdTai', 'midpointMjdTai', 'mjd')))
-            flux = _to_float(_first_present(row, ('r:psfFlux', 'psfFlux', 'flux')))
-            flux_err = _to_float(_first_present(row, ('r:psfFluxErr', 'psfFluxErr', 'fluxErr')))
+            flux = _to_float(_first_present(row, ('r:scienceFlux', 'scienceFlux')))
+            flux_err = _to_float(_first_present(row, ('r:scienceFluxErr', 'scienceFluxErr')))
             band = _first_present(row, ('r:band', 'band')) or 'unknown'
             if mjd is None or flux is None or flux_err is None or flux <= 0 or flux_err <= 0:
                 continue
+            snr = flux / flux_err
+            if (snr) > 3:
+                mag = -2.5 * math.log10((flux * 1e-9) / 3631.0)
+                mag_err = 1.0857 * (flux_err / flux)
+                if not math.isfinite(mag) or not math.isfinite(mag_err) or mag_err >= 1.5:
+                    continue
 
-            mag = -2.5 * math.log10((flux * 1e-9) / 3631.0)
-            mag_err = 1.0857 * (flux_err / flux)
-            if not math.isfinite(mag) or not math.isfinite(mag_err) or mag_err >= 1.5:
-                continue
-
-            output.append({
+                output.append({
                 'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
                 'value': {'filter': f'LSST({band})', 'magnitude': mag, 'error': mag_err},
-            })
+                })
+            else:
+                mag = -2.5 * math.log10((flux * 1e-9) * snr / 3631)
+                mag_err = -1.0
+                if not math.isfinite(mag):
+                    continue
+
+                output.append({
+                'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
+                'value': {'filter': f'LSST({band})', 'magnitude': mag, 'error': mag_err},
+                })
         return output

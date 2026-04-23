@@ -86,7 +86,7 @@ class LSSTQueryForm(BaseQueryForm):
     dia_object_id = forms.CharField(required=False, label='LSST diaObjectId')
     ra = ra_field()
     dec = dec_field()
-    radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, label='Search radius (arcsec)')
+    radius_arcsec = forms.FloatField(required=False, initial=2.0, min_value=0.1, label='Search radius (arcsec)')
     include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
 
     def clean(self):
