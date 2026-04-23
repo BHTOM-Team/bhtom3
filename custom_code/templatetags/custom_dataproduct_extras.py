@@ -9,6 +9,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import numpy as np
 import astropy.units as u
+import json
 
 from tom_dataproducts.forms import DataProductUploadForm
 from tom_dataproducts.models import ReducedDatum
@@ -379,8 +380,10 @@ def custom_spectroscopy_for_target(context, target, dataproduct=None):
         )
 
     serializer = SpectrumSerializer()
-    flux_count_data = []
-    flux_other_data = []
+    #flux_count_data = []
+    #flux_other_data = []
+
+    spectra_json = []
 
     for datum in datums.order_by('timestamp'):
         try:
@@ -392,67 +395,86 @@ def custom_spectroscopy_for_target(context, target, dataproduct=None):
 
         # Separate by flux units
         if str(spectrum.flux.unit) == 'ct' or str(spectrum.flux.unit) == u.ct:
-            flux_count_data.append(
-                go.Scatter(
-                    x=spectrum.wavelength.value,
-                    y=spectrum.flux.value,
-                    name=label + " (counts)",
-                    hovertemplate='lambda=%{x:.2f}<br>flux=%{y:.4e}<extra>%{fullData.name}</extra>',
-                    yaxis='y2'
-                )
-            )
+            #flux_count_data.append(
+            #    go.Scatter(
+            #        x=spectrum.wavelength.value,
+            #        y=spectrum.flux.value,
+            #        name=label + " (counts)",
+            #        hovertemplate='lambda=%{x:.2f}<br>flux=%{y:.4e}<extra>%{fullData.name}</extra>',
+            #        yaxis='y2'
+            #    )
+            #)
+            wavelength = spectrum.wavelength.value.tolist()
+            flux = spectrum.flux.value.tolist()
+            unit_str = str(spectrum.flux.unit)
+            spectra_json.append({
+            "wavelength": wavelength,
+            "flux": flux,
+            "unit": unit_str,
+            "label": label
+            })
         else:
-            flux_other_data.append(
-                go.Scatter(
-                    x=spectrum.wavelength.value,
-                    y=spectrum.flux.to(u.erg / (u.cm**2 * u.s * u.AA)).value,
-                    name=label,
-                    hovertemplate='lambda=%{x:.2f}<br>flux=%{y:.4e}<extra>%{fullData.name}</extra>',
-                )
-            )
+            #flux_other_data.append(
+            #    go.Scatter(
+            #        x=spectrum.wavelength.value,
+            #        y=spectrum.flux.to(u.erg / (u.cm**2 * u.s * u.AA)).value,
+            #        name=label,
+            #        hovertemplate='lambda=%{x:.2f}<br>flux=%{y:.4e}<extra>%{fullData.name}</extra>',
+            #    )
+            #)
+            wavelength = spectrum.wavelength.value.tolist()
+            flux = spectrum.flux.to(u.erg / (u.cm**2 * u.s * u.AA)).value.tolist()
+            unit_str = str(u.erg / (u.cm**2 * u.s * u.AA))
+            spectra_json.append({
+            "wavelength": wavelength,
+            "flux": flux,
+            "unit": unit_str,
+            "label": label
+            })
 
     # Use subplots with secondary y-axis
-    figure = make_subplots(specs=[[{"secondary_y": True}]])
-    for trace in flux_other_data:
-        figure.add_trace(trace, secondary_y=False)
-    for trace in flux_count_data:
-        figure.add_trace(trace, secondary_y=True)
+    #figure = make_subplots(specs=[[{"secondary_y": True}]])
+    #for trace in flux_other_data:
+    #    figure.add_trace(trace, secondary_y=False)
+    #for trace in flux_count_data:
+    #    figure.add_trace(trace, secondary_y=True)
 
-    figure.update_layout(
-        height=600,
-        width=1000,
-        xaxis=dict(
-            title="Wavelength (Å)",
-            showgrid=True,
-            gridcolor="rgba(200,200,200,0.3)",
-            zeroline=False,
-            exponentformat="none",
-            tickformat=".0f"
-        ),
-        yaxis=dict(
-            title="Flux density",
-            tickformat=".2e",
-        ),
-        yaxis2=dict(
-            title="Flux (counts)",
-            overlaying='y',
-            side='right',
-            showgrid=False,
-        ),
-        showlegend=True,
-        margin=dict(t=40, r=80, b=40, l=80),
-        legend=dict(
-            yanchor='top',
-            y=-0.15,
-            xanchor='left',
-            x=0.0,
-            orientation='h',
-        ),
-    )
+    #figure.update_layout(
+    #    height=600,
+    #    width=1000,
+    #    xaxis=dict(
+    #        title="Wavelength (Å)",
+    #        showgrid=True,
+    #        gridcolor="rgba(200,200,200,0.3)",
+    #        zeroline=False,
+    #        exponentformat="none",
+    #        tickformat=".0f"
+    #    ),
+    #    yaxis=dict(
+    #        title="Flux density",
+    #        tickformat=".2e",
+    #    ),
+    #    yaxis2=dict(
+    #        title="Flux (counts)",
+    #        overlaying='y',
+    #        side='right',
+    #        showgrid=False,
+    #    ),
+    #    showlegend=True,
+    #    margin=dict(t=40, r=80, b=40, l=80),
+    #    legend=dict(
+    #        yanchor='top',
+    #        y=-0.15,
+    #        xanchor='left',
+    #        x=0.0,
+    #        orientation='h',
+    #    ),
+    #)
 
     request = context.get('request')
     return {
         'target': target,
-        'plot': offline.plot(figure, output_type='div', show_link=False),
+#        'plot': offline.plot(figure, output_type='div', show_link=False),
+        'spectra_data': json.dumps(spectra_json),
         'request': request
     }

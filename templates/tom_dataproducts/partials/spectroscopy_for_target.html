@@ -2,10 +2,269 @@
   <h4 class="mb-0">Spectroscopy</h4>
   {% if request and request.user and request.user.is_staff %}
     <a href="{% url 'dataproducts:update-reduced-data' %}?target_id={{ target.id }}"
-       class="btn btn-primary"
-       title="Update Targets">Check for new data</a>
+       class="btn btn-primary">
+       Check for new data
+    </a>
   {% endif %}
 </div>
-<div class="light-curve">
-  {{ plot|safe }}
+
+<div class="mb-3">
+
+  <div class="mb-2">
+    <label><strong>Redshift (z):</strong></label>
+    <input type="number"
+           step="0.001"
+           id="redshift-input"
+           value="0.0"
+           class="form-control"
+           style="width:150px;">
+  </div>
+
+  <div class="form-check mb-2">
+    <input class="form-check-input"
+           type="checkbox"
+           id="lines-toggle">
+    <label class="form-check-label">
+      Show emission lines
+    </label>
+  </div>
+
+  <button class="btn btn-sm btn-outline-secondary"
+          onclick="openLineSelector()">
+    Select lines
+  </button>
+
 </div>
+
+<div id="line-modal" style="
+  display:none;
+  position:fixed;
+  top:20%;
+  left:50%;
+  transform:translateX(-50%);
+  background:white;
+  border:1px solid #ccc;
+  padding:15px;
+  z-index:1000;
+  max-height:400px;
+  overflow:auto;
+  box-shadow:0 4px 10px rgba(0,0,0,0.2);
+">
+
+  <b>Select Emission Lines</b>
+
+  <div id="line-checkboxes"></div>
+
+  <div class="mt-2 text-end">
+    <button class="btn btn-sm btn-primary" onclick="applyLineSelection()">OK</button>
+    <button class="btn btn-sm btn-secondary" onclick="closeLineSelector()">Cancel</button>
+  </div>
+</div>
+
+<div id="spectra-plot"></div>
+
+
+<script>
+  const spectraData = {{ spectra_data|safe }};
+</script>
+
+<script>
+
+const emissionLines = [
+  {name: "Lyα", wavelength: 1216},
+  {name: "Lyβ", wavelength: 1026},
+  {name: "Hα", wavelength: 6563},
+  {name: "Hβ", wavelength: 4861},
+  {name: "Hγ", wavelength: 4340},
+  {name: "Hδ", wavelength: 4102},
+  {name: "HeII 1640", wavelength: 1640},
+  {name: "HeII 4686", wavelength: 4686},
+  {name: "HeI 5876", wavelength: 5876},
+  {name: "HeI 6678", wavelength: 6678},
+  {name: "HeI 7065", wavelength: 7065},
+  {name: "[OII]", wavelength: 3727},
+  {name: "[OII] 3729", wavelength: 3729},
+  {name: "[OIII] 4959", wavelength: 4959},
+  {name: "[OIII] 5007", wavelength: 5007},
+  {name: "[OIII] 4363", wavelength: 4363},
+  {name: "[SII] 6716", wavelength: 6716},
+  {name: "[SII] 6731", wavelength: 6731},
+  {name: "MgII 2796", wavelength: 2796},
+  {name: "MgII 2803", wavelength: 2803},
+   {name: "CaII K", wavelength: 3934},
+  {name: "CaII H", wavelength: 3968},
+  {name: "SiII 6355", wavelength: 6355},
+  {name: "OI 6300", wavelength: 6300},
+  {name: "OI 7774", wavelength: 7774},
+];
+
+let selectedLines = ["Hα", "Hβ"];
+
+function openLineSelector() {
+  const container = document.getElementById("line-checkboxes");
+  container.innerHTML = "";
+
+  emissionLines.forEach(line => {
+    const checked = selectedLines.includes(line.name) ? "checked" : "";
+
+    container.innerHTML += `
+      <div>
+        <input type="checkbox" value="${line.name}" ${checked}>
+        ${line.name} (${line.wavelength} Å)
+      </div>
+    `;
+  });
+
+  document.getElementById("line-modal").style.display = "block";
+}
+
+function closeLineSelector() {
+  document.getElementById("line-modal").style.display = "none";
+}
+
+function applyLineSelection() {
+  const checkboxes = document.querySelectorAll("#line-checkboxes input");
+
+  selectedLines = [];
+  checkboxes.forEach(cb => {
+    if (cb.checked) selectedLines.push(cb.value);
+  });
+
+  closeLineSelector();
+  updateSpectraPlot();
+}
+
+window.onclick = function(event) {
+  const modal = document.getElementById("line-modal");
+  if (event.target === modal) {
+    closeLineSelector();
+  }
+};
+
+function updateSpectraPlot() {
+
+  const z = parseFloat(document.getElementById("redshift-input").value) || 0;
+  const showLines = document.getElementById("lines-toggle").checked;
+
+  let traces = [];
+  let shapes = [];
+  let annotations = [];
+
+  spectraData.forEach(spec => {
+
+    const shiftedX = spec.wavelength.map(w => w / (1 + z));
+
+    let trace = {
+      x: shiftedX,
+      y: spec.flux,
+      mode: 'lines',
+      name: spec.label,
+      hovertemplate: 'λ=%{x:.2f}<br>flux=%{y:.4e}<extra>%{fullData.name}</extra>'
+    };
+
+    if (spec.unit === 'ct') {
+      trace.yaxis = 'y2';
+      trace.name += " (counts)";
+    }
+
+    traces.push(trace);
+  });
+
+
+  if (showLines) {
+    emissionLines.forEach(line => {
+      if (!selectedLines.includes(line.name)) return;
+      const shifted = line.wavelength;
+
+      shapes.push({
+        type: 'line',
+        x0: shifted,
+        x1: shifted,
+        y0: 0,
+        y1: 1,
+        yref: 'paper',
+        line: {
+          dash: 'dot',
+          width: 1,
+          color: 'rgba(150,150,150,0.6)'
+        }
+      });
+
+      annotations.push({
+        x: shifted,
+        y: 1,
+        yref: 'paper',
+        text: line.name,
+        showarrow: false,
+        yanchor: 'bottom',
+        font: {size: 10}
+      });
+    });
+  }
+
+
+  const layout = {
+  height: 600,
+  width: 1000,
+
+  showlegend: true,
+
+  margin: {
+    t: 40,
+    r: 80,
+    b: 40,
+    l: 80
+  },
+
+  legend: {
+    yanchor: 'top',
+    y: -0.25,
+    xanchor: 'left',
+    x: 0.0,
+    orientation: 'h'
+  },
+
+  xaxis: {
+    title: "Wavelength (Å)",
+    showgrid: false,  
+    zeroline: false,
+    exponentformat: "none",
+    tickformat: ".0f"
+  },
+
+  yaxis: {
+    title: "Flux density",
+    tickformat: ".2e",
+    showgrid: false 
+  },
+
+  yaxis2: {
+    title: "Flux (counts)",
+    overlaying: 'y',
+    side: 'right',
+    tickformat: ".2e",
+    showgrid: false   
+  },
+
+  shapes: shapes,
+  annotations: annotations
+};
+
+  Plotly.react('spectra-plot', traces, layout, {responsive: true});
+  Plotly.relayout('spectra-plot', {
+  shapes: layout.shapes,
+  annotations: layout.annotations });
+}
+
+
+document.addEventListener("DOMContentLoaded", function() {
+
+  updateSpectraPlot();
+
+  document.getElementById("redshift-input")
+    .addEventListener("input", updateSpectraPlot);
+
+  document.getElementById("lines-toggle")
+    .addEventListener("change", updateSpectraPlot);
+});
+</script>
