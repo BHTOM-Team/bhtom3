@@ -158,7 +158,7 @@ class AlerceDataService(DataService):
         for datum in lc_data:
             mag = datum['magpsf_corr']
             mag_err = datum['sigmapsf_corr']
-            if mag is None or mag_err is None or not mag or not mag_err:
+            if mag is None or mag_err is None or not mag or not mag_err or mag_err>2.0:
                 continue
             mjd = datum['mjd']
             output.append({
