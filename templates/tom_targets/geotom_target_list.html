@@ -608,17 +608,6 @@
       liveToggleButton.title = liveMode ? 'Pause live updates' : 'Resume live updates from current UTC';
     }
 
-    function isCurrentUtcValue(value) {
-      if (!value) {
-        return true;
-      }
-      var parsed = new Date(value + 'Z');
-      if (Number.isNaN(parsed.getTime())) {
-        return false;
-      }
-      return Math.abs(Date.now() - parsed.getTime()) <= 1500;
-    }
-
     function setLiveMode(nextLiveMode) {
       liveMode = nextLiveMode;
       generatedTimeElement.setAttribute('data-live-mode', nextLiveMode ? '1' : '0');
@@ -734,14 +723,9 @@
     }
 
     function syncLiveStateWithInput() {
-      if (isCurrentUtcValue(timeInput.value)) {
-        if (!liveMode) {
-          setLiveMode(true);
-          pollLiveData();
-        }
-        return;
+      if (liveMode) {
+        setLiveMode(false);
       }
-      setLiveMode(false);
     }
 
     liveToggleButton.addEventListener('click', function() {
