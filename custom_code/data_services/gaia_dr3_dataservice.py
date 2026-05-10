@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 AIP_TAP_URL = 'https://gaia.aip.de/tap'
 GAIA_DR3_RELEASE_TIMESTAMP = datetime(2022, 6, 13, tzinfo=timezone.utc)
 GAIA_XP_WAVELENGTH_NM = [336.0 + (2.0 * idx) for idx in range(343)]
+PREFERRED_GAIA_VARIABILITY_CLASSIFIER = 'n_transits:5+'
 
 
 def _to_float(value):
@@ -120,9 +121,31 @@ def _build_source_query(where_clause, extra_columns=''):
         f'SELECT TOP 1 {columns} '
         'FROM gaiadr3.gaia_source AS g '
         'LEFT OUTER JOIN gaiadr3.vari_classifier_result AS vcr '
-        "ON g.source_id = vcr.source_id AND vcr.classifier_name = 'n_transits:5+' "
+        f"ON g.source_id = vcr.source_id AND vcr.classifier_name = '{PREFERRED_GAIA_VARIABILITY_CLASSIFIER}' "
         f'WHERE {where_clause}'
     )
+
+
+def _build_variability_query(source_id):
+    return (
+        'SELECT source_id, best_class_name, classifier_name '
+        'FROM gaiadr3.vari_classifier_result '
+        f'WHERE source_id = {int(source_id)}'
+    )
+
+
+def _select_variability_type(rows):
+    selected = None
+    for row in rows:
+        best_class_name = _to_text(row.get('best_class_name', row.get('BEST_CLASS_NAME')))
+        classifier_name = _to_text(row.get('classifier_name', row.get('CLASSIFIER_NAME')))
+        if not best_class_name:
+            continue
+        if selected is None or classifier_name == PREFERRED_GAIA_VARIABILITY_CLASSIFIER:
+            selected = best_class_name
+            if classifier_name == PREFERRED_GAIA_VARIABILITY_CLASSIFIER:
+                break
+    return selected
 
 
 def _build_aip_epoch_query(source_id):
@@ -259,6 +282,9 @@ class GaiaDR3DataService(DataService):
             if source_row is None:
                 source_row = self._query_source_aip(query)
                 source_origin = 'aip' if source_row else None
+
+        if source_row:
+            self._ensure_variability_type(source_row, source_origin)
 
         phot_rows = []
         spectra = []
@@ -403,6 +429,46 @@ class GaiaDR3DataService(DataService):
         except Exception as exc:
             logger.warning('Gaia DR3 AIP source query failed: %s', exc)
         return None
+
+    def _query_variability_esa(self, source_id):
+        try:
+            result = Gaia.launch_job(_build_variability_query(source_id)).get_results()
+            return [_row_to_dict(row) for row in result]
+        except Exception as exc:
+            logger.warning('Gaia DR3 ESA variability query failed for source %s: %s', source_id, exc)
+        return []
+
+    def _query_variability_aip(self, source_id):
+        try:
+            result = pyvo.dal.TAPService(AIP_TAP_URL).run_sync(
+                _build_variability_query(source_id), language='ADQL'
+            ).to_table()
+            return [_row_to_dict(row) for row in result]
+        except Exception as exc:
+            logger.warning('Gaia DR3 AIP variability query failed for source %s: %s', source_id, exc)
+        return []
+
+    def _ensure_variability_type(self, source_row, source_origin):
+        if _to_text(source_row.get('gaia_variability_type', source_row.get('GAIA_VARIABILITY_TYPE'))):
+            return
+
+        source_id = source_row.get('SOURCE_ID', source_row.get('source_id'))
+        if source_id in (None, ''):
+            return
+
+        variability_rows = []
+        if source_origin == 'aip':
+            variability_rows = self._query_variability_aip(source_id)
+            if not variability_rows:
+                variability_rows = self._query_variability_esa(source_id)
+        else:
+            variability_rows = self._query_variability_esa(source_id)
+            if not variability_rows:
+                variability_rows = self._query_variability_aip(source_id)
+
+        variability_type = _select_variability_type(variability_rows)
+        if variability_type:
+            source_row['gaia_variability_type'] = variability_type
 
     def _fetch_epoch_photometry_esa(self, source_id):
         try:

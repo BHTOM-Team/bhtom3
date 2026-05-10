@@ -8,6 +8,7 @@ from tom_catalogs.harvester import AbstractHarvester
 
 
 logger = logging.getLogger(__name__)
+PREFERRED_GAIA_VARIABILITY_CLASSIFIER = 'n_transits:5+'
 
 
 def _row_to_dict(row):
@@ -61,9 +62,62 @@ def _build_source_query(where_clause, extra_columns=''):
         f'SELECT TOP 1 {columns} '
         'FROM gaiadr3.gaia_source AS g '
         'LEFT OUTER JOIN gaiadr3.vari_classifier_result AS vcr '
-        "ON g.source_id = vcr.source_id AND vcr.classifier_name = 'n_transits:5+' "
+        f"ON g.source_id = vcr.source_id AND vcr.classifier_name = '{PREFERRED_GAIA_VARIABILITY_CLASSIFIER}' "
         f'WHERE {where_clause}'
     )
+
+
+def _build_variability_query(source_ids):
+    normalized_ids = [str(source_id).strip() for source_id in source_ids if str(source_id).strip().isdigit()]
+    if not normalized_ids:
+        return None
+    return (
+        'SELECT source_id, best_class_name, classifier_name '
+        'FROM gaiadr3.vari_classifier_result '
+        f"WHERE source_id IN ({', '.join(normalized_ids)}) "
+        'ORDER BY source_id ASC'
+    )
+
+
+def _select_variability_by_source(rows):
+    selected = {}
+    for row in rows:
+        source_id = str(row.get('source_id') or row.get('SOURCE_ID') or '').strip()
+        best_class_name = row.get('best_class_name') or row.get('BEST_CLASS_NAME')
+        classifier_name = row.get('classifier_name') or row.get('CLASSIFIER_NAME')
+        if not source_id or best_class_name in (None, ''):
+            continue
+        current = selected.get(source_id)
+        if current is None or classifier_name == PREFERRED_GAIA_VARIABILITY_CLASSIFIER:
+            selected[source_id] = str(best_class_name).strip()
+    return selected
+
+
+def _enrich_missing_variability_types(rows):
+    missing_source_ids = [
+        str(row.get('source_id') or row.get('SOURCE_ID') or '').strip()
+        for row in rows
+        if row.get('gaia_variability_type') in (None, '')
+    ]
+    query = _build_variability_query(missing_source_ids)
+    if not query:
+        return rows
+
+    try:
+        result = Gaia.launch_job(query).get_results()
+    except Exception as exc:
+        logger.warning('Error when backfilling Gaia DR3 variability class: %s', exc)
+        return rows
+
+    variability_map = _select_variability_by_source([_row_to_dict(row) for row in result])
+    for row in rows:
+        if row.get('gaia_variability_type') not in (None, ''):
+            continue
+        source_id = str(row.get('source_id') or row.get('SOURCE_ID') or '').strip()
+        variability_type = variability_map.get(source_id)
+        if variability_type:
+            row['gaia_variability_type'] = variability_type
+    return rows
 
 
 def search_term_in_gaia(term):
@@ -82,7 +136,7 @@ def search_term_in_gaia(term):
 
     if len(result) == 0:
         return {}
-    return _row_to_dict(result[0])
+    return _enrich_missing_variability_types([_row_to_dict(result[0])])[0]
 
 
 def cone_search(coordinates, radius):
@@ -102,7 +156,7 @@ def cone_search(coordinates, radius):
         result = Gaia.launch_job(query).get_results()
         if len(result) == 0:
             return {}
-        return _row_to_dict(result[0])
+        return _enrich_missing_variability_types([_row_to_dict(result[0])])[0]
     except Exception as exc:
         logger.error('Error when running Gaia DR3 cone search: %s', exc)
         return {}
@@ -127,7 +181,7 @@ def cone_search_all(coordinates, radius, limit=100):
             'ORDER BY dist ASC'
         )
         result = Gaia.launch_job(query).get_results()
-        return [_row_to_dict(row) for row in result]
+        return _enrich_missing_variability_types([_row_to_dict(row) for row in result])
     except Exception as exc:
         logger.error('Error when running Gaia DR3 multi cone search: %s', exc)
         return []

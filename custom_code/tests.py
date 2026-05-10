@@ -39,6 +39,7 @@ from custom_code.data_services.twomass_dataservice import TwoMASSDataService
 from custom_code.bhtom_catalogs.harvesters.simbad import target_from_result
 from custom_code.bhtom_catalogs.harvesters.crts import CRTSHarvester
 from custom_code.bhtom_catalogs.harvesters.gaia_alerts import GaiaAlertsHarvester
+from custom_code.bhtom_catalogs.harvesters import gaia_dr3 as gaia_dr3_harvester
 from custom_code.bhtom_catalogs.harvesters.gaia_dr3 import GaiaDR3Harvester
 from custom_code.bhtom_catalogs.harvesters.exoclock import ExoClockHarvester
 from custom_code.bhtom_catalogs.harvesters.kmt import KMTHarvester
@@ -721,6 +722,26 @@ class GaiaDR3DataServiceTests(TestCase):
         self.assertEqual(result['gaia_variability_type'], 'RR')
         self.assertEqual(result['target_updates']['gaia_variability_type'], 'RR')
 
+    def test_query_service_backfills_variability_type_when_preferred_classifier_missing(self):
+        service = GaiaDR3DataService()
+        source_row = {
+            'source_id': '123',
+            'ra': 12.3,
+            'dec': -45.6,
+            'pmra': 4.5,
+            'pmdec': -6.7,
+            'parallax': 1.2,
+            'gaia_variability_type': None,
+        }
+
+        with patch.object(service, '_query_source_esa', return_value=source_row.copy()), \
+             patch.object(service, '_query_variability_esa', return_value=[
+                 {'source_id': '123', 'best_class_name': 'EA', 'classifier_name': 'general'},
+             ]):
+            result = service.query_service({'source_id': '123', 'include_photometry': False, 'include_spectroscopy': False})
+
+        self.assertEqual(result['source']['gaia_variability_type'], 'EA')
+
 
 class AliasHandlingTests(TestCase):
     def test_alias_formset_allows_alias_matching_primary_target_name(self):
@@ -985,6 +1006,16 @@ class SimbadHarvesterTests(TestCase):
         target = gaia_dr3.to_target()
 
         self.assertEqual(target.gaia_variability_type, 'RR')
+
+    def test_gaia_dr3_variability_backfill_prefers_fallback_classifier(self):
+        variability = gaia_dr3_harvester._select_variability_by_source([
+            {'source_id': '123', 'best_class_name': 'EA', 'classifier_name': 'general'},
+            {'source_id': '123', 'best_class_name': 'RR', 'classifier_name': 'n_transits:5+'},
+            {'source_id': '456', 'best_class_name': 'CEP', 'classifier_name': 'general'},
+        ])
+
+        self.assertEqual(variability['123'], 'RR')
+        self.assertEqual(variability['456'], 'CEP')
 
     def test_exoclock_harvester_maps_target_and_host_alias(self):
         exoclock = ExoClockHarvester()
