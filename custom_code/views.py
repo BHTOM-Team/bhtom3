@@ -5,7 +5,6 @@ import re
 import requests
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
-from uuid import uuid4
 
 from astroquery.jplhorizons import Horizons
 from astroquery.mpc import MPC
@@ -53,8 +52,6 @@ from custom_code.forms import (
     BhtomSiderealTargetUpdateForm,
     BhtomTargetNamesFormset,
     GeoTomAddSatForm,
-    PublicUploadAccessForm,
-    PublicFitsUploadForm,
 )
 from custom_code.models import GeoTarget, TransitEphemeris
 from custom_code.geosat import (
@@ -71,15 +68,11 @@ from custom_code.bhtom_catalogs.harvesters import gaia_dr3 as gaia_dr3_harvester
 from custom_code.bhtom_catalogs.harvesters import ogle_ews as ogle_ews_harvester
 from custom_code.bhtom_catalogs.harvesters import simbad as simbad_harvester
 from custom_code.sun_separation import get_live_target_values
-from tom_dataproducts.views import DataProductUploadView
 
 
 logger = logging.getLogger(__name__)
 CATALOG_RESULTS_SESSION_KEY = 'catalog_query_results'
 CATALOG_FORM_SESSION_KEY = 'catalog_query_form_data'
-PUBLIC_UPLOAD_CACHE_TIMEOUT = 24 * 60 * 60
-PUBLIC_UPLOAD_PAGE_SIZE = 200
-PUBLIC_UPLOAD_SESSION_KEY = 'public_upload_access_granted'
 TARGET_LIST_OBSERVER_SESSION_KEY = 'target_list_observer'
 LIST_OBSERVER_PRESETS = {
     'warsaw': {'name': 'Warsaw', 'lat_deg': 52.2297, 'lon_deg': 21.0122, 'elevation_m': 100.0},
@@ -337,232 +330,6 @@ def _store_list_observer(request, observer):
         'lon': observer.get('input_lon', ''),
         'elev': observer.get('input_elev', ''),
     }
-
-
-def _bhtom2_api_configured():
-    return bool(getattr(settings, 'BHTOM2_API_BASE_URL', '').strip() and getattr(settings, 'BHTOM2_API_TOKEN', '').strip())
-
-
-def _public_upload_password_enabled():
-    return bool(getattr(settings, 'PUBLIC_UPLOAD_PASSWORD', ''))
-
-
-def _public_upload_has_access(request):
-    if not _public_upload_password_enabled():
-        return True
-    return bool(request.session.get(PUBLIC_UPLOAD_SESSION_KEY))
-
-
-def _bhtom2_api_headers(token=''):
-    auth_token = str(token or getattr(settings, 'BHTOM2_API_TOKEN', '')).strip()
-    return {
-        'Authorization': f'Token {auth_token}',
-        'Content-Type': 'application/json',
-    }
-
-
-def _bhtom2_api_url(path):
-    return f"{settings.BHTOM2_API_BASE_URL.rstrip('/')}/{path.lstrip('/')}"
-
-
-def _bhtom2_response_records(payload):
-    if isinstance(payload, list):
-        return payload
-    if not isinstance(payload, dict):
-        return []
-
-    for key in ('results', 'data', 'items', 'rows', 'observatories', 'targets', 'users'):
-        value = payload.get(key)
-        if isinstance(value, list):
-            return value
-    return []
-
-
-def _load_bhtom2_catalog(cache_key, endpoint, normalizer, token=''):
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    if not _bhtom2_api_configured():
-        raise RuntimeError('BHTOM2 API is not configured.')
-
-    catalog = []
-    page = 1
-    seen_pages = set()
-    timeout = getattr(settings, 'BHTOM2_API_TIMEOUT', 30)
-
-    while page not in seen_pages:
-        seen_pages.add(page)
-        response = requests.post(
-            _bhtom2_api_url(endpoint),
-            json={'page': page},
-            headers=_bhtom2_api_headers(token=token),
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        rows = _bhtom2_response_records(response.json())
-        if not rows:
-            break
-        for row in rows:
-            normalized = normalizer(row)
-            if isinstance(normalized, (list, tuple)):
-                catalog.extend(normalized)
-            else:
-                catalog.append(normalized)
-        if len(rows) < PUBLIC_UPLOAD_PAGE_SIZE:
-            break
-        page += 1
-
-    catalog = [row for row in catalog if row]
-    if cache_key == 'public_upload_observatories':
-        deduped_catalog = []
-        seen_values = set()
-        for row in catalog:
-            value_key = row['value'].lower()
-            if value_key in seen_values:
-                continue
-            seen_values.add(value_key)
-            deduped_catalog.append(row)
-        catalog = deduped_catalog
-    cache.set(cache_key, catalog, PUBLIC_UPLOAD_CACHE_TIMEOUT)
-    return catalog
-
-
-def _normalize_public_upload_target(row):
-    name = str(row.get('name') or '').strip()
-    if not name:
-        return None
-    return {
-        'label': name,
-        'value': name,
-        'search': name.lower(),
-    }
-
-
-def _normalize_public_upload_observer(row):
-    username = str(row.get('username') or '').strip()
-    if not username:
-        return None
-    first_name = str(row.get('first_name') or '').strip()
-    last_name = str(row.get('last_name') or '').strip()
-    full_name = ' '.join(part for part in (first_name, last_name) if part).strip()
-    if full_name:
-        label = f'{full_name} ({username})'
-    else:
-        label = username
-    search_terms = [username, full_name, str(row.get('email') or '').strip()]
-    return {
-        'label': label,
-        'value': username,
-        'search': ' '.join(term.lower() for term in search_terms if term),
-    }
-
-
-def _public_upload_observatory_name(row):
-    return str(
-        row.get('obsName')
-        or row.get('observatory')
-        or row.get('observatory_name')
-        or row.get('name')
-        or ''
-    ).strip()
-
-
-def _public_upload_camera_entries(row):
-    camera_entries = []
-    for key in ('cameras', 'camera_list', 'cameraMatrix', 'camera_matrix'):
-        value = row.get(key)
-        if isinstance(value, list):
-            camera_entries.extend(item for item in value if isinstance(item, dict))
-
-    direct_camera = {
-        'oname': row.get('oname') or row.get('prefix'),
-        'camera': row.get('camera') or row.get('camera_name') or row.get('cameraName'),
-    }
-    if direct_camera['oname'] or direct_camera['camera']:
-        camera_entries.append(direct_camera)
-
-    return camera_entries
-
-
-def _normalize_public_upload_observatory(row):
-    observatory_name = _public_upload_observatory_name(row)
-    camera_entries = _public_upload_camera_entries(row)
-    normalized = []
-
-    if not camera_entries:
-        oname = str(row.get('oname') or row.get('prefix') or '').strip()
-        if not oname:
-            return None
-        label = f'{observatory_name} ({oname})' if observatory_name else oname
-        return {
-            'label': label,
-            'value': oname,
-            'search': ' '.join(term.lower() for term in (observatory_name, oname) if term),
-        }
-
-    for camera in camera_entries:
-        oname = str(camera.get('oname') or camera.get('prefix') or '').strip()
-        camera_name = str(camera.get('camera') or camera.get('camera_name') or camera.get('name') or '').strip()
-        if not oname:
-            continue
-        label_name = observatory_name or camera_name
-        label = f'{label_name} ({oname})' if label_name else oname
-        search_terms = [observatory_name, camera_name, oname]
-        normalized.append({
-            'label': label,
-            'value': oname,
-            'search': ' '.join(term.lower() for term in search_terms if term),
-        })
-
-    return normalized or None
-
-
-def _public_upload_target_choices():
-    return _load_bhtom2_catalog(
-        'public_upload_targets',
-        'targets/getTargetList/',
-        _normalize_public_upload_target,
-    )
-
-
-def _public_upload_observer_choices():
-    return _load_bhtom2_catalog(
-        'public_upload_observers',
-        'common/api/users/',
-        _normalize_public_upload_observer,
-    )
-
-
-def _public_upload_observatory_choices():
-    return _load_bhtom2_catalog(
-        'public_upload_observatories',
-        'observatory/getObservatoryList/',
-        _normalize_public_upload_observatory,
-    )
-
-
-def _filter_public_upload_choices(choices, query):
-    needle = str(query or '').strip().lower()
-    if not needle:
-        return choices[:20]
-    return [choice for choice in choices if needle in choice['search']][:20]
-
-
-def _normalize_public_upload_input(value):
-    return str(value or '').strip()
-
-
-def _match_public_upload_choice(choices, submitted_value):
-    needle = str(submitted_value or '').strip().lower()
-    if not needle:
-        return None
-    for choice in choices:
-        if choice['value'].lower() == needle:
-            return choice['value']
-        if choice['label'].lower() == needle:
-            return choice['value']
-    return None
 
 
 class BhtomPallasBaseMixin:
@@ -1865,226 +1632,6 @@ class BhtomTargetDetailView(TargetDetailView):
         return context
 
 
-class Bhtom2DataProductUploadView(DataProductUploadView):
-    def form_valid(self, form):
-        dp_type = form.cleaned_data['data_product_type']
-        if dp_type != 'fits_file':
-            return super().form_valid(form)
-
-        target = form.cleaned_data['target']
-        if not target:
-            observation_record = form.cleaned_data['observation_record']
-            target = observation_record.target
-
-        upload_service_url = getattr(settings, 'BHTOM2_UPLOAD_SERVICE_URL', '').rstrip('/')
-        if not upload_service_url:
-            messages.error(self.request, 'BHTOM2 upload service URL is not configured.')
-            return redirect(form.cleaned_data.get('referrer', '/'))
-
-        bhtom2_target_name = (self.request.POST.get('bhtom2_target_name') or target.name).strip()
-        observatory_oname = (self.request.POST.get('observatory_oname') or '').strip()
-        bhtom2_user_id = (self.request.POST.get('bhtom2_user_id') or '').strip()
-        bhtom2_token = (self.request.POST.get('bhtom2_token') or '').strip()
-        calibration_filter = (self.request.POST.get('calibration_filter') or 'GaiaSP/any').strip()
-        dry_run = self.request.POST.get('bhtom2_dry_run') == 'on'
-        comment = (self.request.POST.get('bhtom2_comment') or '').strip()
-        fits_file = self.request.FILES.get('files')
-
-        if not bhtom2_target_name:
-            messages.error(self.request, 'Target is required for FITS upload.')
-            return redirect(form.cleaned_data.get('referrer', '/'))
-        if not fits_file:
-            messages.error(self.request, 'Choose a FITS file to upload.')
-            return redirect(form.cleaned_data.get('referrer', '/'))
-        if not observatory_oname:
-            messages.error(self.request, 'Observatory/Camera ONAME is required for FITS upload.')
-            return redirect(form.cleaned_data.get('referrer', '/'))
-        if not bhtom2_user_id:
-            messages.error(self.request, 'BHTOM2 user ID is required for FITS upload.')
-            return redirect(form.cleaned_data.get('referrer', '/'))
-        if not bhtom2_token:
-            messages.error(self.request, 'BHTOM2 token is required for FITS upload.')
-            return redirect(form.cleaned_data.get('referrer', '/'))
-
-        post_data = {
-            'target': bhtom2_target_name,
-            'data_product_type': 'fits_file',
-            'observatory': observatory_oname,
-            'filter': calibration_filter,
-            'comment': comment,
-            'dry_run': dry_run,
-            'no_plot': False,
-        }
-        headers = {
-            'Authorization': f'Token {bhtom2_token}',
-            'Correlation-ID': str(uuid4()),
-        }
-        files = {'file_0': (fits_file.name, fits_file, fits_file.content_type or 'application/octet-stream')}
-
-        try:
-            response = requests.post(
-                f'{upload_service_url}/upload/',
-                data=post_data,
-                files=files,
-                headers=headers,
-                timeout=120,
-            )
-        except requests.RequestException as exc:
-            logger.exception('BHTOM2 FITS upload failed for target %s', target.pk)
-            messages.error(self.request, f'Unable to reach the BHTOM2 upload service: {exc}')
-            return redirect(form.cleaned_data.get('referrer', '/'))
-
-        if response.status_code == 201:
-            messages.success(
-                self.request,
-                f'FITS upload sent to BHTOM2 for target {target.name} using user ID {bhtom2_user_id}.'
-            )
-            return redirect(form.cleaned_data.get('referrer', '/'))
-
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {}
-
-        error_message = payload.get('detail') or payload.get('non_field_errors') or response.text or 'Unknown error.'
-        if isinstance(error_message, list):
-            error_message = '; '.join(str(item) for item in error_message)
-        messages.error(self.request, f'BHTOM2 upload rejected the FITS file: {error_message}')
-        return redirect(form.cleaned_data.get('referrer', '/'))
-
-
-class PublicUploadChoicesView(View):
-    catalog_loader = None
-
-    def get(self, request, *args, **kwargs):
-        if not _public_upload_has_access(request):
-            return JsonResponse({'error': 'Public upload password required.'}, status=403)
-        if self.catalog_loader is None:
-            return JsonResponse({'error': 'Unsupported catalog.'}, status=404)
-        try:
-            choices = self.catalog_loader()
-        except requests.RequestException as exc:
-            logger.exception('Unable to load public upload choices')
-            return JsonResponse({'error': f'Unable to read BHTOM2 data: {exc}'}, status=502)
-        except RuntimeError as exc:
-            return JsonResponse({'error': str(exc)}, status=503)
-
-        return JsonResponse({'results': _filter_public_upload_choices(choices, request.GET.get('q'))})
-
-
-class PublicUploadTargetsView(PublicUploadChoicesView):
-    catalog_loader = staticmethod(_public_upload_target_choices)
-
-
-class PublicUploadObserversView(PublicUploadChoicesView):
-    catalog_loader = staticmethod(_public_upload_observer_choices)
-
-
-class PublicUploadObservatoriesView(PublicUploadChoicesView):
-    catalog_loader = staticmethod(_public_upload_observatory_choices)
-
-
-class PublicUploadView(FormView):
-    form_class = PublicFitsUploadForm
-    template_name = 'public_upload.html'
-    success_url = reverse_lazy('public-upload')
-
-    def get(self, request, *args, **kwargs):
-        if _public_upload_has_access(request):
-            return super().get(request, *args, **kwargs)
-        access_form = PublicUploadAccessForm()
-        return render(request, self.template_name, self.get_context_data(form=self.get_form(), access_form=access_form))
-
-    def post(self, request, *args, **kwargs):
-        if _public_upload_has_access(request):
-            return super().post(request, *args, **kwargs)
-
-        access_form = PublicUploadAccessForm(request.POST)
-        if access_form.is_valid():
-            expected_password = getattr(settings, 'PUBLIC_UPLOAD_PASSWORD', '')
-            if access_form.cleaned_data['password'] == expected_password:
-                request.session[PUBLIC_UPLOAD_SESSION_KEY] = True
-                messages.success(request, 'Public upload unlocked for this session.')
-                return redirect('public-upload')
-            access_form.add_error('password', 'Incorrect password.')
-        return render(request, self.template_name, self.get_context_data(form=self.get_form(), access_form=access_form))
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context.update({
-            'public_upload_targets_url': reverse('public-upload-targets'),
-            'public_upload_observers_url': reverse('public-upload-observers'),
-            'public_upload_observatories_url': reverse('public-upload-observatories'),
-            'bhtom2_api_ready': _bhtom2_api_configured(),
-            'public_upload_requires_password': _public_upload_password_enabled(),
-            'public_upload_has_access': _public_upload_has_access(self.request),
-            'access_form': kwargs.get('access_form') or PublicUploadAccessForm(),
-        })
-        return context
-
-    def form_valid(self, form):
-        upload_service_url = getattr(settings, 'BHTOM2_UPLOAD_SERVICE_URL', '').rstrip('/')
-        if not upload_service_url:
-            form.add_error(None, 'BHTOM2 upload service URL is not configured.')
-            return self.form_invalid(form)
-
-        target = _normalize_public_upload_input(form.cleaned_data['target'])
-        observer = _normalize_public_upload_input(form.cleaned_data['observer'])
-        observatory = _normalize_public_upload_input(form.cleaned_data['observatory'])
-        if not target:
-            form.add_error('target', 'Target is required.')
-        if not observer:
-            form.add_error('observer', 'Observer is required.')
-        if not observatory:
-            form.add_error('observatory', 'Observatory ONAME is required.')
-        if form.errors:
-            return self.form_invalid(form)
-
-        fits_file = form.cleaned_data['fits_file']
-        post_data = {
-            'target': target,
-            'data_product_type': 'fits_file',
-            'observatory': observatory,
-            'observers': observer,
-            'filter': form.cleaned_data['calibration_filter'],
-            'comment': form.cleaned_data['comment'],
-            'no_plot': False,
-        }
-        headers = {
-            'Authorization': f"Token {form.cleaned_data['token'].strip()}",
-            'Correlation-ID': str(uuid4()),
-        }
-        files = {'file_0': (fits_file.name, fits_file, fits_file.content_type or 'application/octet-stream')}
-
-        try:
-            response = requests.post(
-                f'{upload_service_url}/upload/',
-                data=post_data,
-                files=files,
-                headers=headers,
-                timeout=120,
-            )
-        except requests.RequestException as exc:
-            logger.exception('Public FITS upload failed for target %s', target)
-            form.add_error(None, f'Unable to reach the BHTOM2 upload service: {exc}')
-            return self.form_invalid(form)
-
-        if response.status_code == 201:
-            messages.success(self.request, f'FITS upload sent to BHTOM2 for target {target}.')
-            return super().form_valid(form)
-
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {}
-
-        error_message = payload.get('detail') or payload.get('non_field_errors') or response.text or 'Unknown error.'
-        if isinstance(error_message, list):
-            error_message = '; '.join(str(item) for item in error_message)
-        form.add_error(None, f'BHTOM2 upload rejected the FITS file: {error_message}')
-        return self.form_invalid(form)
-
-
 class BhtomCatalogQueryView(FormView):
     form_class = BhtomCatalogQueryForm
     template_name = 'tom_catalogs/query_form.html'
@@ -2154,6 +1701,18 @@ class BhtomCreateTargetFromQueryView(CreateTargetFromQueryView):
     @staticmethod
     def _build_create_url(target, cached_result):
         target_params = target.as_dict()
+        for target_key, cache_keys in (
+            ('pm_ra', ('pm_ra', 'pmra')),
+            ('pm_dec', ('pm_dec', 'pmdec')),
+        ):
+            value = getattr(target, target_key, None)
+            if value in (None, ''):
+                for cache_key in cache_keys:
+                    value = cached_result.get(cache_key)
+                    if value not in (None, ''):
+                        break
+            if value not in (None, ''):
+                target_params[target_key] = value
         parallax = getattr(target, 'parallax', None)
         if parallax in (None, ''):
             parallax = cached_result.get('parallax')

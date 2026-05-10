@@ -101,7 +101,7 @@ def bhtom_target_data(context, target):
             'error_label': 'Proper Motion Dec error (mas/yr)',
         },
         {
-            'label': 'Variability Type',
+            'label': 'Variability class',
             'value': getattr(target, 'gaia_variability_type', None),
             'error': None,
             'numeric': False,

@@ -37,7 +37,7 @@ def upload_dataproduct(context, obj):
             form.fields['groups'].queryset = Group.objects.all()
         else:
             form.fields['groups'].queryset = user.groups.all()
-    return {'data_product_form': form, 'bhtom3_user_id': str(user.username)}
+    return {'data_product_form': form}
 
 
 # Color map to be used in all plots.

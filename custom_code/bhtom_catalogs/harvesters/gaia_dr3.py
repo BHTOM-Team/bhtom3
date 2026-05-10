@@ -50,6 +50,22 @@ def _build_box_prefilter(ra_deg, dec_deg, radius_deg):
     return f'({ra_clause}) AND dec BETWEEN {dec_min} AND {dec_max}'
 
 
+def _build_source_query(where_clause, extra_columns=''):
+    columns = (
+        'g.source_id, g.ra, g.dec, g.parallax, g.pmra, g.pmdec, g.has_xp_sampled, '
+        'vcr.best_class_name AS gaia_variability_type'
+    )
+    if extra_columns:
+        columns = f'{columns}, {extra_columns}'
+    return (
+        f'SELECT TOP 1 {columns} '
+        'FROM gaiadr3.gaia_source AS g '
+        'LEFT OUTER JOIN gaiadr3.vari_classifier_result AS vcr '
+        "ON g.source_id = vcr.source_id AND vcr.classifier_name = 'n_transits:5+' "
+        f'WHERE {where_clause}'
+    )
+
+
 def search_term_in_gaia(term):
     term_str = str(term).strip()
     if not term_str.isdigit():
@@ -57,11 +73,7 @@ def search_term_in_gaia(term):
         return {}
 
     try:
-        query = (
-            'SELECT TOP 1 source_id, ra, dec, parallax, pmra, pmdec, has_xp_sampled '
-            'FROM gaiadr3.gaia_source '
-            f'WHERE source_id = {term_str}'
-        )
+        query = _build_source_query(f'g.source_id = {term_str}')
         job = Gaia.launch_job(query)
         result = job.get_results()
     except Exception as exc:
@@ -80,12 +92,12 @@ def cone_search(coordinates, radius):
         radius_deg = float(radius.deg)
         box_prefilter = _build_box_prefilter(ra_deg, dec_deg, radius_deg)
         query = (
-            'SELECT TOP 1 source_id, ra, dec, parallax, pmra, pmdec, has_xp_sampled, '
-            f'       DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) AS dist '
-            'FROM gaiadr3.gaia_source '
-            f'WHERE {box_prefilter} '
-            f'  AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) <= {radius_deg} '
-            'ORDER BY dist ASC'
+            _build_source_query(
+                f'{box_prefilter} '
+                f'AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) <= {radius_deg}',
+                f'DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) AS dist',
+            )
+            + ' ORDER BY dist ASC'
         )
         result = Gaia.launch_job(query).get_results()
         if len(result) == 0:
@@ -103,11 +115,15 @@ def cone_search_all(coordinates, radius, limit=100):
         radius_deg = float(radius.deg)
         box_prefilter = _build_box_prefilter(ra_deg, dec_deg, radius_deg)
         query = (
-            f'SELECT TOP {int(limit)} source_id, ra, dec, parallax, pmra, pmdec, has_xp_sampled, '
-            f'       DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) AS dist '
-            'FROM gaiadr3.gaia_source '
+            f'SELECT TOP {int(limit)} '
+            'g.source_id, g.ra, g.dec, g.parallax, g.pmra, g.pmdec, g.has_xp_sampled, '
+            'vcr.best_class_name AS gaia_variability_type, '
+            f'DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) AS dist '
+            'FROM gaiadr3.gaia_source AS g '
+            'LEFT OUTER JOIN gaiadr3.vari_classifier_result AS vcr '
+            "ON g.source_id = vcr.source_id AND vcr.classifier_name = 'n_transits:5+' "
             f'WHERE {box_prefilter} '
-            f'  AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(ra, dec)) <= {radius_deg} '
+            f'  AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) <= {radius_deg} '
             'ORDER BY dist ASC'
         )
         result = Gaia.launch_job(query).get_results()
@@ -180,4 +196,7 @@ class GaiaDR3Harvester(AbstractHarvester):
         target.parallax = _to_float(self.catalog_data.get('parallax'))
         target.pm_ra = _to_float(self.catalog_data.get('pmra'))
         target.pm_dec = _to_float(self.catalog_data.get('pmdec'))
+        target.gaia_variability_type = self.catalog_data.get(
+            'GAIA_VARIABILITY_TYPE', self.catalog_data.get('gaia_variability_type')
+        )
         return target

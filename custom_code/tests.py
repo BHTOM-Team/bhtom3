@@ -3,11 +3,10 @@ from unittest.mock import Mock, patch
 
 from astropy.time import Time
 from datetime import timezone
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.cache import cache
 from django.contrib.auth import get_user_model
 from django.test.client import RequestFactory
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.urls import reverse
 from tom_targets.models import Target, TargetName
 
@@ -71,86 +70,6 @@ from custom_code.views import (
     BhtomTargetUpdateView,
     EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
 )
-
-
-@override_settings(
-    BHTOM2_API_BASE_URL='https://bh-tom2.example',
-    BHTOM2_API_TOKEN='secret-api-token',
-    BHTOM2_UPLOAD_SERVICE_URL='https://uploadsvc.example',
-)
-class PublicUploadViewTests(TestCase):
-    def test_target_search_filters_results(self):
-        with patch('custom_code.views._public_upload_target_choices', return_value=[
-            {'label': 'Gaia24abc', 'value': 'Gaia24abc', 'search': 'gaia24abc'},
-            {'label': 'AT2026xyz', 'value': 'AT2026xyz', 'search': 'at2026xyz'},
-        ]):
-            response = self.client.get(reverse('public-upload-targets'), {'q': 'gaia'})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {'results': [{'label': 'Gaia24abc', 'value': 'Gaia24abc', 'search': 'gaia24abc'}]},
-        )
-
-    def test_public_upload_posts_selected_single_fits_file(self):
-        upload_response = Mock(status_code=201)
-
-        with patch('custom_code.views._public_upload_target_choices', return_value=[
-            {'label': 'Gaia24abc', 'value': 'Gaia24abc', 'search': 'gaia24abc'},
-        ]), patch('custom_code.views._public_upload_observer_choices', return_value=[
-            {'label': 'Jane Doe (jdoe)', 'value': 'jdoe', 'search': 'jdoe jane doe'},
-        ]), patch('custom_code.views._public_upload_observatory_choices', return_value=[
-            {'label': 'OGLE Warsaw (OGLE)', 'value': 'OGLE', 'search': 'ogle warsaw'},
-        ]), patch('custom_code.views.requests.post', return_value=upload_response) as mocked_post:
-            response = self.client.post(
-                reverse('public-upload'),
-                data={
-                    'target': 'Gaia24abc',
-                    'observer': 'jdoe',
-                    'token': 'user-upload-token',
-                    'observatory': 'OGLE',
-                    'calibration_filter': 'GaiaSP/any',
-                    'comment': 'test upload',
-                    'fits_file': SimpleUploadedFile('example.fits', b'SIMPLE  = T', content_type='application/fits'),
-                },
-                follow=True,
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'FITS upload sent to BHTOM2 for target Gaia24abc.')
-
-        self.assertEqual(mocked_post.call_count, 1)
-        _, kwargs = mocked_post.call_args
-        self.assertEqual(kwargs['data']['target'], 'Gaia24abc')
-        self.assertEqual(kwargs['data']['observatory'], 'OGLE')
-        self.assertEqual(kwargs['data']['observers'], 'jdoe')
-        self.assertEqual(kwargs['data']['filter'], 'GaiaSP/any')
-        self.assertEqual(kwargs['data']['comment'], 'test upload')
-        self.assertEqual(kwargs['headers']['Authorization'], 'Token user-upload-token')
-        self.assertIn('file_0', kwargs['files'])
-
-    def test_public_upload_rejects_free_text_values_not_from_reference_lists(self):
-        with patch('custom_code.views._public_upload_target_choices', return_value=[]), patch(
-            'custom_code.views._public_upload_observer_choices',
-            return_value=[],
-        ), patch('custom_code.views._public_upload_observatory_choices', return_value=[]):
-            response = self.client.post(
-                reverse('public-upload'),
-                data={
-                    'target': 'Unknown target',
-                    'observer': 'unknown',
-                    'token': 'user-upload-token',
-                    'observatory': 'unknown',
-                    'calibration_filter': 'GaiaSP/any',
-                    'comment': '',
-                    'fits_file': SimpleUploadedFile('example.fits', b'SIMPLE  = T', content_type='application/fits'),
-                },
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Select a target from the BHTOM2 list.')
-        self.assertContains(response, 'Select an observer from the BHTOM2 list.')
-        self.assertContains(response, 'Select an observatory from the BHTOM2 list.')
 
 
 class OGLEEWSDataServiceTests(TestCase):
@@ -1051,6 +970,22 @@ class SimbadHarvesterTests(TestCase):
         self.assertEqual(moa.to_target().epoch, 2000.0)
         self.assertEqual(kmt.to_target().epoch, 2000.0)
 
+    def test_gaia_dr3_harvester_maps_variability_class(self):
+        gaia_dr3 = GaiaDR3Harvester()
+        gaia_dr3.catalog_data = {
+            'source_id': '123',
+            'ra': 12.3,
+            'dec': -45.6,
+            'parallax': 1.2,
+            'pmra': 4.5,
+            'pmdec': -6.7,
+            'gaia_variability_type': 'RR',
+        }
+
+        target = gaia_dr3.to_target()
+
+        self.assertEqual(target.gaia_variability_type, 'RR')
+
     def test_exoclock_harvester_maps_target_and_host_alias(self):
         exoclock = ExoClockHarvester()
         exoclock.catalog_data = {
@@ -1379,7 +1314,7 @@ class TargetDetailDataTests(TestCase):
         self.assertEqual(context['astrometry_rows'][0]['error'], 0.33)
         self.assertEqual(context['astrometry_rows'][1]['error'], 0.11)
         self.assertEqual(context['astrometry_rows'][2]['error'], 0.22)
-        self.assertEqual(context['astrometry_rows'][3]['label'], 'Variability Type')
+        self.assertEqual(context['astrometry_rows'][3]['label'], 'Variability class')
         self.assertEqual(context['astrometry_rows'][3]['value'], 'RR')
 
     def test_target_data_omits_gaia_astrometry_block_when_all_values_missing(self):
@@ -1837,8 +1772,6 @@ class PlanetaryTransitTargetCreateTests(TestCase):
                     ra=12.3,
                     dec=-45.6,
                     epoch=2000.0,
-                    pm_ra=4.5,
-                    pm_dec=-6.7,
                     parallax=1.2,
                     gaia_variability_type='RR',
                 ), None, None
