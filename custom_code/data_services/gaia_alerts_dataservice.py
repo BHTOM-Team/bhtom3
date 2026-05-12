@@ -75,6 +75,10 @@ def _lightcurve_url(alert_name):
     return f'{GAIA_ALERTS_BASE_URL}/alerts/alert/{alert_name}/lightcurve.csv'
 
 
+def _alert_page_url(alert_name):
+    return f'{GAIA_ALERTS_BASE_URL}/alerts/alert/{alert_name}'
+
+
 class GaiaAlertsDataService(DataService):
     name = 'GaiaAlerts'
     verbose_name = 'GaiaAlerts'
@@ -157,7 +161,11 @@ class GaiaAlertsDataService(DataService):
                 'name': alert_name,
                 'ra': ra,
                 'dec': dec,
-                'aliases': [alert_name],
+                'aliases': [{
+                    'name': alert_name,
+                    'url': _alert_page_url(alert_name),
+                    'source_name': self.name,
+                }],
                 'source_location': lightcurve_urls.get(alert_name) or self.info_url,
             }
             photometry_rows = lightcurve_rows_by_name.get(alert_name)

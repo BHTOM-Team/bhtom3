@@ -32,6 +32,7 @@ from custom_code.astrometry import can_compute_current_coordinates, compute_curr
 from custom_code.data_services.allwise_dataservice import AllWISEDataService
 from custom_code.data_services.asassn_dataservice import ASASSNDataService
 from custom_code.data_services.exoclock_dataservice import ExoClockDataService
+from custom_code.data_services.gaia_alerts_dataservice import GaiaAlertsDataService
 from custom_code.data_services.gaia_dr3_dataservice import GaiaDR3DataService
 from custom_code.data_services.kmt_dataservice import KMTDataService, _event_id as _kmt_event_id, _normalize_event_name as _normalize_kmt_event_name
 from custom_code.data_services.neowise_dataservice import NeoWISEDataService
@@ -786,6 +787,61 @@ class AliasHandlingTests(TestCase):
         self.assertIsNone(alias_obj)
         self.assertFalse(created)
         self.assertFalse(target.aliases.filter(name='GaiaDR3_2929359977275703552').exists())
+
+
+class GaiaAlertsDataServiceTests(TestCase):
+    def test_query_targets_returns_linked_alias_for_alert_page(self):
+        service = GaiaAlertsDataService()
+        alert_rows = [{
+            '#Name': 'Gaia26abc',
+            'RaDeg': '12.3',
+            'DecDeg': '-45.6',
+        }]
+        photometry_rows = [{'jd': 2460000.5, 'mag': '18.2'}]
+
+        with patch.object(service, '_fetch_alerts_rows', return_value=alert_rows), patch.object(
+            service, '_fetch_lightcurve_rows', return_value=photometry_rows
+        ):
+            results = service.query_targets({'alert_name': 'Gaia26abc', 'include_photometry': True})
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(
+            results[0]['aliases'],
+            [{
+                'name': 'Gaia26abc',
+                'url': 'https://gsaweb.ast.cam.ac.uk/alerts/alert/Gaia26abc',
+                'source_name': 'GaiaAlerts',
+            }],
+        )
+        self.assertIn('photometry', results[0]['reduced_datums'])
+
+    def test_run_service_for_target_stores_gaia_alert_alias_link(self):
+        target = Target.objects.create(name='Gaia26abc-target', type='SIDEREAL', ra=12.3, dec=-45.6, epoch=2000.0)
+
+        class FakeGaiaAlertsService:
+            info_url = 'https://gsaweb.ast.cam.ac.uk/alerts'
+
+            def build_query_parameters(self, parameters):
+                return parameters
+
+            def query_targets(self, built_parameters):
+                return [{
+                    'aliases': [{
+                        'name': 'Gaia26abc',
+                        'url': 'https://gsaweb.ast.cam.ac.uk/alerts/alert/Gaia26abc',
+                        'source_name': 'GaiaAlerts',
+                    }],
+                    'source_location': 'https://gsaweb.ast.cam.ac.uk/alerts/alert/Gaia26abc/lightcurve.csv',
+                }]
+
+            def to_reduced_datums(self, target, reduced_datums):
+                return None
+
+        _run_service_for_target(target, 'GaiaAlerts', FakeGaiaAlertsService)
+
+        alias = target.aliases.select_related('alias_info').get(name='Gaia26abc')
+        self.assertEqual(alias.alias_info.source_name, 'GaiaAlerts')
+        self.assertEqual(alias.alias_info.url, 'https://gsaweb.ast.cam.ac.uk/alerts/alert/Gaia26abc')
 
 
 class ASASSNDataServiceTests(TestCase):
