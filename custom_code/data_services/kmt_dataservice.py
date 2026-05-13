@@ -5,7 +5,6 @@ import math
 import re
 import tarfile
 from datetime import timezone
-from urllib.parse import urljoin
 
 import pandas as pd
 import requests

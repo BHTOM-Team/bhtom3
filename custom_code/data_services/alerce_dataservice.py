@@ -3,8 +3,6 @@ import logging
 from astropy.time import Time
 from datetime import timezone
 
-import pandas as pd
-from io import StringIO
 import requests
 
 from tom_dataservices.dataservices import DataService
