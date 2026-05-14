@@ -193,6 +193,15 @@ PHOTOMETRY_LIMITS_COLOR_MAP = {
     'SkyMapper(V)': ['darkgreen', 'arrow-down-open', 5],
 }
 
+ALERCE_SPECIAL_COLOR_MAP = {
+    'ZTF(zg)': ['green', 'cross', 6],
+    'ZTF(zi)': ['#800000', 'cross', 6],
+    'ZTF(zr)': ['red', 'cross', 6],
+    'ZTF(g)': ['green', 'cross', 6],
+    'ZTF(i)': ['#800000', 'cross', 6],
+    'ZTF(r)': ['red', 'cross', 6],
+}
+
 
 @register.inclusion_tag('tom_dataproducts/partials/photometry_for_target.html', takes_context=True)
 def custom_photometry_for_target(context, target, width=1000, height=600, background=None, label_color=None, grid=True):
@@ -264,26 +273,76 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
         if not filter_values.get('magnitude'):
             continue
         trace_opacity = 0.75 if filter_name.startswith('MOA(') else 0.75
+
+        # plotting ALERCE data with different markers
+        custom_vals = np.array(filter_values['customdata'])
+        alerce_mask = np.array([
+            str(v).startswith('Alerce')
+            for v in custom_vals ])
+        normal_mask = ~alerce_mask
+
         plot_data.append(
             go.Scatter(
-                x=filter_values['time'],
-                y=filter_values['magnitude'],
+                x=np.array(filter_values['time'])[normal_mask],
+                y=np.array(filter_values['magnitude'])[normal_mask],
                 mode='markers',
                 opacity=trace_opacity,
                 marker=dict(
-                    color=PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[0],
-                    symbol=PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[1],
-                    size=1.2 * PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[2],
-                ),
+                        color=PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[0],
+                        symbol=PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[1],
+                        size=1.2 * PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[2],
+                    ),
                 name=filter_name,
-                error_y=dict(type='data', array=filter_values['error'], visible=True, thickness=0.5, width=0),
-                text=mjds_to_plot[filter_name],
-                customdata=list(zip(filter_values['customdata'], filter_values['link'])),
-                hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>MJD= %{text:.6f}'
-                              '<br>mag= %{y:.3f}&#177;%{error_y.array:.3f}'
-                              '<br>%{customdata[0]}<br>%{customdata[1]}',
-            )
+                error_y=dict(
+                    type='data',
+                    array=np.array(filter_values['error'])[normal_mask],
+                    visible=True,
+                    thickness=0.5,
+                    width=0
+                ),
+                text=np.array(mjds_to_plot[filter_name])[normal_mask],
+                customdata=np.array(
+                    list(zip(filter_values['customdata'],
+                            filter_values['link']))
+                )[normal_mask],
+                hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>'
+                            'MJD= %{text:.6f}'
+                            '<br>mag= %{y:.3f}&#177;%{error_y.array:.3f}'
+                            '<br>%{customdata[0]}<br>%{customdata[1]}',
+            )   
         )
+
+        plot_data.append(
+            go.Scatter(
+                x=np.array(filter_values['time'])[alerce_mask],
+                y=np.array(filter_values['magnitude'])[alerce_mask],
+                mode='markers',
+                opacity=trace_opacity,
+                marker=dict(
+                        color=ALERCE_SPECIAL_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[0],
+                        symbol=ALERCE_SPECIAL_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[1],
+                        size=1.2 * ALERCE_SPECIAL_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[2],
+                    ),
+                name=filter_name,
+                error_y=dict(
+                    type='data',
+                    array=np.array(filter_values['error'])[alerce_mask],
+                    visible=True,
+                    thickness=0.5,
+                    width=0
+                ),
+                text=np.array(mjds_to_plot[filter_name])[alerce_mask],
+                customdata=np.array(
+                    list(zip(filter_values['customdata'],
+                            filter_values['link']))
+                )[alerce_mask],
+                hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>'
+                            'MJD= %{text:.6f}'
+                            '<br>mag= %{y:.3f}&#177;%{error_y.array:.3f}'
+                            '<br>%{customdata[0]}<br>%{customdata[1]}',
+            )   
+        )
+            
 
     limit_mjds_to_plot = {}
     for filter_name, filter_values in limits_data.items():
