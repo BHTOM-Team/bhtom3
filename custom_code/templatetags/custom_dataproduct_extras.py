@@ -126,6 +126,8 @@ PHOTOMETRY_COLOR_MAP = {
     'LSST(i)': ['#800000', 'pentagon-open', 5],
     'LSST(z)': ['#ff0074', 'pentagon-open', 5],
     'LSST(y)': ['#DAA520', 'pentagon-open', 5],
+    'HST(ACS_F814W)': ['#b5a300', 'hexagram', 5],
+    'HST(ACS_F606W)': ['#5c0011', 'hexagram', 5],
 }
 
 # Color map for limits (non-detections).
@@ -191,6 +193,8 @@ PHOTOMETRY_LIMITS_COLOR_MAP = {
     'SkyMapper(i)': ['#800000', 'arrow-down-open', 5],
     'SkyMapper(z)': ['#ff0074', 'arrow-down-open', 5],
     'SkyMapper(V)': ['darkgreen', 'arrow-down-open', 5],
+    'HST(ACS_F814W)': ['#b5a300', 'arrow-down-open', 5],
+    'HST(ACS_F606W)': ['#5c0011', 'arrow-down-open', 5],
 }
 
 ALERCE_SPECIAL_COLOR_MAP = {

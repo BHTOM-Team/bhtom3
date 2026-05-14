@@ -32,7 +32,8 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.lco_spec_dataservice.LCOSpectraDataService'},
             {'class': f'{self.name}.data_services.ztf_dataservice.ZTFDataService'},
             {'class': f'{self.name}.data_services.eso_spectra_dataservice.ESOSpectraDataService'},
-            {'class': f'{self.name}.data_services.alerce_dataservice.AlerceDataService'}
+            {'class': f'{self.name}.data_services.alerce_dataservice.AlerceDataService'},
+            {'class': f'{self.name}.data_services.hst_dataservice.HSTDataService'}
         ]
 
     def ready(self):
