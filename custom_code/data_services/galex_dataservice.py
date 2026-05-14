@@ -23,9 +23,9 @@ logger = logging.getLogger(__name__)
 
 GALEX_WEBPAGE = "https://galex.stsci.edu/GR6/"
 
-aperture_radius = 10 / (60 * 60)
-bkg_in_aperture_radius = 11 / (60 * 60)
-bkg_out_aperture_radius = 20 / (60 * 60)
+aperture_radius = 5 / (60 * 60)
+bkg_in_aperture_radius = 6 / (60 * 60)
+bkg_out_aperture_radius = 12 / (60 * 60)
 
 
 def galex_aperture_timeout(band, ra, dec, radius, annulus, timeout=900):
