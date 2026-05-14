@@ -14,6 +14,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.urls import path, include
+from rest_framework.authtoken.views import obtain_auth_token
 
 from custom_code.views import (
     BhtomCatalogSelectResultView,
@@ -21,6 +22,7 @@ from custom_code.views import (
     Bhtom2TargetListView,
     BhtomTargetCreateView,
     BhtomTargetDetailView,
+    TargetDownloadPhotometryDataApiView,
     BhtomTargetUpdateView,
     GeoTomAddSatView,
     BhtomPallasEphemerisView,
@@ -32,15 +34,21 @@ from custom_code.views import (
     GeoTomRefreshSingleTleView,
     GeoTomTargetListView,
     LegacyLogoutView,
+    UserProfileRedirectView,
+    UserUpdateWithTokenView,
     UpdateReducedDataAndDataServicesView,
 )
 
 urlpatterns = [
     path('accounts/logout/', LegacyLogoutView.as_view(), name='logout'),
+    path('api/token-auth/', obtain_auth_token, name='api-token-auth'),
     path('dataservices/', include(('custom_code.dataservices_urls', 'dataservices'), namespace='dataservices')),
     path('catalogs/query/', BhtomCatalogQueryView.as_view(), name='catalog-query-override'),
     path('catalogs/query/select/', BhtomCatalogSelectResultView.as_view(), name='catalog-select-result'),
     path('targets/', Bhtom2TargetListView.as_view(), name='targets-list-override'),
+    path('targets/download-photometry/', TargetDownloadPhotometryDataApiView.as_view(), name='targets-download-photometry-api'),
+    path('users/profile/', UserProfileRedirectView.as_view(), name='user-profile'),
+    path('users/<int:pk>/update/', UserUpdateWithTokenView.as_view(), name='user-update'),
     path('targets/create/', BhtomTargetCreateView.as_view(), name='targets-create-override'),
     path('targets/<int:pk>/update/', BhtomTargetUpdateView.as_view(), name='targets-update-override'),
     path('targets/<int:pk>/', BhtomTargetDetailView.as_view(), name='targets-detail-override'),

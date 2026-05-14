@@ -1,0 +1,86 @@
+{% extends 'tom_common/base.html' %}
+{% load bootstrap4 %}
+{% block title %}Create user{% endblock %}
+{% block content %}
+{% if object %}
+  {% if user_token %}
+  <div class="mb-3">
+    <button id="copy-token-btn" type="button" class="btn btn-primary">Copy Token to Clipboard</button>
+    <input id="user-token" type="text" value="{{ user_token }}" readonly hidden>
+  </div>
+  {% endif %}
+  <form action="{% url 'user-update' object.id %}" method="POST">
+{% else %}
+  <form action="{% url 'user-create' %}" method="POST">
+{% endif %}
+  {% csrf_token %}
+  {% bootstrap_form form %}
+  {% buttons %}
+    <button type="submit" class="btn btn-primary">
+      {% if object %}
+      Update
+      {% else %}
+      Create User
+      {% endif %}
+    </button>
+  {% endbuttons %}
+  </form>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const copyButton = document.getElementById('copy-token-btn');
+      const tokenInput = document.getElementById('user-token');
+      if (!copyButton || !tokenInput) {
+        return;
+      }
+
+      copyButton.addEventListener('click', async function() {
+        let copied = false;
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(tokenInput.value);
+            copied = true;
+          } else {
+            tokenInput.hidden = false;
+            tokenInput.select();
+            tokenInput.setSelectionRange(0, tokenInput.value.length);
+            copied = document.execCommand('copy');
+            tokenInput.hidden = true;
+          }
+        } catch (err) {
+          copied = false;
+        }
+        showAlert(copied ? 'Token copied to clipboard!' : 'Failed to copy token.', copied ? 'success' : 'error');
+      });
+
+      function showAlert(message, type) {
+        const alert = document.createElement('div');
+        alert.className = 'custom-alert' + (type === 'error' ? ' error' : '');
+        alert.innerText = message;
+        document.body.appendChild(alert);
+        setTimeout(function() {
+          alert.remove();
+        }, 2000);
+      }
+    });
+  </script>
+
+  <style>
+    .custom-alert {
+      position: fixed;
+      top: 70px;
+      left: 40px;
+      background-color: #4caf50;
+      color: white;
+      padding: 15px;
+      border-radius: 5px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+      z-index: 1000;
+      font-size: 14px;
+    }
+
+    .custom-alert.error {
+      background-color: #f44336;
+    }
+  </style>
+{% endblock %}

@@ -8,6 +8,8 @@ from django.contrib.auth import get_user_model
 from django.test.client import RequestFactory
 from django.test import TestCase
 from django.urls import reverse
+from rest_framework.authtoken.models import Token
+from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.ogle_ews_dataservice import (
@@ -2305,3 +2307,112 @@ class GeoTomViewTests(TestCase):
         self.assertEqual(payload['rows'][0]['ra_icrf_sex'], '05:30:00')
         self.assertEqual(payload['rows'][0]['dec_sex'], '-12:15:00')
         self.assertAlmostEqual(payload['targets'][0]['alt_deg'], 12.3456)
+
+
+class TokenAuthAndProfileTests(TestCase):
+    def test_api_token_auth_returns_token_for_valid_credentials(self):
+        user = get_user_model().objects.create_user(username='token-user', password='secret-pass')
+
+        response = self.client.post(
+            reverse('api-token-auth'),
+            data=json.dumps({'username': user.username, 'password': 'secret-pass'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn('token', payload)
+        self.assertTrue(Token.objects.filter(user=user, key=payload['token']).exists())
+
+    def test_user_profile_redirects_to_current_user_update_page(self):
+        user = get_user_model().objects.create_user(username='profile-user', password='secret')
+        self.client.force_login(user)
+
+        response = self.client.get(reverse('user-profile'))
+
+        self.assertRedirects(response, reverse('user-update', kwargs={'pk': user.pk}))
+
+    def test_user_update_page_displays_copy_token_button(self):
+        user = get_user_model().objects.create_user(username='profile-button-user', password='secret')
+        self.client.force_login(user)
+
+        response = self.client.get(reverse('user-update', kwargs={'pk': user.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Copy Token to Clipboard')
+        self.assertContains(response, 'id="user-token"')
+        token = Token.objects.get(user=user)
+        self.assertContains(response, token.key)
+
+
+class TargetDownloadPhotometryApiTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='phot-api-user', password='secret')
+        self.token = Token.objects.create(user=self.user)
+        self.target = Target.objects.create(name='Gaia26xyz', type='SIDEREAL', ra=12.3, dec=-45.6, epoch=2000.0)
+        self.url = reverse('targets-download-photometry-api')
+
+    def test_download_photometry_requires_token_auth(self):
+        response = self.client.post(
+            self.url,
+            data=json.dumps({'name': self.target.name}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_download_photometry_returns_bhtom2_style_semicolon_file(self):
+        ReducedDatum.objects.create(
+            target=self.target,
+            data_type='photometry',
+            timestamp=datetime(2024, 1, 2, 12, 0, tzinfo=timezone.utc),
+            value={
+                'magnitude': 17.2,
+                'error': 0.13,
+                'facility': 'OGLE',
+                'filter': 'OGLE(I)',
+                'observer': 'survey',
+            },
+            source_name='OGLE',
+        )
+        ReducedDatum.objects.create(
+            target=self.target,
+            data_type='photometry',
+            timestamp=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+            value={
+                'limit': 18.7,
+                'error': -1.0,
+                'telescope': 'LCO',
+                'filter': 'LCO(r)',
+                'observer': 'bot',
+            },
+            source_name='LCO',
+        )
+        ReducedDatum.objects.create(
+            target=self.target,
+            data_type='spectroscopy',
+            timestamp=datetime(2024, 1, 3, 12, 0, tzinfo=timezone.utc),
+            value={'flux': [1, 2, 3]},
+            source_name='Spec',
+        )
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({'name': self.target.name}),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Token {self.token.key}',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response['Content-Type'].startswith('text/csv'))
+        self.assertIn('target_Gaia26xyz_photometry.csv', response['Content-Disposition'])
+
+        lines = response.content.decode('utf-8').splitlines()
+        self.assertEqual(lines[0], 'MJD;Magnitude;Error;Facility;Filter;Observer')
+        self.assertEqual(len(lines), 3)
+
+        first_row = lines[1].split(';')
+        second_row = lines[2].split(';')
+        self.assertEqual(first_row[3:], ['LCO', 'LCO(r)', 'bot'])
+        self.assertEqual(second_row[3:], ['OGLE', 'OGLE(I)', 'survey'])
+        self.assertLess(float(first_row[0]), float(second_row[0]))

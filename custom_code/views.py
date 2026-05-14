@@ -1,11 +1,14 @@
+import csv
 from io import StringIO
 import json
 import logging
+import math
 import re
 import requests
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
+from astropy.time import Time
 from astroquery.jplhorizons import Horizons
 from astroquery.mpc import MPC
 from django.contrib import messages
@@ -13,24 +16,29 @@ from django.conf import settings
 from django.contrib.auth import logout
 from django.contrib.auth.models import Group
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.views import redirect_to_login
 from django.contrib.sites.shortcuts import get_current_site
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
-from django.http import HttpResponseRedirect, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import redirect
 from django.shortcuts import resolve_url
 from django.shortcuts import render
 from django.views.generic import FormView, ListView, RedirectView, TemplateView
 from django.views import View
+from django.utils.decorators import method_decorator
 from django.urls import reverse, reverse_lazy
 from django.db.models import Q
 from django.db import transaction
+from django.views.decorators.csrf import csrf_exempt
 from django_comments.models import Comment
+from rest_framework.authtoken.models import Token
 
 from tom_common.hints import add_hint
 from tom_common.hooks import run_hook
 from tom_catalogs.harvester import MissingDataException
+from tom_dataproducts.models import ReducedDatum
 from tom_targets.forms import TargetExtraFormset
 from tom_targets.models import Target
 from tom_targets.views import TargetCreateView, TargetDetailView, TargetListView, TargetUpdateView
@@ -40,6 +48,7 @@ from tom_dataservices.views import (
     DataServiceQueryCreateView,
     DataServiceQueryUpdateView,
 )
+from tom_common.views import UserUpdateView as TomCommonUserUpdateView
 
 from custom_code.filters import BhtomTargetFilterSet
 from custom_code.astrometry import can_compute_current_coordinates, compute_current_coordinates
@@ -107,6 +116,87 @@ def _parse_float(value, default=None):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _is_finite_number(value):
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _extract_photometry_export_mjd(datum):
+    if _is_finite_number(getattr(datum, 'mjd', None)):
+        return float(datum.mjd)
+
+    timestamp = getattr(datum, 'timestamp', None)
+    if not timestamp:
+        return None
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return float(Time(timestamp, scale='utc').mjd)
+
+
+def _build_photometry_export_rows(target):
+    photometry_type = settings.DATA_PRODUCT_TYPES['photometry'][0]
+    rows = []
+
+    for datum in ReducedDatum.objects.filter(target=target, data_type=photometry_type).order_by('timestamp', 'id'):
+        mjd = _extract_photometry_export_mjd(datum)
+        if not _is_finite_number(mjd):
+            continue
+
+        magnitude = None
+        error = None
+        facility = getattr(datum, 'facility', None) or ''
+        filter_name = getattr(datum, 'filter', None) or ''
+        observer = getattr(datum, 'observer', None) or ''
+
+        if isinstance(datum.value, dict):
+            magnitude = datum.value.get('magnitude')
+            if magnitude is None:
+                magnitude = datum.value.get('mag')
+            if magnitude is None:
+                magnitude = datum.value.get('limit')
+            error = datum.value.get('error', datum.value.get('magnitude_error'))
+            facility = facility or datum.value.get('facility') or datum.value.get('telescope') or datum.source_name or ''
+            filter_name = filter_name or datum.value.get('filter') or ''
+            observer = observer or datum.value.get('observer') or ''
+        else:
+            magnitude = datum.value
+            facility = facility or datum.source_name or ''
+
+        if not _is_finite_number(magnitude):
+            continue
+        magnitude = float(magnitude)
+
+        if error is not None and _is_finite_number(error):
+            error = float(error)
+        elif error in ('', None):
+            error = None
+        else:
+            continue
+
+        rows.append([float(mjd), magnitude, error, facility, filter_name, observer])
+
+    rows.sort(key=lambda row: row[0])
+    return rows
+
+
+def _authenticate_api_token_user(request):
+    auth_header = (request.META.get('HTTP_AUTHORIZATION') or '').strip()
+    if not auth_header or not auth_header.lower().startswith('token '):
+        return None
+
+    token_key = auth_header.split(None, 1)[1].strip() if ' ' in auth_header else ''
+    if not token_key:
+        return None
+
+    try:
+        token = Token.objects.select_related('user').get(key=token_key)
+    except Token.DoesNotExist:
+        return None
+    return token.user if token.user.is_active else None
 
 
 def _parse_utc_datetime(value):
@@ -2061,6 +2151,42 @@ class GeoTomDeleteSatView(LoginRequiredMixin, View):
         return HttpResponseRedirect(reverse_lazy('geotom-list'))
 
 
+@method_decorator(csrf_exempt, name='dispatch')
+class TargetDownloadPhotometryDataApiView(View):
+    """
+    BHTOM2-compatible API endpoint to download target photometry as semicolon-separated text.
+    """
+
+    http_method_names = ['post']
+
+    def post(self, request, *args, **kwargs):
+        user = _authenticate_api_token_user(request)
+        if user is None:
+            return JsonResponse({'detail': 'Authentication credentials were not provided.'}, status=401)
+
+        try:
+            payload = json.loads(request.body.decode('utf-8') or '{}')
+        except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+            return JsonResponse({'Error': 'Something went wrong'}, status=400)
+
+        target_name = payload.get('name')
+        if not isinstance(target_name, str) or not target_name.strip():
+            return JsonResponse({'Error': 'Something went wrong'}, status=400)
+
+        try:
+            target = Target.objects.get(name=target_name.strip())
+        except Target.DoesNotExist:
+            return JsonResponse({'Error': f'Target "{target_name.strip()}" not found'}, status=404)
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="target_{target.name}_photometry.csv"'
+
+        writer = csv.writer(response, delimiter=';')
+        writer.writerow(['MJD', 'Magnitude', 'Error', 'Facility', 'Filter', 'Observer'])
+        writer.writerows(_build_photometry_export_rows(target))
+        return response
+
+
 class LegacyLogoutView(View):
     """
     Compatibility logout endpoint that accepts both GET and POST.
@@ -2075,6 +2201,22 @@ class LegacyLogoutView(View):
     def _logout_and_redirect(self, request):
         logout(request)
         return HttpResponseRedirect(resolve_url(getattr(settings, 'LOGOUT_REDIRECT_URL', '/')))
+
+
+class UserProfileRedirectView(View):
+    def get(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        return redirect('user-update', pk=request.user.pk)
+
+
+class UserUpdateWithTokenView(TomCommonUserUpdateView):
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if getattr(self, 'object', None) is not None:
+            token, _ = Token.objects.get_or_create(user=self.object)
+            context['user_token'] = token.key
+        return context
 
 
 class UpdateReducedDataAndDataServicesView(LoginRequiredMixin, RedirectView):
