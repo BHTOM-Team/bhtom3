@@ -14,6 +14,7 @@ from astroquery.mpc import MPC
 from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth import logout
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.models import Group
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import redirect_to_login
@@ -2252,9 +2253,38 @@ class UserProfileRedirectView(View):
 class UserCreateWithFixedFormView(TomCommonUserCreateView):
     form_class = BhtomUserCreationForm
 
+    def form_valid(self, form):
+        self.object = form.save()
+        group, _ = Group.objects.get_or_create(name='Public')
+        group.user_set.add(self.object)
+        messages.success(self.request, 'User created')
+        return HttpResponseRedirect(self.get_success_url())
+
+    def form_invalid(self, form):
+        logger.warning('User create form invalid: %s', form.errors.as_json())
+        messages.error(self.request, 'User form could not be saved. Check the highlighted fields.')
+        return super().form_invalid(form)
+
 
 class UserUpdateWithTokenView(TomCommonUserUpdateView):
     form_class = BhtomUserCreationForm
+
+    def form_valid(self, form):
+        self.object = form.save()
+        if self.object == self.request.user:
+            update_session_auth_hash(self.request, self.object)
+        messages.success(self.request, 'Profile updated')
+        return HttpResponseRedirect(self.get_success_url())
+
+    def form_invalid(self, form):
+        logger.warning(
+            'User update form invalid for user_id=%s target_id=%s: %s',
+            getattr(self.request.user, 'pk', None),
+            self.kwargs.get('pk'),
+            form.errors.as_json(),
+        )
+        messages.error(self.request, 'User form could not be saved. Check the highlighted fields.')
+        return super().form_invalid(form)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

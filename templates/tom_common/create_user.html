@@ -9,9 +9,9 @@
     <input id="user-token" type="text" value="{{ user_token }}" readonly hidden>
   </div>
   {% endif %}
-  <form action="{% url 'user-update' object.id %}" method="POST">
+  <form action="{% url 'user-update' object.id %}" method="POST" novalidate>
 {% else %}
-  <form action="{% url 'user-create' %}" method="POST">
+  <form action="{% url 'user-create' %}" method="POST" novalidate>
 {% endif %}
   {% csrf_token %}
   {% bootstrap_form form %}
