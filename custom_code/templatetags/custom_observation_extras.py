@@ -9,6 +9,7 @@ from custom_code.forms import NonSiderealTargetVisibilityForm
 from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
 
 register = template.Library()
+NON_SIDEREAL_PLAN_INTERVAL_MINUTES = 30
 
 
 @register.inclusion_tag('tom_targets/partials/target_plan.html', takes_context=True)
@@ -51,7 +52,7 @@ def nonsidereal_target_plan(
                 context['object'],
                 start_time,
                 end_time,
-                10,
+                NON_SIDEREAL_PLAN_INTERVAL_MINUTES,
                 airmass_limit,
             )
             plot_data = [
