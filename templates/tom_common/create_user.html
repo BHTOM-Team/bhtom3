@@ -14,6 +14,26 @@
   <form action="{% url 'user-create' %}" method="POST" novalidate>
 {% endif %}
   {% csrf_token %}
+  {% if form.errors %}
+  <div class="alert alert-danger" role="alert">
+    <strong>Form errors:</strong>
+    <ul class="mb-0 mt-2">
+      {% for error in form.non_field_errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+      {% for field in form.hidden_fields %}
+        {% for error in field.errors %}
+      <li>{{ field.name }}: {{ error }}</li>
+        {% endfor %}
+      {% endfor %}
+      {% for field in form.visible_fields %}
+        {% for error in field.errors %}
+      <li>{{ field.label }}: {{ error }}</li>
+        {% endfor %}
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
   {% bootstrap_form form %}
   {% buttons %}
     <button type="submit" class="btn btn-primary">

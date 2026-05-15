@@ -63,6 +63,7 @@ from custom_code.forms import (
     BhtomSiderealTargetUpdateForm,
     BhtomTargetNamesFormset,
     BhtomUserCreationForm,
+    BhtomUserUpdateForm,
     GeoTomAddSatForm,
 )
 from custom_code.models import GeoTarget, TransitEphemeris
@@ -2267,7 +2268,7 @@ class UserCreateWithFixedFormView(TomCommonUserCreateView):
 
 
 class UserUpdateWithTokenView(TomCommonUserUpdateView):
-    form_class = BhtomUserCreationForm
+    form_class = BhtomUserUpdateForm
 
     def form_valid(self, form):
         self.object = form.save()
@@ -2285,6 +2286,12 @@ class UserUpdateWithTokenView(TomCommonUserUpdateView):
         )
         messages.error(self.request, 'User form could not be saved. Check the highlighted fields.')
         return super().form_invalid(form)
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        if not self.request.user.is_superuser:
+            form.fields.pop('groups', None)
+        return form
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

@@ -2,10 +2,10 @@ import json
 from datetime import datetime, timedelta
 
 from django import forms
+from django.contrib.auth import password_validation
+from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
 from django.forms import BaseInlineFormSet, inlineformset_factory
-from tom_common.forms import CustomUserCreationForm
-
 from tom_catalogs.harvester import get_service_classes
 from tom_targets.forms import NonSiderealTargetCreateForm, SiderealTargetCreateForm
 from tom_targets.models import Target, TargetName
@@ -37,17 +37,96 @@ class GeoTomAddSatForm(forms.Form):
     norad_id = forms.IntegerField(min_value=1, label="NORAD ID")
 
 
-class BhtomUserCreationForm(CustomUserCreationForm):
-    """
-    Local override for TOM's shared user form.
+class BhtomUserBaseForm(forms.ModelForm):
+    email = forms.EmailField(required=True)
+    groups = forms.ModelMultipleChoiceField(
+        Group.objects.all().exclude(name='Public'),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )
 
-    TOM's current implementation bypasses ModelForm.save() via an MRO trick that no
-    longer reliably persists field updates in this environment. Save directly through
-    ModelForm and only update the password when the field was populated.
-    """
+    class Meta:
+        model = User
+        fields = ('username', 'first_name', 'last_name', 'email', 'groups')
+
+    def clean_username(self):
+        username = (self.cleaned_data.get('username') or '').strip()
+        duplicates = User.objects.filter(username__iexact=username)
+        if self.instance.pk:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise forms.ValidationError('A user with that username already exists.')
+        return username
+
+
+class BhtomUserCreationForm(BhtomUserBaseForm):
+    password1 = forms.CharField(
+        label='Password',
+        strip=False,
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+        help_text=password_validation.password_validators_help_text_html(),
+    )
+    password2 = forms.CharField(
+        label='Password confirmation',
+        strip=False,
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+        help_text='Enter the same password as before, for verification.',
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        password1 = cleaned_data.get('password1')
+        password2 = cleaned_data.get('password2')
+        if password1 != password2:
+            self.add_error('password2', 'The two password fields did not match.')
+        if password2:
+            try:
+                password_validation.validate_password(password2, self.instance)
+            except ValidationError as error:
+                self.add_error('password2', error)
+        return cleaned_data
 
     def save(self, commit=True):
-        user = forms.ModelForm.save(self, commit=False)
+        user = super().save(commit=False)
+        user.set_password(self.cleaned_data['password1'])
+        if commit:
+            user.save()
+            self.save_m2m()
+        return user
+
+
+class BhtomUserUpdateForm(BhtomUserBaseForm):
+    password1 = forms.CharField(
+        label='Password',
+        strip=False,
+        required=False,
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+        help_text='Leave blank to keep the current password.',
+    )
+    password2 = forms.CharField(
+        label='Password confirmation',
+        strip=False,
+        required=False,
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+        help_text='Repeat the new password only if you want to change it.',
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        password1 = cleaned_data.get('password1')
+        password2 = cleaned_data.get('password2')
+        if password1 or password2:
+            if password1 != password2:
+                self.add_error('password2', 'The two password fields did not match.')
+            if password2:
+                try:
+                    password_validation.validate_password(password2, self.instance)
+                except ValidationError as error:
+                    self.add_error('password2', error)
+        return cleaned_data
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
         if self.cleaned_data.get('password1'):
             user.set_password(self.cleaned_data['password1'])
         if commit:
