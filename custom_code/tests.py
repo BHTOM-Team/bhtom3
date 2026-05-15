@@ -12,6 +12,7 @@ from django.test.client import RequestFactory
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.authtoken.models import Token
+import numpy as np
 from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
@@ -1600,10 +1601,28 @@ class NonSiderealVisibilityTests(TestCase):
                     }
                 }
 
+        class FakeAltAz:
+            def __init__(self, secz_values=None, alt_deg_values=None):
+                self.secz = np.asarray(secz_values if secz_values is not None else [])
+                self.alt = type('Alt', (), {'deg': np.asarray(alt_deg_values if alt_deg_values is not None else [])})()
+
         with patch('custom_code.non_sidereal_visibility.facility.get_service_classes', return_value={'FakeFacility': FakeFacility}), \
              patch('custom_code.non_sidereal_visibility.facility.get_service_class', return_value=FakeFacility), \
-             patch('custom_code.non_sidereal_visibility._resolve_target_coordinates_now', return_value=(120.0, 22.0)) as resolve_mock, \
-             patch('custom_code.non_sidereal_visibility.get_sun', return_value=SkyCoord(ra=0 * u.deg, dec=-90 * u.deg, frame='icrs')):
+             patch('custom_code.non_sidereal_visibility._geocentric_icrs_xyz_series', return_value=(
+                 np.asarray([1.0, 1.0, 1.0]),
+                 np.asarray([1.0, 1.0, 1.0]),
+                 np.asarray([1.0, 1.0, 1.0]),
+                 np.asarray([True, True, True]),
+             )), \
+             patch('custom_code.non_sidereal_visibility.get_sun', return_value=SkyCoord(
+                 ra=[0.0, 0.0, 0.0] * u.deg,
+                 dec=[-90.0, -90.0, -90.0] * u.deg,
+                 frame='icrs',
+             )), \
+             patch('custom_code.non_sidereal_visibility.Observer.altaz', side_effect=[
+                 FakeAltAz(secz_values=[1.5, 1.7, 1.9]),
+                 FakeAltAz(alt_deg_values=[-20.0, -20.0, -20.0]),
+             ]):
             visibility = get_non_sidereal_visibility(
                 target,
                 datetime(2026, 4, 8, 0, 0, tzinfo=timezone.utc),
@@ -1616,10 +1635,7 @@ class NonSiderealVisibilityTests(TestCase):
         times, airmasses = visibility['(FakeFacility) Warsaw']
         self.assertEqual(len(times), len(airmasses))
         self.assertTrue(any(value is not None for value in airmasses))
-        _, kwargs = resolve_mock.call_args
-        self.assertEqual(kwargs['observer_lat_deg'], 52.2297)
-        self.assertEqual(kwargs['observer_lon_deg'], 21.0122)
-        self.assertEqual(kwargs['observer_elevation_m'], 100.0)
+        self.assertEqual(len(times), 3)
 
     def test_nonsidereal_target_plan_renders_plot_with_visibility_data(self):
         target = Target.objects.create(
