@@ -131,6 +131,8 @@ def bhtom_target_data(context, target):
         'astrometry_rows': astrometry_rows,
         'show_current_coords_button': can_compute_current_coordinates(target),
         'current_coords': context.get('current_coords'),
+        'detail_generated_utc': context.get('detail_generated_utc'),
+        'detail_observer': context.get('detail_observer'),
         'extras': extras,
         'tags': tags,
         'target_other_names': other_names,

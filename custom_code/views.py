@@ -1706,6 +1706,26 @@ class BhtomTargetDetailView(TargetDetailView):
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs)
         target = self.get_object()
+        if target.type == Target.NON_SIDEREAL:
+            calculation_time_utc, calculation_time_input, calculation_time_error = _resolve_list_calculation_time(self.request)
+            observer = _resolve_list_observer(
+                self.request,
+                observer_presets=Bhtom2TargetListView.OBSERVER_PRESETS,
+                default_key='unspecified',
+                include_unspecified=True,
+            )
+            _store_list_observer(self.request, observer)
+            context['detail_generated_utc'] = calculation_time_utc
+            context['detail_generated_utc_input'] = calculation_time_input
+            context['detail_time_error'] = calculation_time_error
+            context['detail_observer'] = observer
+            context['detail_observer_presets'] = (
+                [{'key': 'unspecified', 'name': 'Not Specified'}] +
+                [
+                    {'key': key, 'name': preset['name']}
+                    for key, preset in Bhtom2TargetListView.OBSERVER_PRESETS.items()
+                ]
+            )
         other_names = []
         for alias in target.aliases.all().select_related('alias_info'):
             alias_info = getattr(alias, 'alias_info', None)

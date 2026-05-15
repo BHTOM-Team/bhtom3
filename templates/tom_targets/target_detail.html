@@ -41,6 +41,85 @@
   .target-detail-page .other-names-block strong {
     color: #fff !important;
   }
+
+  .target-detail-page .detail-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.75rem;
+  }
+
+  .target-detail-page .detail-toolbar-card {
+    width: min(100%, 420px);
+  }
+
+  .target-detail-page .detail-toolbar-header {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+    text-align: right;
+  }
+
+  .target-detail-page .detail-toolbar-label {
+    color: #c7d7ec;
+    font-size: 0.95rem;
+  }
+
+  .target-detail-page .geotom-observer {
+    color: #e8eef8;
+    font-weight: 500;
+  }
+
+  .target-detail-page .geotom-observer-toggle {
+    color: #7fc2ff;
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .target-detail-page .geotom-observer-toggle:hover,
+  .target-detail-page .geotom-observer-toggle:focus {
+    color: #a9d6ff;
+    text-decoration: underline;
+  }
+
+  .target-detail-page .geotom-observer-panel {
+    background: #0f141a;
+    border-color: #31404f;
+    color: #e8eef8;
+  }
+
+  .target-detail-page .geotom-observer-panel label {
+    color: #d4e2f2;
+  }
+
+  .target-detail-page .geotom-time-panel {
+    max-width: 420px;
+  }
+
+  .target-detail-page .geotom-time-form {
+    gap: 0.35rem;
+  }
+
+  .target-detail-page .geotom-custom-input {
+    min-width: 120px;
+  }
+
+  @media (max-width: 767px) {
+    .target-detail-page .detail-toolbar {
+      justify-content: stretch;
+    }
+
+    .target-detail-page .detail-toolbar-card {
+      width: 100%;
+    }
+
+    .target-detail-page .detail-toolbar-header {
+      justify-content: flex-start;
+      text-align: left;
+    }
+  }
 </style>
 {% endblock %}
 {% block content %}
@@ -75,6 +154,85 @@
 <div class="row">
   <div class="col-md-4">
     <div id="target-info">
+      {% if object.type == 'NON_SIDEREAL' %}
+      <div class="detail-toolbar">
+        <div class="detail-toolbar-card">
+          <div class="detail-toolbar-header">
+            <span class="detail-toolbar-label">Generated (UT): {{ detail_generated_utc|date:"Y-m-d H:i:s" }}</span>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-toggle="collapse" data-target="#detail-time-picker" aria-expanded="false" aria-controls="detail-time-picker">
+              Change
+            </button>
+          </div>
+          <div id="detail-time-picker" class="collapse{% if detail_time_error %} show{% endif %} mb-2">
+            <div class="card card-body geotom-observer-panel geotom-time-panel">
+              {% if detail_time_error %}
+              <div class="alert alert-warning py-2 mb-2">{{ detail_time_error }}</div>
+              {% endif %}
+              <form method="get" action="" class="form-inline geotom-time-form">
+                {% if request.GET.tab %}
+                <input type="hidden" name="tab" value="{{ request.GET.tab }}">
+                {% endif %}
+                <input type="hidden" name="observer" value="{{ detail_observer.key }}">
+                <input type="hidden" name="lat" value="{{ detail_observer.input_lat }}">
+                <input type="hidden" name="lon" value="{{ detail_observer.input_lon }}">
+                <input type="hidden" name="elev" value="{{ detail_observer.input_elev }}">
+                <label for="id_detail_time_utc" class="mr-2 mb-0">UTC</label>
+                <input id="id_detail_time_utc" type="datetime-local" step="1" name="time_utc" class="form-control form-control-sm mr-2" value="{{ detail_generated_utc_input|default_if_none:'' }}">
+                <button type="submit" class="btn btn-primary btn-sm mr-2">Apply</button>
+                <a href="?{% if request.GET.tab %}tab={{ request.GET.tab|urlencode }}&{% endif %}observer={{ detail_observer.key|urlencode }}&lat={{ detail_observer.input_lat|urlencode }}&lon={{ detail_observer.input_lon|urlencode }}&elev={{ detail_observer.input_elev|urlencode }}" class="btn btn-outline-secondary btn-sm">Now</a>
+              </form>
+            </div>
+          </div>
+          <div class="geotom-observer">
+            <button class="btn btn-link btn-sm p-0 align-baseline geotom-observer-toggle" type="button" data-toggle="collapse" data-target="#detail-observer-picker" aria-expanded="false" aria-controls="detail-observer-picker">
+              Observer:
+            </button>
+            {% if detail_observer.key == 'unspecified' %}
+            {{ detail_observer.name }}
+            {% else %}
+            {{ detail_observer.name }} ({{ detail_observer.lat_deg }}, {{ detail_observer.lon_deg }}, {{ detail_observer.elevation_m }} m)
+            {% endif %}
+          </div>
+          <div id="detail-observer-picker" class="collapse mb-3">
+            <div class="card card-body geotom-observer-panel">
+              {% if detail_observer.error %}
+              <div class="alert alert-warning py-2 mb-2">{{ detail_observer.error }}</div>
+              {% endif %}
+              <form method="get" action="">
+                {% if request.GET.tab %}
+                <input type="hidden" name="tab" value="{{ request.GET.tab }}">
+                {% endif %}
+                <input type="hidden" name="time_utc" value="{{ detail_generated_utc_input }}">
+                <div class="form-row">
+                  <div class="form-group col-md-3">
+                    <label for="id_detail_observer">Preset</label>
+                    <select id="id_detail_observer" name="observer" class="form-control">
+                      {% for preset in detail_observer_presets %}
+                      <option value="{{ preset.key }}"{% if detail_observer.key == preset.key %} selected{% endif %}>{{ preset.name }}</option>
+                      {% endfor %}
+                      <option value="custom"{% if detail_observer.key == 'custom' %} selected{% endif %}>Custom</option>
+                    </select>
+                  </div>
+                  <div class="form-group col-md-3">
+                    <label for="id_detail_lat">Latitude</label>
+                    <input id="id_detail_lat" type="text" name="lat" class="form-control geotom-custom-input" value="{{ detail_observer.input_lat }}">
+                  </div>
+                  <div class="form-group col-md-3">
+                    <label for="id_detail_lon">Longitude</label>
+                    <input id="id_detail_lon" type="text" name="lon" class="form-control geotom-custom-input" value="{{ detail_observer.input_lon }}">
+                  </div>
+                  <div class="form-group col-md-3">
+                    <label for="id_detail_elev">Elevation [m]</label>
+                    <input id="id_detail_elev" type="text" name="elev" class="form-control geotom-custom-input" value="{{ detail_observer.input_elev }}">
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Apply Observer</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
       {% target_feature object %}
       {% if object.future_observations %}
       <div class="alert alert-success">

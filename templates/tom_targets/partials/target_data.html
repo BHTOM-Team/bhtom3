@@ -1,5 +1,9 @@
 {% load tom_common_extras targets_extras live_target_extras tz custom_target_extras %}
+{% if target.type == 'NON_SIDEREAL' %}
+{% live_target_values target detail_generated_utc detail_observer.lat_deg detail_observer.lon_deg detail_observer.elevation_m as live %}
+{% else %}
 {% live_target_values target as live %}
+{% endif %}
 <dl class="row">
   <dt class="col-sm-6">Name</dt>
   <dd class="col-sm-6">{{ target.name }}</dd>

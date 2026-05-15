@@ -1505,6 +1505,49 @@ class TargetDetailDataTests(TestCase):
         self.assertContains(response, 'Compute current Ra/Dec')
         self.assertContains(response, 'Current coordinates at')
 
+    def test_non_sidereal_target_detail_uses_selected_observer_and_time_for_live_coordinates(self):
+        target = Target.objects.create(
+            name='MinorPlanetView',
+            type=Target.NON_SIDEREAL,
+            scheme='MPC_MINOR_PLANET',
+            semimajor_axis=2.35,
+            eccentricity=0.17,
+            inclination=8.4,
+            arg_of_perihelion=132.5,
+            lng_asc_node=76.2,
+            mean_anomaly=48.1,
+            epoch_of_elements=61000.0,
+            mean_daily_motion=0.274,
+        )
+
+        with patch('custom_code.templatetags.live_target_extras.get_live_target_values', return_value={
+            'ra': 123.456,
+            'dec': -12.345,
+            'sun_separation': 101.0,
+            'altitude_deg': 45.0,
+            'computed_at_utc': datetime(2026, 4, 8, 12, 34, 56, tzinfo=timezone.utc),
+        }) as live_mock:
+            response = self.client.get(
+                reverse('targets:detail', kwargs={'pk': target.pk}),
+                {
+                    'observer': 'ostrowik',
+                    'time_utc': '2026-04-08T12:34:56',
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Generated (UT): 2026-04-08 12:34:56')
+        self.assertContains(response, 'Observer:')
+        self.assertContains(response, 'Ostrowik (52.087981, 21.41614, 120.0 m)')
+        self.assertContains(response, 'name="time_utc"')
+        self.assertContains(response, 'name="observer"')
+        live_mock.assert_called_once()
+        _, kwargs = live_mock.call_args
+        self.assertEqual(kwargs['observer_lat_deg'], 52.087981)
+        self.assertEqual(kwargs['observer_lon_deg'], 21.41614)
+        self.assertEqual(kwargs['observer_elevation_m'], 120.0)
+        self.assertEqual(kwargs['time_to_compute'].to_datetime(timezone=timezone.utc).isoformat(), '2026-04-08T12:34:56+00:00')
+
 
 class GaiaCurrentCoordinateComputationTests(TestCase):
     def test_can_compute_current_coordinates_requires_good_parallax_signal_to_noise(self):
