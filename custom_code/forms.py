@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from django import forms
 from django.core.exceptions import ValidationError
 from django.forms import BaseInlineFormSet, inlineformset_factory
+from tom_common.forms import CustomUserCreationForm
 
 from tom_catalogs.harvester import get_service_classes
 from tom_targets.forms import NonSiderealTargetCreateForm, SiderealTargetCreateForm
@@ -34,6 +35,25 @@ SIDEREAL_CREATE_FORM_HIDDEN_FIELDS = CREATE_FORM_HIDDEN_FIELDS + (
 
 class GeoTomAddSatForm(forms.Form):
     norad_id = forms.IntegerField(min_value=1, label="NORAD ID")
+
+
+class BhtomUserCreationForm(CustomUserCreationForm):
+    """
+    Local override for TOM's shared user form.
+
+    TOM's current implementation bypasses ModelForm.save() via an MRO trick that no
+    longer reliably persists field updates in this environment. Save directly through
+    ModelForm and only update the password when the field was populated.
+    """
+
+    def save(self, commit=True):
+        user = forms.ModelForm.save(self, commit=False)
+        if self.cleaned_data.get('password1'):
+            user.set_password(self.cleaned_data['password1'])
+        if commit:
+            user.save()
+            self.save_m2m()
+        return user
 
 
 class TargetAliasForm(forms.ModelForm):

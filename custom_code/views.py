@@ -48,6 +48,7 @@ from tom_dataservices.views import (
     DataServiceQueryCreateView,
     DataServiceQueryUpdateView,
 )
+from tom_common.views import UserCreateView as TomCommonUserCreateView
 from tom_common.views import UserUpdateView as TomCommonUserUpdateView
 
 from custom_code.filters import BhtomTargetFilterSet
@@ -60,6 +61,7 @@ from custom_code.forms import (
     BhtomSiderealTargetCreateForm,
     BhtomSiderealTargetUpdateForm,
     BhtomTargetNamesFormset,
+    BhtomUserCreationForm,
     GeoTomAddSatForm,
 )
 from custom_code.models import GeoTarget, TransitEphemeris
@@ -2247,7 +2249,13 @@ class UserProfileRedirectView(View):
         return redirect('user-update', pk=request.user.pk)
 
 
+class UserCreateWithFixedFormView(TomCommonUserCreateView):
+    form_class = BhtomUserCreationForm
+
+
 class UserUpdateWithTokenView(TomCommonUserUpdateView):
+    form_class = BhtomUserCreationForm
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if getattr(self, 'object', None) is not None:

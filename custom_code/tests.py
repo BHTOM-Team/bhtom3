@@ -2505,6 +2505,57 @@ class TokenAuthAndProfileTests(TestCase):
         token = Token.objects.get(user=user)
         self.assertContains(response, token.key)
 
+    def test_user_create_post_persists_user_and_redirects(self):
+        admin = get_user_model().objects.create_superuser('profile-admin', 'admin@example.com', 'secret')
+        self.client.force_login(admin)
+
+        response = self.client.post(
+            reverse('user-create'),
+            data={
+                'username': 'created-user',
+                'first_name': 'Created',
+                'last_name': 'User',
+                'email': 'created@example.com',
+                'password1': 'create-user-secret-123',
+                'password2': 'create-user-secret-123',
+            },
+        )
+
+        self.assertRedirects(response, reverse('user-list'))
+        created_user = get_user_model().objects.get(username='created-user')
+        self.assertEqual(created_user.first_name, 'Created')
+        self.assertEqual(created_user.last_name, 'User')
+        self.assertEqual(created_user.email, 'created@example.com')
+        self.assertTrue(created_user.check_password('create-user-secret-123'))
+
+    def test_user_update_post_persists_profile_changes_without_password_reset(self):
+        user = get_user_model().objects.create_user(
+            username='profile-edit-user',
+            password='existing-secret',
+            first_name='Before',
+            email='before@example.com',
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse('user-update', kwargs={'pk': user.pk}),
+            data={
+                'username': 'profile-edit-user',
+                'first_name': 'After',
+                'last_name': 'Editor',
+                'email': 'after@example.com',
+                'password1': '',
+                'password2': '',
+            },
+        )
+
+        self.assertRedirects(response, reverse('user-update', kwargs={'pk': user.pk}))
+        user.refresh_from_db()
+        self.assertEqual(user.first_name, 'After')
+        self.assertEqual(user.last_name, 'Editor')
+        self.assertEqual(user.email, 'after@example.com')
+        self.assertTrue(user.check_password('existing-secret'))
+
 
 class TargetDownloadPhotometryApiTests(TestCase):
     def setUp(self):
