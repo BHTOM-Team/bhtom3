@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 
 from django import forms
 from django.core.exceptions import ValidationError
@@ -256,6 +257,46 @@ class BhtomNonSiderealTargetCreateForm(NonSiderealTargetCreateForm):
         super().__init__(*args, **kwargs)
         for field_name in CREATE_FORM_HIDDEN_FIELDS:
             self.fields.pop(field_name, None)
+
+
+class NonSiderealTargetVisibilityForm(forms.Form):
+    start_time = forms.DateTimeField(
+        required=True,
+        label='Start Time',
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M:%S',
+            attrs={'type': 'datetime-local', 'step': '1'},
+        ),
+    )
+    end_time = forms.DateTimeField(
+        required=True,
+        label='End Time',
+        input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M:%S',
+            attrs={'type': 'datetime-local', 'step': '1'},
+        ),
+    )
+    airmass = forms.DecimalField(required=False, label='Maximum Airmass', initial=2.5)
+
+    def __init__(self, *args, **kwargs):
+        initial = kwargs.setdefault('initial', {})
+        now_utc = datetime.utcnow().replace(microsecond=0)
+        initial.setdefault('start_time', now_utc)
+        initial.setdefault('end_time', now_utc + timedelta(days=1))
+        initial.setdefault('airmass', 2.5)
+        super().__init__(*args, **kwargs)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_time = cleaned_data.get('start_time')
+        end_time = cleaned_data.get('end_time')
+        if start_time and end_time and end_time < start_time:
+            raise forms.ValidationError('Start time must be before end time')
+        return cleaned_data
+
+
 class BhtomSiderealTargetUpdateForm(BhtomSiderealTargetCreateForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -56,6 +56,7 @@ from custom_code.data_services.forms import ExoClockQueryForm, GaiaDR3QueryForm,
 from custom_code.data_services.service_utils import resolve_query_coordinates
 from custom_code.forms import (
     BhtomNonSiderealTargetCreateForm,
+    NonSiderealTargetVisibilityForm,
     BhtomPlanetaryTransitTargetCreateForm,
     BhtomPlanetaryTransitTargetUpdateForm,
     BhtomSiderealTargetCreateForm,
@@ -1574,6 +1575,15 @@ class GaiaCurrentCoordinateComputationTests(TestCase):
 
 
 class NonSiderealVisibilityTests(TestCase):
+    def test_non_sidereal_visibility_form_accepts_datetime_range_and_airmass(self):
+        form = NonSiderealTargetVisibilityForm(data={
+            'start_time': '2026-04-08T00:00:00',
+            'end_time': '2026-04-09T00:00:00',
+            'airmass': '2.5',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+
     def test_non_sidereal_visibility_uses_registered_sites(self):
         target = Target(
             name='MinorPlanetVisibility',
@@ -1616,14 +1626,7 @@ class NonSiderealVisibilityTests(TestCase):
             name='MinorPlanetPlan',
             type=Target.NON_SIDEREAL,
         )
-        request = RequestFactory().get(
-            reverse('targets:detail', kwargs={'pk': target.pk}),
-            {
-                'start_time': '2026-04-08 00:00:00',
-                'end_time': '2026-04-08 01:00:00',
-                'airmass': '2.5',
-            },
-        )
+        request = RequestFactory().get(reverse('targets:detail', kwargs={'pk': target.pk}))
 
         with patch('custom_code.templatetags.custom_observation_extras.get_non_sidereal_visibility', return_value={
             '(FakeFacility) Warsaw': (
@@ -1639,6 +1642,7 @@ class NonSiderealVisibilityTests(TestCase):
         self.assertEqual(context['target'], target)
         self.assertIn('plotly', context['visibility_graph'])
         self.assertIn('(FakeFacility) Warsaw', context['visibility_graph'])
+        self.assertEqual(context['form']['airmass'].value(), '2.5')
 
 
 class PlanetaryTransitTargetCreateTests(TestCase):
