@@ -256,6 +256,8 @@
       {% recent_photometry object limit=3 %}
       {% if object.type == 'SIDEREAL' %}
       {% aladin_finderchart object %}
+      {% elif object.type == 'NON_SIDEREAL' %}
+      {% non_sidereal_aladin object %}
       {% endif %}
 
     </div>

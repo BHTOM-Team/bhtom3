@@ -3,6 +3,7 @@ from django.conf import settings
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 
 from custom_code.astrometry import can_compute_current_coordinates
+from custom_code.sun_separation import get_live_target_values
 
 register = template.Library()
 
@@ -137,4 +138,36 @@ def bhtom_target_data(context, target):
         'tags': tags,
         'target_other_names': other_names,
         'transit_ephemeris': transit_ephemeris,
+    }
+
+
+@register.inclusion_tag('tom_targets/partials/non_sidereal_aladin.html', takes_context=True)
+def non_sidereal_aladin(context, target):
+    observer = context.get('detail_observer') or {}
+    calculation_time = context.get('detail_generated_utc')
+    if (
+        target.type != 'NON_SIDEREAL' or
+        not calculation_time or
+        not observer or
+        observer.get('key') in (None, '', 'unspecified')
+    ):
+        return {'render_chart': False}
+
+    live = get_live_target_values(
+        target,
+        time_to_compute=calculation_time,
+        observer_lat_deg=observer.get('lat_deg'),
+        observer_lon_deg=observer.get('lon_deg'),
+        observer_elevation_m=observer.get('elevation_m'),
+    )
+    ra = live.get('ra')
+    dec = live.get('dec')
+    if ra is None or dec is None:
+        return {'render_chart': False}
+
+    return {
+        'render_chart': True,
+        'target': target,
+        'chart_ra': ra,
+        'chart_dec': dec,
     }

@@ -67,7 +67,7 @@ from custom_code.models import GeoTarget, TransitEphemeris
 from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
 from custom_code.signals import cleanup_target_relations_on_target_delete
 from custom_code.templatetags.custom_observation_extras import nonsidereal_target_plan
-from custom_code.templatetags.custom_target_extras import bhtom_target_data
+from custom_code.templatetags.custom_target_extras import bhtom_target_data, non_sidereal_aladin
 from custom_code.templatetags.custom_target_extras import truncate_decimals
 from custom_code.tasks import _build_query_parameters_for_service, _run_service_for_target
 from custom_code.tasks import _get_or_create_target_alias
@@ -1647,6 +1647,33 @@ class NonSiderealVisibilityTests(TestCase):
         self.assertIn('(FakeFacility) Warsaw', context['visibility_graph'])
         self.assertEqual(context['form']['airmass'].value(), '2.5')
 
+    def test_non_sidereal_aladin_requires_specific_observer(self):
+        target = Target(name='MinorPlanetChart', type=Target.NON_SIDEREAL)
+
+        hidden = non_sidereal_aladin({
+            'detail_generated_utc': datetime(2026, 4, 8, 0, 0, tzinfo=timezone.utc),
+            'detail_observer': {'key': 'unspecified'},
+        }, target)
+        self.assertFalse(hidden['render_chart'])
+
+        with patch('custom_code.templatetags.custom_target_extras.get_live_target_values', return_value={
+            'ra': 123.4,
+            'dec': -12.3,
+        }):
+            shown = non_sidereal_aladin({
+                'detail_generated_utc': datetime(2026, 4, 8, 0, 0, tzinfo=timezone.utc),
+                'detail_observer': {
+                    'key': 'ostrowik',
+                    'lat_deg': 52.087981,
+                    'lon_deg': 21.41614,
+                    'elevation_m': 120.0,
+                },
+            }, target)
+
+        self.assertTrue(shown['render_chart'])
+        self.assertEqual(shown['chart_ra'], 123.4)
+        self.assertEqual(shown['chart_dec'], -12.3)
+
 
 class PlanetaryTransitTargetCreateTests(TestCase):
     def test_create_view_uses_planetary_transit_form_for_classification(self):
@@ -2372,6 +2399,17 @@ class TargetListViewTests(TestCase):
         self.assertEqual(first_response.status_code, 200)
         self.assertEqual(second_response.status_code, 200)
         self.assertContains(second_response, 'Ostrowik (52.087981, 21.41614, 120.0 m)')
+
+    def test_target_detail_uses_time_saved_from_target_list(self):
+        user = get_user_model().objects.create_user(username='tester4', password='pass')
+        self.client.force_login(user)
+        target = Target.objects.create(name='MinorPlanetSharedTime', type=Target.NON_SIDEREAL)
+
+        self.client.get('/targets/', {'time_utc': '2026-04-21T12:34:56'})
+        response = self.client.get(reverse('targets:detail', kwargs={'pk': target.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '2026-04-21 12:34:56')
 
 
 class GeoTomViewTests(TestCase):

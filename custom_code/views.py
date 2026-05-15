@@ -83,6 +83,7 @@ logger = logging.getLogger(__name__)
 CATALOG_RESULTS_SESSION_KEY = 'catalog_query_results'
 CATALOG_FORM_SESSION_KEY = 'catalog_query_form_data'
 TARGET_LIST_OBSERVER_SESSION_KEY = 'target_list_observer'
+TARGET_LIST_TIME_SESSION_KEY = 'target_list_time'
 LIST_OBSERVER_PRESETS = {
     'warsaw': {'name': 'Warsaw', 'lat_deg': 52.2297, 'lon_deg': 21.0122, 'elevation_m': 100.0},
     'ostrowik': {'name': 'Ostrowik', 'lat_deg': 52.087981, 'lon_deg': 21.41614, 'elevation_m': 120.0},
@@ -217,7 +218,13 @@ def _parse_utc_datetime(value):
 
 
 def _resolve_list_calculation_time(request):
-    time_raw = (request.GET.get('time_utc') or '').strip()
+    saved = request.session.get(TARGET_LIST_TIME_SESSION_KEY, {}) if hasattr(request, 'session') else {}
+    if 'time_utc' in request.GET:
+        time_raw = (request.GET.get('time_utc') or '').strip()
+    elif request.GET:
+        time_raw = ''
+    else:
+        time_raw = (saved.get('time_utc') or '').strip()
     calculation_time_utc = _parse_utc_datetime(time_raw)
     if calculation_time_utc is not None:
         return calculation_time_utc, calculation_time_utc.strftime('%Y-%m-%dT%H:%M:%S'), ''
@@ -229,6 +236,14 @@ def _resolve_list_calculation_time(request):
         )
     now_utc = datetime.now(timezone.utc)
     return now_utc, now_utc.strftime('%Y-%m-%dT%H:%M:%S'), ''
+
+
+def _store_list_calculation_time(request, calculation_time_input):
+    if not hasattr(request, 'session'):
+        return
+    request.session[TARGET_LIST_TIME_SESSION_KEY] = {
+        'time_utc': calculation_time_input or '',
+    }
 
 
 def _format_geotom_row(target, sat):
@@ -1478,6 +1493,7 @@ class Bhtom2TargetListView(TargetListView):
             include_unspecified=True,
         )
         _store_list_observer(self.request, observer)
+        _store_list_calculation_time(self.request, calculation_time_input)
         visible_only = str(self.request.GET.get('visible_only', '')).lower() in ('1', 'true', 'yes', 'on')
         min_visible_altitude, min_visible_altitude_input = self._resolve_min_visible_altitude(self.request)
 
@@ -1715,6 +1731,7 @@ class BhtomTargetDetailView(TargetDetailView):
                 include_unspecified=True,
             )
             _store_list_observer(self.request, observer)
+            _store_list_calculation_time(self.request, calculation_time_input)
             context['detail_generated_utc'] = calculation_time_utc
             context['detail_generated_utc_input'] = calculation_time_input
             context['detail_time_error'] = calculation_time_error
