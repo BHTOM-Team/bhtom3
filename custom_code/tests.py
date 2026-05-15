@@ -1,7 +1,10 @@
 import json
+from datetime import datetime
 from unittest.mock import Mock, patch
 
 from astropy.time import Time
+from astropy import units as u
+from astropy.coordinates import SkyCoord
 from datetime import timezone
 from django.core.cache import cache
 from django.contrib.auth import get_user_model
@@ -60,7 +63,9 @@ from custom_code.forms import (
     BhtomTargetNamesFormset,
 )
 from custom_code.models import GeoTarget, TransitEphemeris
+from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
 from custom_code.signals import cleanup_target_relations_on_target_delete
+from custom_code.templatetags.custom_observation_extras import nonsidereal_target_plan
 from custom_code.templatetags.custom_target_extras import bhtom_target_data
 from custom_code.templatetags.custom_target_extras import truncate_decimals
 from custom_code.tasks import _build_query_parameters_for_service, _run_service_for_target
@@ -1566,6 +1571,74 @@ class GaiaCurrentCoordinateComputationTests(TestCase):
 
         target.parallax_error = 0.5
         self.assertTrue(can_compute_current_coordinates(target))
+
+
+class NonSiderealVisibilityTests(TestCase):
+    def test_non_sidereal_visibility_uses_registered_sites(self):
+        target = Target(
+            name='MinorPlanetVisibility',
+            type=Target.NON_SIDEREAL,
+        )
+
+        class FakeFacility:
+            def get_observing_sites(self):
+                return {
+                    'Warsaw': {
+                        'latitude': 52.2297,
+                        'longitude': 21.0122,
+                        'elevation': 100.0,
+                    }
+                }
+
+        with patch('custom_code.non_sidereal_visibility.facility.get_service_classes', return_value={'FakeFacility': FakeFacility}), \
+             patch('custom_code.non_sidereal_visibility.facility.get_service_class', return_value=FakeFacility), \
+             patch('custom_code.non_sidereal_visibility._resolve_target_coordinates_now', return_value=(120.0, 22.0)) as resolve_mock, \
+             patch('custom_code.non_sidereal_visibility.get_sun', return_value=SkyCoord(ra=0 * u.deg, dec=-90 * u.deg, frame='icrs')):
+            visibility = get_non_sidereal_visibility(
+                target,
+                datetime(2026, 4, 8, 0, 0, tzinfo=timezone.utc),
+                datetime(2026, 4, 8, 1, 0, tzinfo=timezone.utc),
+                30,
+                5.0,
+            )
+
+        self.assertIn('(FakeFacility) Warsaw', visibility)
+        times, airmasses = visibility['(FakeFacility) Warsaw']
+        self.assertEqual(len(times), len(airmasses))
+        self.assertTrue(any(value is not None for value in airmasses))
+        _, kwargs = resolve_mock.call_args
+        self.assertEqual(kwargs['observer_lat_deg'], 52.2297)
+        self.assertEqual(kwargs['observer_lon_deg'], 21.0122)
+        self.assertEqual(kwargs['observer_elevation_m'], 100.0)
+
+    def test_nonsidereal_target_plan_renders_plot_with_visibility_data(self):
+        target = Target.objects.create(
+            name='MinorPlanetPlan',
+            type=Target.NON_SIDEREAL,
+        )
+        request = RequestFactory().get(
+            reverse('targets:detail', kwargs={'pk': target.pk}),
+            {
+                'start_time': '2026-04-08 00:00:00',
+                'end_time': '2026-04-08 01:00:00',
+                'airmass': '2.5',
+            },
+        )
+
+        with patch('custom_code.templatetags.custom_observation_extras.get_non_sidereal_visibility', return_value={
+            '(FakeFacility) Warsaw': (
+                [
+                    datetime(2026, 4, 8, 0, 0, tzinfo=timezone.utc),
+                    datetime(2026, 4, 8, 1, 0, tzinfo=timezone.utc),
+                ],
+                [1.5, 2.0],
+            )
+        }):
+            context = nonsidereal_target_plan({'request': request, 'object': target})
+
+        self.assertEqual(context['target'], target)
+        self.assertIn('plotly', context['visibility_graph'])
+        self.assertIn('(FakeFacility) Warsaw', context['visibility_graph'])
 
 
 class PlanetaryTransitTargetCreateTests(TestCase):

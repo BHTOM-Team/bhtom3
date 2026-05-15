@@ -1,0 +1,80 @@
+from datetime import datetime, timedelta
+
+from django import template
+from plotly import offline
+from plotly import graph_objs as go
+
+from tom_targets.forms import TargetVisibilityForm
+
+from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
+
+register = template.Library()
+
+
+@register.inclusion_tag('tom_targets/partials/target_plan.html', takes_context=True)
+def nonsidereal_target_plan(
+    context,
+    fast_render=False,
+    width=600,
+    height=400,
+    background=None,
+    label_color=None,
+    grid=True,
+):
+    request = context['request']
+    plan_form = TargetVisibilityForm()
+    visibility_graph = ''
+    if all(request.GET.get(x) for x in ['start_time', 'end_time']) or fast_render:
+        plan_form = TargetVisibilityForm({
+            'start_time': request.GET.get('start_time', datetime.utcnow()),
+            'end_time': request.GET.get('end_time', datetime.utcnow() + timedelta(days=1)),
+            'airmass': request.GET.get('airmass', 2.5),
+            'target': context['object'],
+        })
+        if plan_form.is_valid():
+            start_time = plan_form.cleaned_data['start_time']
+            end_time = plan_form.cleaned_data['end_time']
+            airmass_limit = plan_form.cleaned_data['airmass']
+            visibility_data = get_non_sidereal_visibility(
+                context['object'],
+                start_time,
+                end_time,
+                10,
+                airmass_limit,
+            )
+            plot_data = [
+                go.Scatter(x=data[0], y=data[1], mode='lines', name=site)
+                for site, data in visibility_data.items()
+            ]
+            layout = go.Layout(
+                yaxis=dict(autorange='reversed'),
+                width=width,
+                height=height,
+                paper_bgcolor=background,
+                plot_bgcolor=background,
+            )
+            layout.legend.font.color = label_color
+            fig = go.Figure(data=plot_data, layout=layout)
+            fig.update_yaxes(
+                title='Airmass',
+                showgrid=grid,
+                color=label_color,
+                showline=True,
+                linecolor=label_color,
+                mirror=True,
+            )
+            fig.update_xaxes(
+                title='Date',
+                showgrid=grid,
+                color=label_color,
+                showline=True,
+                linecolor=label_color,
+                mirror=True,
+            )
+            visibility_graph = offline.plot(fig, output_type='div', show_link=False)
+
+    return {
+        'form': plan_form,
+        'target': context['object'],
+        'visibility_graph': visibility_graph,
+    }

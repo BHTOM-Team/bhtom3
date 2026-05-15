@@ -1,5 +1,5 @@
 {% extends 'tom_common/base.html' %}
-{% load comments bootstrap4 tom_common_extras targets_extras observation_extras dataproduct_extras custom_dataproduct_extras custom_target_extras static cache %}
+{% load comments bootstrap4 tom_common_extras targets_extras observation_extras custom_observation_extras dataproduct_extras custom_dataproduct_extras custom_target_extras static cache %}
 {% block title %}Target {{ object.name }}{% endblock %}
 {% block additional_css %}
 <link rel="stylesheet" href="{% static 'tom_targets/css/main.css' %}">
@@ -44,22 +44,23 @@
 
   .target-detail-page .detail-toolbar {
     display: flex;
-    justify-content: flex-end;
-    margin-bottom: 0.75rem;
+    justify-content: flex-start;
+    margin-bottom: 1rem;
   }
 
   .target-detail-page .detail-toolbar-card {
-    width: min(100%, 420px);
+    width: 100%;
+    max-width: 420px;
   }
 
   .target-detail-page .detail-toolbar-header {
     display: flex;
-    justify-content: flex-end;
+    justify-content: flex-start;
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
-    margin-bottom: 0.5rem;
-    text-align: right;
+    margin-bottom: 0.35rem;
+    text-align: left;
   }
 
   .target-detail-page .detail-toolbar-label {
@@ -67,9 +68,18 @@
     font-size: 0.95rem;
   }
 
+  .target-detail-page .detail-toolbar-value {
+    color: #e8eef8;
+    font-weight: 600;
+  }
+
   .target-detail-page .geotom-observer {
     color: #e8eef8;
     font-weight: 500;
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    flex-wrap: wrap;
   }
 
   .target-detail-page .geotom-observer-toggle {
@@ -108,7 +118,7 @@
 
   @media (max-width: 767px) {
     .target-detail-page .detail-toolbar {
-      justify-content: stretch;
+      justify-content: flex-start;
     }
 
     .target-detail-page .detail-toolbar-card {
@@ -158,7 +168,8 @@
       <div class="detail-toolbar">
         <div class="detail-toolbar-card">
           <div class="detail-toolbar-header">
-            <span class="detail-toolbar-label">Generated (UT): {{ detail_generated_utc|date:"Y-m-d H:i:s" }}</span>
+            <span class="detail-toolbar-label">Generated (UT):</span>
+            <span class="detail-toolbar-value">{{ detail_generated_utc|date:"Y-m-d H:i:s" }}</span>
             <button class="btn btn-outline-secondary btn-sm" type="button" data-toggle="collapse" data-target="#detail-time-picker" aria-expanded="false" aria-controls="detail-time-picker">
               Change
             </button>
@@ -294,7 +305,7 @@
           {% target_plan %}
           {% moon_distance object %}
         {% elif target.type == 'NON_SIDEREAL' %}
-          <p>Airmass plotting for non-sidereal targets is not currently supported. If you would like to add this functionality, please check out the <a href="https://github.com/TOMToolkit/tom_nonsidereal_airmass" target="_blank">non-sidereal airmass plugin.</a></p>
+          {% nonsidereal_target_plan %}
         {% endif %}
       </div>
       <div class="tab-pane" id="observations">
