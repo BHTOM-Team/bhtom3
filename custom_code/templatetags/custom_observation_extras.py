@@ -31,7 +31,11 @@ def nonsidereal_target_plan(
     }
     plan_form = NonSiderealTargetVisibilityForm(data=form_data)
     visibility_graph = ''
-    if plan_form.is_valid():
+    should_render = (
+        request.GET.get('tab') == 'observe' or
+        any(request.GET.get(key) for key in ('start_time', 'end_time', 'airmass'))
+    )
+    if should_render and plan_form.is_valid():
         start_time = plan_form.cleaned_data['start_time']
         end_time = plan_form.cleaned_data['end_time']
         airmass_limit = plan_form.cleaned_data['airmass']

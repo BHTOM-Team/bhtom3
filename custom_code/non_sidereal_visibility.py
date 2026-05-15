@@ -1,51 +1,14 @@
 import math
 
-import numpy as np
 from astroplan import Observer, time_grid_from_range
 from astropy import units
-from astropy.coordinates import EarthLocation, SkyCoord, get_body, get_sun
+from astropy.coordinates import SkyCoord, get_sun
 from astropy.time import Time
 
 from tom_observations import facility
 from tom_targets.models import Target
 
-from custom_code.sun_separation import (
-    _build_elements_from_target,
-    _ecliptic_to_equatorial_j2000,
-    _heliocentric_ecliptic_xyz,
-)
-
-
-def _geocentric_icrs_xyz_series(target, time_range):
-    elements = _build_elements_from_target(target)
-    if elements is None:
-        return None
-
-    obj_xyz_eq = []
-    valid_mask = []
-    for tt in time_range:
-        obj_xyz_ecl = _heliocentric_ecliptic_xyz(elements, tt)
-        if obj_xyz_ecl is None:
-            obj_xyz_eq.append((np.nan, np.nan, np.nan))
-            valid_mask.append(False)
-            continue
-        obj_xyz_eq.append(_ecliptic_to_equatorial_j2000(*obj_xyz_ecl))
-        valid_mask.append(True)
-
-    obj_xyz_eq = np.asarray(obj_xyz_eq, dtype=float)
-
-    earth_bary = get_body("earth", time_range).cartesian
-    sun_bary = get_body("sun", time_range).cartesian
-    earth_helio = earth_bary - sun_bary
-    ex = earth_helio.x.to(units.au).value
-    ey = earth_helio.y.to(units.au).value
-    ez = earth_helio.z.to(units.au).value
-
-    gx = obj_xyz_eq[:, 0] - ex
-    gy = obj_xyz_eq[:, 1] - ey
-    gz = obj_xyz_eq[:, 2] - ez
-
-    return gx, gy, gz, np.asarray(valid_mask, dtype=bool)
+from custom_code.sun_separation import _resolve_target_coordinates_now
 
 
 def get_non_sidereal_visibility(target, start_time, end_time, interval, airmass_limit, observation_facility=None):
@@ -72,11 +35,6 @@ def get_non_sidereal_visibility(target, start_time, end_time, interval, airmass_
     start = Time(start_time)
     end = Time(end_time)
     time_range = time_grid_from_range(time_range=[start, end], time_resolution=interval * units.minute)
-    geocentric_xyz = _geocentric_icrs_xyz_series(target, time_range)
-    if geocentric_xyz is None:
-        return {}
-    gx, gy, gz, valid_mask = geocentric_xyz
-    sun_coords = get_sun(time_range)
 
     visibility = {}
     for observing_facility in facilities:
@@ -89,39 +47,38 @@ def get_non_sidereal_visibility(target, start_time, end_time, interval, airmass_
             if latitude in (None, '') or longitude in (None, ''):
                 continue
 
-            location = EarthLocation(
-                lon=float(longitude) * units.deg,
-                lat=float(latitude) * units.deg,
-                height=float(elevation) * units.m,
-            )
             observer = Observer(
-                location=location,
+                longitude=float(longitude) * units.deg,
+                latitude=float(latitude) * units.deg,
+                elevation=float(elevation) * units.m,
             )
-            observer_gcrs, _ = location.get_gcrs_posvel(time_range)
-            topox = gx - observer_gcrs.x.to(units.au).value
-            topoy = gy - observer_gcrs.y.to(units.au).value
-            topoz = gz - observer_gcrs.z.to(units.au).value
-
-            body = SkyCoord(
-                x=topox * units.au,
-                y=topoy * units.au,
-                z=topoz * units.au,
-                representation_type='cartesian',
-                frame='icrs',
-            )
-            obj_altaz = observer.altaz(time_range, body)
-            sun_alt = observer.altaz(time_range, sun_coords).alt.deg
 
             times = []
             airmasses = []
-            for idx, tt in enumerate(time_range):
-                secz = float(obj_altaz.secz[idx])
+            for tt in time_range:
+                coords = _resolve_target_coordinates_now(
+                    target,
+                    time_to_compute=tt,
+                    observer_lat_deg=latitude,
+                    observer_lon_deg=longitude,
+                    observer_elevation_m=elevation,
+                )
+                if coords is None:
+                    times.append(tt.to_datetime())
+                    airmasses.append(None)
+                    continue
+
+                ra, dec = coords
+                body = SkyCoord(ra=ra * units.deg, dec=dec * units.deg, frame='icrs')
+                obj_altaz = observer.altaz(tt, body)
+                sun_alt = observer.altaz(tt, get_sun(tt)).alt
+
+                secz = float(obj_altaz.secz)
                 if (
-                    not valid_mask[idx] or
                     not math.isfinite(secz) or
                     secz >= airmass_limit or
                     secz <= 1.0 or
-                    float(sun_alt[idx]) > -18.0
+                    float(sun_alt.deg) > -18.0
                 ):
                     secz = None
 
