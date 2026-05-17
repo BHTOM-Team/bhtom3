@@ -77,7 +77,7 @@ class HSTDataService(DataService):
 
         self.query_results = {
             'lc_data': lc_data,
-            'source_location': source_location,
+            'source_location': source_location or HUBBLE_PAGE,
             'ra': ra,
             'dec': dec,
         }
