@@ -39,7 +39,12 @@ from custom_code.data_services.asassn_dataservice import ASASSNDataService
 from custom_code.data_services.exoclock_dataservice import ExoClockDataService
 from custom_code.data_services.gaia_alerts_dataservice import GaiaAlertsDataService
 from custom_code.data_services.gaia_dr3_dataservice import GaiaDR3DataService
-from custom_code.data_services.kmt_dataservice import KMTDataService, _event_id as _kmt_event_id, _normalize_event_name as _normalize_kmt_event_name
+from custom_code.data_services.kmt_dataservice import (
+    KMTDataService,
+    _event_id as _kmt_event_id,
+    _normalize_event_name as _normalize_kmt_event_name,
+    _normalize_hjd as _normalize_kmt_hjd,
+)
 from custom_code.data_services.neowise_dataservice import NeoWISEDataService
 from custom_code.data_services.twomass_dataservice import TwoMASSDataService
 from custom_code.bhtom_catalogs.harvesters.simbad import target_from_result
@@ -976,6 +981,10 @@ class KMTDataServiceTests(TestCase):
         self.assertEqual(_normalize_kmt_event_name('2017-BLG-2573'), 'KMT-2017-BLG-2573')
         self.assertEqual(_normalize_kmt_event_name('KMT-2017-BLG-2573'), 'KMT-2017-BLG-2573')
         self.assertEqual(_kmt_event_id('KMT-2017-BLG-2573'), 'KB172573')
+
+    def test_helper_normalizes_both_legacy_and_full_hjd_formats(self):
+        self.assertEqual(_normalize_kmt_hjd(7837.28797), 2457837.28797)
+        self.assertEqual(_normalize_kmt_hjd(2461083.25762), 2461083.25762)
 
     def test_query_targets_by_name_includes_photometry(self):
         service = KMTDataService()

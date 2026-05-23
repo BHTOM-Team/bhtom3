@@ -77,6 +77,15 @@ def _event_tar_url(event_name):
     return f'{KMT_BASE_URL}{year}/data/{event_id}/pysis/pysis.tar.gz'
 
 
+def _normalize_hjd(value):
+    hjd = _to_float(value)
+    if hjd is None:
+        return None
+    if hjd >= 2400000.0:
+        return hjd
+    return hjd + 2450000.0
+
+
 def _read_pysis_table(fileobj):
     header = None
     lines = []
@@ -299,13 +308,13 @@ class KMTDataService(DataService):
                 facility = f'{site_label}_{site_code}'
                 df = df[df['mag_err'] > 0].copy()
                 for _, row in df.iterrows():
-                    hjd = _to_float(row.get('HJD'))
+                    hjd = _normalize_hjd(row.get('HJD'))
                     magnitude = _to_float(row.get('mag'))
                     error = _to_float(row.get('mag_err'))
                     if hjd is None or magnitude is None or error is None:
                         continue
                     rows.append({
-                        'hjd': hjd + 2450000.0,
+                        'hjd': hjd,
                         'magnitude': magnitude,
                         'error': error,
                         'facility': facility,
