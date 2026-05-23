@@ -460,6 +460,61 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     bhtom_pallas_active_tab = 'photometry'
 
 
+class BhtomPallasAView(BhtomPallasBaseMixin, TemplateView):
+    template_name = 'tom_common/bhtom_pallas_a.html'
+    bhtom_pallas_active_tab = 'a'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        deltara_input = (self.request.GET.get('deltara') or '').strip()
+        deltadec_input = (self.request.GET.get('deltadec') or '').strip()
+        max_trailing_input = (self.request.GET.get('max_trailing') or '').strip()
+        calculation_requested = any([deltara_input, deltadec_input, max_trailing_input])
+
+        context.update({
+            'deltara_input': deltara_input,
+            'deltadec_input': deltadec_input,
+            'max_trailing_input': max_trailing_input,
+            'calculation_requested': calculation_requested,
+            'observation_planning_error': '',
+            'sky_motion_per_min': None,
+            'sky_motion_per_sec': None,
+            'exposure_time': None,
+        })
+
+        if not calculation_requested:
+            return context
+
+        deltara = _parse_float(deltara_input)
+        deltadec = _parse_float(deltadec_input)
+        max_trailing = _parse_float(max_trailing_input)
+
+        if not all(_is_finite_number(value) for value in [deltara, deltadec, max_trailing]):
+            context['observation_planning_error'] = 'Enter numeric values for dRA*cosD, d(DEC)/dt, and maximum allowed trailing.'
+            return context
+
+        if max_trailing <= 0:
+            context['observation_planning_error'] = 'Maximum allowed trailing must be greater than zero.'
+            return context
+
+        deltara_per_min = deltara / 60
+        deltadec_per_min = deltadec / 60
+        sky_motion_per_min = (deltara_per_min**2 + deltadec_per_min**2)**0.5
+        sky_motion_per_sec = sky_motion_per_min / 60
+
+        if sky_motion_per_sec <= 0:
+            context['observation_planning_error'] = 'Sky motion is zero, so a maximum exposure time cannot be computed.'
+            return context
+
+        exposure_time = max_trailing / sky_motion_per_sec
+        context.update({
+            'sky_motion_per_min': sky_motion_per_min,
+            'sky_motion_per_sec': sky_motion_per_sec,
+            'exposure_time': exposure_time,
+        })
+        return context
+
+
 class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
     template_name = 'tom_common/bhtom_pallas_ephemeris.html'
     bhtom_pallas_active_tab = 'ephemeris'

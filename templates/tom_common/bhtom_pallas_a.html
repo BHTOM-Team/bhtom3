@@ -1,5 +1,5 @@
 {% extends 'tom_common/base.html' %}
-{% block title %}BHTOM-PALLAS Photometry{% endblock %}
+{% block title %}BHTOM-PALLAS Observation Planning{% endblock %}
 {% block content %}
 <div style="margin: -0.5rem -15px 0; padding: 0 15px 3rem; background-color: #182431; background-image:
   radial-gradient(circle at 12% 18%, rgba(214,229,242,0.045) 0, rgba(214,229,242,0.045) 8px, transparent 9px),
@@ -38,8 +38,38 @@
         </li>
       </ul>
       <div class="pb-4" style="max-width: 56rem;">
-        <h2 class="h4 mb-2">Photometry</h2>
-        <p class="mb-0">Photometry tools will appear here.</p>
+        <h2 class="h4 mb-3">Observation planning</h2>
+        <form method="get" class="mb-4">
+          <div class="form-row">
+            <div class="form-group col-md-4">
+              <label for="id_deltara">dRA*cosD (arcsec/hour)</label>
+              <input id="id_deltara" type="text" inputmode="decimal" name="deltara" class="form-control" value="{{ deltara_input }}" placeholder="arcsec/hour">
+            </div>
+            <div class="form-group col-md-4">
+              <label for="id_deltadec">d(DEC)/dt (arcsec/hour)</label>
+              <input id="id_deltadec" type="text" inputmode="decimal" name="deltadec" class="form-control" value="{{ deltadec_input }}" placeholder="arcsec/hour">
+            </div>
+            <div class="form-group col-md-4">
+              <label for="id_max_trailing">Maximum allowed trailing (arcsec)</label>
+              <input id="id_max_trailing" type="text" inputmode="decimal" name="max_trailing" class="form-control" value="{{ max_trailing_input }}" placeholder="arcsec">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-light">Calculate</button>
+        </form>
+
+        {% if observation_planning_error %}
+        <div class="alert alert-warning" role="alert">
+          {{ observation_planning_error }}
+        </div>
+        {% endif %}
+
+        {% if sky_motion_per_min is not None and sky_motion_per_sec is not None and exposure_time is not None %}
+        <div class="p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; max-width: 34rem;">
+          <div class="mb-2">Sky motion = {{ sky_motion_per_min|floatformat:3 }} arcsec/min</div>
+          <div class="mb-2">Sky motion = {{ sky_motion_per_sec|floatformat:5 }} arcsec/s</div>
+          <div class="mb-0">Maximum exposure time = {{ exposure_time|floatformat:2 }} s</div>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>

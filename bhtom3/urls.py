@@ -19,6 +19,7 @@ from rest_framework.authtoken.views import obtain_auth_token
 from custom_code.views import (
     BhtomCatalogSelectResultView,
     BhtomCatalogQueryView,
+    BhtomPallasAView,
     Bhtom2TargetListView,
     BhtomTargetCreateView,
     BhtomTargetDetailView,
@@ -59,6 +60,7 @@ urlpatterns = [
     path('bhtom-pallas/', BhtomPallasView.as_view(), name='bhtom-pallas'),
     path('bhtom-pallas/photometry/', BhtomPallasPhotometryView.as_view(), name='bhtom-pallas-photometry'),
     path('bhtom-pallas/ephemeris/', BhtomPallasEphemerisView.as_view(), name='bhtom-pallas-ephemeris'),
+    path('bhtom-pallas/a/', BhtomPallasAView.as_view(), name='bhtom-pallas-a'),
     path('geotom/add/', GeoTomAddSatView.as_view(), name='geotom-add-sat'),
     path('geotom/refresh-tle/', GeoTomRefreshTleView.as_view(), name='geotom-refresh-tle'),
     path('geotom/<int:pk>/refresh-tle/', GeoTomRefreshSingleTleView.as_view(), name='geotom-refresh-single-tle'),
