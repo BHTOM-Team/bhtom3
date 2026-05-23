@@ -66,11 +66,12 @@ def _ogle_version_for_year(year):
     return 'ogle4'
 
 
-def _ogle_years():
-    current_year = datetime.now(timezone.utc).year
+def _ogle_years(current_year=None):
+    if current_year is None:
+        current_year = datetime.now(timezone.utc).year
     years = [1998, 1999, 2000]
     years.extend(range(2002, 2010))
-    years.extend(range(2011, current_year + 1))
+    years.extend(range(2011, current_year + 2))
     return years
 
 
@@ -91,6 +92,10 @@ def _ogle_event_url(name):
     normalized_name = _normalize_target_name(name)
     if not normalized_name:
         return OGLE_EWS_INFO_URL
+    year_text, field, number = normalized_name.split('-', 2)
+    year = int(year_text)
+    if year >= 2026:
+        return f'{OGLE_BASE_URL}/ogle4/ews/{year}/{field.lower()}-{number}/'
     return f'{OGLE_EWS_INFO_URL}/{normalized_name}.html'
 
 

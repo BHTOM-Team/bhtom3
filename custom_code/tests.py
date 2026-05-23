@@ -21,6 +21,7 @@ from custom_code.data_services.ogle_ews_dataservice import (
     _normalize_target_name,
     _ogle_event_url,
     _ogle_phot_url,
+    _ogle_years,
     _parse_lenses_rows,
     _parse_photometry_rows,
     _ra_to_decimal,
@@ -157,6 +158,19 @@ class OGLEEWSDataServiceTests(TestCase):
             _parse_photometry_rows('2455260.85336 17.131 0.015 5.94 1033.0\n')[0],
             {'hjd': 2455260.85336, 'mag': 17.131, 'magerr': 0.015},
         )
+
+    def test_ogle_2026_helpers_use_new_ews_layout(self):
+        self.assertEqual(
+            _ogle_phot_url('OGLE-2026-BLG-0001'),
+            'https://www.astrouw.edu.pl/ogle/ogle4/ews/2026/blg-0001/phot.dat',
+        )
+        self.assertEqual(
+            _ogle_event_url('OGLE-2026-BLG-0001'),
+            'https://www.astrouw.edu.pl/ogle/ogle4/ews/2026/blg-0001/',
+        )
+
+    def test_ogle_years_probes_one_year_ahead(self):
+        self.assertIn(2026, _ogle_years(current_year=2025))
 
 
 class ExoClockDataServiceTests(TestCase):
