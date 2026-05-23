@@ -466,12 +466,16 @@ class BhtomPallasAView(BhtomPallasBaseMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        target_input = (self.request.GET.get('target') or '').strip()
+        epoch_input = (self.request.GET.get('epoch') or '').strip()
         deltara_input = (self.request.GET.get('deltara') or '').strip()
         deltadec_input = (self.request.GET.get('deltadec') or '').strip()
         max_trailing_input = (self.request.GET.get('max_trailing') or '').strip()
         calculation_requested = any([deltara_input, deltadec_input, max_trailing_input])
 
         context.update({
+            'target_input': target_input,
+            'epoch_input': epoch_input,
             'deltara_input': deltara_input,
             'deltadec_input': deltadec_input,
             'max_trailing_input': max_trailing_input,
@@ -480,6 +484,7 @@ class BhtomPallasAView(BhtomPallasBaseMixin, TemplateView):
             'sky_motion_per_min': None,
             'sky_motion_per_sec': None,
             'exposure_time': None,
+            'show_import_summary': bool(epoch_input and deltara_input and deltadec_input),
         })
 
         if not calculation_requested:
@@ -1160,6 +1165,7 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
             'ephemeris_error': '',
             'ephemeris_generated_at': None,
             'resolved_target_name': '',
+            'observation_planning_available': False,
         })
 
         if not target_query and not target_record:
@@ -1192,6 +1198,11 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
         try:
             generated_at = datetime.now(timezone.utc)
             quantities = self._quantities_for_fields(selected_fields)
+            if quantities != self.FULL_OBSERVER_QUANTITIES:
+                quantity_set = [item for item in quantities.split(',') if item]
+                if '3' not in quantity_set:
+                    quantity_set.append('3')
+                quantities = ','.join(quantity_set)
             table = self._query_horizons_ephemerides(
                 target_query=target_query,
                 location=resolved_location,
@@ -1202,15 +1213,40 @@ class BhtomPallasEphemerisView(BhtomPallasBaseMixin, TemplateView):
             active_fields = self._resolve_active_fields(selected_fields, table)
             context['selected_fields'] = active_fields
             context['ephemeris_rows'] = []
+            handoff_target = ''
+            if len(table) and 'targetname' in table.colnames:
+                handoff_target = str(table[0]['targetname'])
+            if not handoff_target:
+                handoff_target = target_query
+            row_handoff_available = (
+                'RA_rate' in table.colnames and
+                'DEC_rate' in table.colnames and
+                'datetime_str' in table.colnames
+            )
             for row in table[:25]:
                 cells = []
                 for field in active_fields:
                     cells.append(self._cell_value(row, field))
-                context['ephemeris_rows'].append({'cells': cells})
+                planning_url = ''
+                if row_handoff_available:
+                    planning_url = '{}?{}'.format(
+                        reverse('bhtom-pallas-a'),
+                        urlencode({
+                            'target': handoff_target,
+                            'epoch': str(row['datetime_str']),
+                            'deltara': str(row['RA_rate']),
+                            'deltadec': str(row['DEC_rate']),
+                        }),
+                    )
+                context['ephemeris_rows'].append({
+                    'cells': cells,
+                    'planning_url': planning_url,
+                })
             context['ephemeris_generated_at'] = generated_at
             context['resolved_location_label'] = self._resolve_location_label(resolved_location)
             if len(table) and 'targetname' in table.colnames:
                 context['resolved_target_name'] = str(table[0]['targetname'])
+            context['observation_planning_available'] = row_handoff_available
             if not context['ephemeris_rows']:
                 context['ephemeris_error'] = f'No ephemeris results were returned for "{target_query}" at location "{resolved_location}".'
         except Exception as exc:

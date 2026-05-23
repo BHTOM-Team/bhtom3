@@ -22,7 +22,7 @@
     </div>
   </div>
   <div class="row mx-0">
-    <div class="col-12 px-4">
+    <div class="col-12 px-4" style="max-width: 100%; margin: 0 auto;">
       <ul class="nav nav-tabs border-0 mb-4">
         <li class="nav-item">
           <a class="nav-link {% if bhtom_pallas_active_tab == 'overview' %}active{% endif %}" href="{% url 'bhtom-pallas' %}" style="background-color: {% if bhtom_pallas_active_tab == 'overview' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Overview</a>
@@ -37,7 +37,7 @@
           <a class="nav-link {% if bhtom_pallas_active_tab == 'photometry' %}active{% endif %}" href="{% url 'bhtom-pallas-photometry' %}" style="background-color: {% if bhtom_pallas_active_tab == 'photometry' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Photometry</a>
         </li>
       </ul>
-      <div class="pb-4" style="max-width: 56rem;">
+      <div class="pb-4" style="width: 100%; max-width: none; margin: 0 auto;">
         <h2 class="h4 mb-2">Photometry</h2>
         <p class="mb-0">Photometry tools will appear here.</p>
       </div>

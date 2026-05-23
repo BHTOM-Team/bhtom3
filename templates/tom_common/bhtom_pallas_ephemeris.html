@@ -22,7 +22,7 @@
     </div>
   </div>
   <div class="row mx-0">
-    <div class="col-12 px-4 pb-4">
+    <div class="col-12 px-4 pb-4" style="max-width: 100%; margin: 0 auto;">
       <ul class="nav nav-tabs border-0 mb-4">
         <li class="nav-item">
           <a class="nav-link {% if bhtom_pallas_active_tab == 'overview' %}active{% endif %}" href="{% url 'bhtom-pallas' %}" style="background-color: {% if bhtom_pallas_active_tab == 'overview' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Overview</a>
@@ -157,30 +157,45 @@
       <div class="mb-3 text-light">
         Location used: {{ resolved_location }}{% if resolved_location_label %} &mdash; {{ resolved_location_label }}{% endif %}
       </div>
-      <div class="mb-2" id="ephemeris-top-scrollbar" style="display: none; height: 16px; padding: 3px 4px; background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;">
-        <div id="ephemeris-top-scrollbar-track" style="position: relative; width: 100%; height: 8px; background-color: rgba(255,255,255,0.08); border-radius: 999px; cursor: pointer;">
-          <div id="ephemeris-top-scrollbar-thumb" style="position: absolute; left: 0; top: 0; height: 8px; min-width: 36px; background-color: rgba(220,220,220,0.65); border-radius: 999px;"></div>
-        </div>
+      {% if observation_planning_available %}
+      <div class="mb-3" style="color: rgba(255,255,255,0.78); font-size: 0.95rem;">
+        Use the row actions below to send a specific ephemeris entry to Observation planning.
       </div>
-      <div class="table-responsive" id="ephemeris-table-scroll" style="overflow-x: auto;">
-        <table id="ephemeris-table" class="table table-sm table-dark table-striped mb-0" style="min-width: max-content;">
-          <thead>
-            <tr>
-              {% for field in selected_fields %}
-              <th>{{ field.label }}</th>
+      {% endif %}
+      <div>
+        <div class="mb-2" id="ephemeris-top-scrollbar" style="display: none; height: 16px; padding: 3px 4px; background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;">
+          <div id="ephemeris-top-scrollbar-track" style="position: relative; width: 100%; height: 8px; background-color: rgba(255,255,255,0.08); border-radius: 999px; cursor: pointer;">
+            <div id="ephemeris-top-scrollbar-thumb" style="position: absolute; left: 0; top: 0; height: 8px; min-width: 36px; background-color: rgba(220,220,220,0.65); border-radius: 999px;"></div>
+          </div>
+        </div>
+        <div class="table-responsive" id="ephemeris-table-scroll" style="overflow-x: auto;">
+          <table id="ephemeris-table" class="table table-sm table-dark table-striped mb-0" style="min-width: max-content;">
+            <thead>
+              <tr>
+                {% if observation_planning_available %}
+                <th style="position: sticky; left: 0; z-index: 3; width: 132px; min-width: 132px; background-color: #223140; white-space: nowrap; text-align: center; box-shadow: 2px 0 0 rgba(255,255,255,0.08);">Workflow</th>
+                {% endif %}
+                {% for field in selected_fields %}
+                <th>{{ field.label }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in ephemeris_rows %}
+              <tr>
+                {% if observation_planning_available %}
+                <td style="position: sticky; left: 0; z-index: 2; width: 132px; min-width: 132px; padding: 0.3rem; background-color: #223140; vertical-align: middle; text-align: center; white-space: nowrap; box-shadow: 2px 0 0 rgba(255,255,255,0.08);">
+                  <a href="{{ row.planning_url }}" class="btn btn-light btn-sm px-3 py-1" style="font-size: 0.84rem; line-height: 1.35; color: #c82333;">Use row</a>
+                </td>
+                {% endif %}
+                {% for cell in row.cells %}
+                <td>{{ cell }}</td>
+                {% endfor %}
+              </tr>
               {% endfor %}
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in ephemeris_rows %}
-            <tr>
-              {% for cell in row.cells %}
-              <td>{{ cell }}</td>
-              {% endfor %}
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
       {% endif %}
     </div>
@@ -229,7 +244,6 @@
 
     const getMaxScroll = () => Math.max(0, table.scrollWidth - tableScroll.clientWidth);
     const getTrackWidth = () => topTrack.clientWidth;
-
     const syncThumb = () => {
       const maxScroll = getMaxScroll();
       if (maxScroll <= 0) {

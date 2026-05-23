@@ -22,7 +22,7 @@
     </div>
   </div>
   <div class="row mx-0">
-    <div class="col-12 px-4">
+    <div class="col-12 px-4" style="max-width: 100%; margin: 0 auto;">
       <ul class="nav nav-tabs border-0 mb-4">
         <li class="nav-item">
           <a class="nav-link {% if bhtom_pallas_active_tab == 'overview' %}active{% endif %}" href="{% url 'bhtom-pallas' %}" style="background-color: {% if bhtom_pallas_active_tab == 'overview' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Overview</a>
@@ -37,20 +37,37 @@
           <a class="nav-link {% if bhtom_pallas_active_tab == 'photometry' %}active{% endif %}" href="{% url 'bhtom-pallas-photometry' %}" style="background-color: {% if bhtom_pallas_active_tab == 'photometry' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Photometry</a>
         </li>
       </ul>
-      <div class="pb-4" style="max-width: 56rem;">
+      <div class="pb-4" style="width: 100%; max-width: none; margin: 0 auto;">
         <h2 class="h4 mb-3">Observation planning</h2>
+        {% if show_import_summary %}
+        <div class="p-3 mb-4" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem;">
+          <div class="mb-2" style="font-weight: 600;">Imported from Ephemeris</div>
+          <div class="mb-1">Epoch: {{ epoch_input }}</div>
+          <div class="mb-1">dRA*cosD = {{ deltara_input }} arcsec/hour</div>
+          <div class="mb-0">d(DEC)/dt = {{ deltadec_input }} arcsec/hour</div>
+        </div>
+        {% endif %}
         <form method="get" class="mb-4">
-          <div class="form-row">
-            <div class="form-group col-md-4">
+          <div class="form-row align-items-end">
+            <div class="form-group col-lg-3 col-md-6 d-flex flex-column">
+              <label for="id_target">Target name</label>
+              <input id="id_target" type="text" name="target" class="form-control" value="{{ target_input }}" placeholder="Target name">
+            </div>
+            <div class="form-group col-lg-3 col-md-6 d-flex flex-column">
               <label for="id_deltara">dRA*cosD (arcsec/hour)</label>
               <input id="id_deltara" type="text" inputmode="decimal" name="deltara" class="form-control" value="{{ deltara_input }}" placeholder="arcsec/hour">
             </div>
-            <div class="form-group col-md-4">
+            <div class="form-group col-lg-3 col-md-6 d-flex flex-column">
               <label for="id_deltadec">d(DEC)/dt (arcsec/hour)</label>
               <input id="id_deltadec" type="text" inputmode="decimal" name="deltadec" class="form-control" value="{{ deltadec_input }}" placeholder="arcsec/hour">
             </div>
-            <div class="form-group col-md-4">
-              <label for="id_max_trailing">Maximum allowed trailing (arcsec)</label>
+            <div class="form-group col-lg-3 col-md-6 d-flex flex-column">
+              <label for="id_max_trailing">Maximum allowed trailing (arcsec)
+                <span style="position: relative; display: inline-flex; align-items: center; margin-left: 0.35rem; vertical-align: middle;">
+                  <span onmouseenter="this.nextElementSibling.style.opacity='1';this.nextElementSibling.style.visibility='visible';" onmouseleave="this.nextElementSibling.style.opacity='0';this.nextElementSibling.style.visibility='hidden';" style="display: inline-flex; align-items: center; justify-content: center; width: 1rem; height: 1rem; border: 1px solid rgba(255,255,255,0.45); border-radius: 50%; color: rgba(255,255,255,0.82); font-size: 0.72rem; font-weight: 700; cursor: help;">i</span>
+                  <span style="position: absolute; left: 1.4rem; top: 50%; transform: translateY(-50%); width: 20rem; padding: 0.55rem 0.7rem; background-color: rgba(10,16,24,0.96); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; color: #fff; font-size: 0.84rem; font-weight: 400; line-height: 1.35; box-shadow: 0 0.35rem 1rem rgba(0,0,0,0.28); opacity: 0; visibility: hidden; transition: opacity 0.12s ease; z-index: 20; pointer-events: none;">For example, 0.5 arcsec means you allow up to half an arcsecond of motion during the exposure.</span>
+                </span>
+              </label>
               <input id="id_max_trailing" type="text" inputmode="decimal" name="max_trailing" class="form-control" value="{{ max_trailing_input }}" placeholder="arcsec">
             </div>
           </div>
@@ -64,7 +81,7 @@
         {% endif %}
 
         {% if sky_motion_per_min is not None and sky_motion_per_sec is not None and exposure_time is not None %}
-        <div class="p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; max-width: 34rem;">
+        <div class="p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
           <div class="mb-2">Sky motion = {{ sky_motion_per_min|floatformat:3 }} arcsec/min</div>
           <div class="mb-2">Sky motion = {{ sky_motion_per_sec|floatformat:5 }} arcsec/s</div>
           <div class="mb-0">Maximum exposure time = {{ exposure_time|floatformat:2 }} s</div>
