@@ -38,8 +38,25 @@
         </li>
       </ul>
       <div class="pb-4" style="max-width: 56rem;">
-        <p class="mb-3">BHTOM-PALLAS is the small-bodies workspace within BHTOM for asteroid and comet support tools.</p>
-        <p class="mb-0">Use the Ephemeris tab to query NASA JPL Horizons via astroquery, specify an MPC observatory code, define a custom time span and step size, select returned quantities, and generate ephemerides for asteroid and comet targets.</p>
+        <p class="mb-4">BHTOM-PALLAS provides tools for planning and supporting observations of comets and asteroids.</p>
+        <a href="{% url 'bhtom-pallas-ephemeris' %}" class="d-block mb-4" style="color: inherit; text-decoration: none;">
+          <div style="background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 0.35rem; padding: 1rem; transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;" onmouseover="this.style.backgroundColor='rgba(255,255,255,0.1)';this.style.borderColor='rgba(255,255,255,0.24)';this.style.boxShadow='0 0 0 1px rgba(255,255,255,0.06)';" onmouseout="this.style.backgroundColor='rgba(255,255,255,0.06)';this.style.borderColor='rgba(255,255,255,0.14)';this.style.boxShadow='none';">
+            <h2 class="h5 mb-2" style="color: #fff;">Ephemeris</h2>
+            <p class="mb-0">This tab queries NASA JPL Horizons via astroquery, allows an MPC observatory code, lets the user define a custom time span and step size, select returned quantities, and generate ephemerides for comet and asteroid targets.</p>
+          </div>
+        </a>
+        <a href="{% url 'bhtom-pallas-a' %}" class="d-block mb-4" style="color: inherit; text-decoration: none;">
+          <div style="background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 0.35rem; padding: 1rem; transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;" onmouseover="this.style.backgroundColor='rgba(255,255,255,0.1)';this.style.borderColor='rgba(255,255,255,0.24)';this.style.boxShadow='0 0 0 1px rgba(255,255,255,0.06)';" onmouseout="this.style.backgroundColor='rgba(255,255,255,0.06)';this.style.borderColor='rgba(255,255,255,0.14)';this.style.boxShadow='none';">
+            <h2 class="h5 mb-2" style="color: #fff;">Observation planning</h2>
+            <p class="mb-0">This tab calculates sky motion and maximum exposure time from JPL Horizons sky-plane motion components and an allowed trailing value.</p>
+          </div>
+        </a>
+        <a href="{% url 'bhtom-pallas-photometry' %}" class="d-block" style="color: inherit; text-decoration: none;">
+          <div style="background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 0.35rem; padding: 1rem; transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;" onmouseover="this.style.backgroundColor='rgba(255,255,255,0.1)';this.style.borderColor='rgba(255,255,255,0.24)';this.style.boxShadow='0 0 0 1px rgba(255,255,255,0.06)';" onmouseout="this.style.backgroundColor='rgba(255,255,255,0.06)';this.style.borderColor='rgba(255,255,255,0.14)';this.style.boxShadow='none';">
+            <h2 class="h5 mb-2" style="color: #fff;">Photometry</h2>
+            <p class="mb-0">Photometry tools will be added here.</p>
+          </div>
+        </a>
       </div>
     </div>
   </div>
