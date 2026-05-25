@@ -1883,6 +1883,11 @@ class BhtomCatalogQueryView(FormView):
             self.target = _build_catalog_target_from_match(service_name, matches[0])
             return super().form_valid(form)
 
+        if service_name in {'Gaia Alerts', 'Gaia DR3', 'OGLE EWS', 'Simbad'}:
+            error_target = 'ra' if service_name == 'Simbad' else 'term'
+            form.add_error(error_target, ValidationError('Object not found'))
+            return self.form_invalid(form)
+
         try:
             self.target = form.get_target()
         except MissingDataException:

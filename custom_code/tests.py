@@ -1273,14 +1273,14 @@ class DataServiceSelectorViewTests(TestCase):
 
         with patch('custom_code.views._get_catalog_matches', return_value=[]) as get_matches, patch(
             'custom_code.forms.BhtomCatalogQueryForm.get_target',
-            side_effect=MissingDataException('No catalog data'),
+            side_effect=AssertionError('form.get_target should not be called when no catalog matches are already known'),
         ) as get_target:
             response = BhtomCatalogQueryView.as_view()(request)
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Object not found')
         get_matches.assert_called_once()
-        get_target.assert_called_once()
+        get_target.assert_not_called()
 
     def test_ogle_ews_harvester_maps_target_name_and_coordinates(self):
         harvester = OGLEEWSHarvester()
