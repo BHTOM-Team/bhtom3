@@ -2112,6 +2112,7 @@ class PlanetaryTransitTargetCreateTests(TestCase):
 
         self.assertFalse(context['show_groups_field'])
         self.assertIsNotNone(context['permissions_field'])
+        self.assertEqual(form.fields['permissions'].initial, 'PUBLIC')
 
     def test_form_valid_with_invalid_inline_formsets_renders_without_querying_broken_transaction(self):
         request = RequestFactory().post(

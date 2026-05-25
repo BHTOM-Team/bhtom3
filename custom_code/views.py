@@ -1705,6 +1705,8 @@ class BhtomTargetCreateView(TargetCreateView):
             _set_groups_field_visibility(form, Group.objects.all())
         else:
             _set_groups_field_visibility(form, self.request.user.groups.all())
+        if 'permissions' in form.fields and not form.is_bound:
+            form.fields['permissions'].initial = 'PUBLIC'
         if 'recommended_observing_strategy' in form.fields:
             value = self.request.GET.get('recommended_observing_strategy')
             if value not in (None, ''):
