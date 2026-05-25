@@ -64,6 +64,7 @@ class ZTFDataService(DataService):
             return self.query_results
 
         lc_data = None
+        source_location = None
         try:
             ztf_res = requests.get(_build_ztf_api_url(ra,dec,radius_arcsec))
             ztf_df = pd.read_csv(StringIO(ztf_res.text))
@@ -77,7 +78,7 @@ class ZTFDataService(DataService):
 
         self.query_results = {
             'lc_data': lc_data,
-            'source_location': source_location,
+            'source_location': source_location or ZTF_PAGE,
             'ra': ra,
             'dec': dec,
         }

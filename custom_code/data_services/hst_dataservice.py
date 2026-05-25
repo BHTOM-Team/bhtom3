@@ -62,6 +62,7 @@ class HSTDataService(DataService):
             return self.query_results
 
         lc_data = None
+        source_location = None
         try:
             esahubble = ESAHubble()
             result = esahubble.query_tap(query=_build_hcv_query(ra,dec,radius_arcsec))
