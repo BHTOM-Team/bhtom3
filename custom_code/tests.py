@@ -12,6 +12,7 @@ from django.test.client import RequestFactory
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.authtoken.models import Token
+from tom_catalogs.harvester import MissingDataException
 from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
@@ -1236,6 +1237,50 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertIn('t0_bjd_tdb=2457368.4973', location)
         self.assertIn('period_days=1.091418859', location)
         self.assertIn('recommended_observing_strategy=', location)
+
+    def test_catalog_query_reuses_single_match_without_second_lookup(self):
+        request = RequestFactory().post(
+            reverse('tom_catalogs:query'),
+            data={'service': 'Simbad', 'term': 'Target 1'},
+        )
+        request.user = get_user_model().objects.create_user(username='catalog-single-match', password='secret')
+        request.session = {}
+
+        built_target = Target(name='Target_1', type='SIDEREAL', ra=12.3, dec=-45.6, epoch=2000.0)
+        match = {'main_id': 'Target 1', 'ra': 12.3, 'dec': -45.6}
+
+        with patch('custom_code.views._get_catalog_matches', return_value=[match]) as get_matches, patch(
+            'custom_code.views._build_catalog_target_from_match',
+            return_value=built_target,
+        ) as build_target, patch(
+            'custom_code.forms.BhtomCatalogQueryForm.get_target',
+            side_effect=AssertionError('form.get_target should not be called when a single match is already available'),
+        ):
+            response = BhtomCatalogQueryView.as_view()(request)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/targets/create/', response['Location'])
+        get_matches.assert_called_once()
+        build_target.assert_called_once_with('Simbad', match)
+
+    def test_catalog_query_returns_object_not_found_without_repeat_lookup(self):
+        request = RequestFactory().post(
+            reverse('tom_catalogs:query'),
+            data={'service': 'Simbad', 'term': 'Missing Target'},
+        )
+        request.user = get_user_model().objects.create_user(username='catalog-missing-target', password='secret')
+        request.session = {}
+
+        with patch('custom_code.views._get_catalog_matches', return_value=[]) as get_matches, patch(
+            'custom_code.forms.BhtomCatalogQueryForm.get_target',
+            side_effect=MissingDataException('No catalog data'),
+        ) as get_target:
+            response = BhtomCatalogQueryView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Object not found')
+        get_matches.assert_called_once()
+        get_target.assert_called_once()
 
     def test_ogle_ews_harvester_maps_target_name_and_coordinates(self):
         harvester = OGLEEWSHarvester()

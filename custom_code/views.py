@@ -1874,9 +1874,14 @@ class BhtomCatalogQueryView(FormView):
         return render(self.request, 'tom_catalogs/query_result.html', context)
 
     def form_valid(self, form):
-        matches = _get_catalog_matches(form.cleaned_data.get('service'), form.cleaned_data)
+        service_name = form.cleaned_data.get('service')
+        matches = _get_catalog_matches(service_name, form.cleaned_data)
         if len(matches) > 1:
             return self._render_catalog_results(form, matches)
+
+        if len(matches) == 1:
+            self.target = _build_catalog_target_from_match(service_name, matches[0])
+            return super().form_valid(form)
 
         try:
             self.target = form.get_target()
