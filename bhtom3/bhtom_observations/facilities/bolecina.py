@@ -8,6 +8,7 @@ from tom_observations.cadence import CadenceForm
 from tom_targets.models import Target
 
 from custom_code.models import BhtomTarget
+from custom_code.facility_proposals import get_proposal_by_pk, get_proposal_choices_for_user
 from django.core.mail import send_mail
 from django.conf import settings
 
@@ -20,9 +21,7 @@ TERMINAL_OBSERVING_STATES = SUCCESSFUL_OBSERVING_STATES + FAILED_OBSERVING_STATE
 valid_instruments = ['SOAB_ZWO-ASI294MC-Pro']
 valid_filters = [['B','B'],['R','R'],['I','I']] 
 
-bolecina_proposals = settings.FACILITIES.get('BOLECINA', {}).get('proposalIDs', [])
-
-proposal_choices = [(str(proposal_id), description) for proposal_id, description in bolecina_proposals]
+proposal_choices = []
 
 class BOLECINAPhotometricSequenceForm(BaseRoboticObservationForm):
 #    name = forms.CharField()
@@ -55,6 +54,9 @@ class BOLECINAPhotometricSequenceForm(BaseRoboticObservationForm):
         kwargs['initial'] = initial_data
         
         super().__init__(*args, **kwargs)
+        dynamic_choices = get_proposal_choices_for_user(self.initial.get('request_user_id'), 'BOLECINA', include_account_label=True)
+        if dynamic_choices:
+            self.fields['proposal_id'].choices = dynamic_choices
 
         target = Target.objects.get(id=self.initial.get('target_id'))
         # initial_data.setdefault('name', f'BHTOM_BOLECINA_{target.name}')
@@ -285,7 +287,13 @@ Priority: 2
 [ENDBOLECINAOB]
         """
 
-        email = settings.FACILITIES.get('BOLECINA', {}).get('email', ['wyrzykow@gmail.com'])
+        selected_proposal = get_proposal_by_pk(observation_payload['params'].get('proposal_id'), facility_code='BOLECINA')
+        if not selected_proposal:
+            raise ValueError('Selected BOLECINA proposal is not available in the proposal database.')
+        proposal_id = selected_proposal.external_id
+        email = (selected_proposal.details or {}).get('notification_email', '').strip()
+        if not email:
+            raise ValueError('BOLECINA proposal is missing notification email.')
         # Get start and end dates from observation_payload
         start_date_str = observation_payload['params']['start']
         end_date_str = observation_payload['params']['end']
@@ -301,7 +309,7 @@ Priority: 2
             target_name=target_name,
             ra=ra,
             dec=dec,
-            proposal_id = observation_payload['params']['proposal_id'],
+            proposal_id=proposal_id,
             email=email,
             cadence = observation_payload['params']['cadence'],
             exptime = observation_payload['params']['exposure_time'],

@@ -24,10 +24,12 @@ from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404
 from django.shortcuts import resolve_url
 from django.shortcuts import render
 from django.views.generic import FormView, ListView, RedirectView, TemplateView
 from django.views import View
+from django.utils import timezone as django_timezone
 from django.utils.decorators import method_decorator
 from django.urls import reverse, reverse_lazy
 from django.db.models import Q
@@ -51,6 +53,8 @@ from tom_dataservices.views import (
 )
 from tom_common.views import UserCreateView as TomCommonUserCreateView
 from tom_common.views import UserUpdateView as TomCommonUserUpdateView
+from tom_observations.views import ObservationCreateView as TomObservationCreateView
+from tom_observations.facilities.lco import LCOSettings
 
 from custom_code.filters import BhtomTargetFilterSet
 from custom_code.astrometry import can_compute_current_coordinates, compute_current_coordinates
@@ -66,7 +70,32 @@ from custom_code.forms import (
     BhtomUserUpdateForm,
     GeoTomAddSatForm,
 )
-from custom_code.models import GeoTarget, TransitEphemeris
+from custom_code.proposal_forms import (
+    DirectFacilityProposalForm,
+    FacilityAccountForm,
+    FacilityProposalForm,
+    LCOProposalImportForm,
+)
+from custom_code.facility_proposals import (
+    ensure_default_facilities,
+    get_current_proposals_for_user,
+    get_or_create_hidden_account,
+    sync_remote_proposals_for_account,
+    get_accessible_accounts,
+    get_accessible_facilities,
+    get_accessible_proposals,
+    get_account_for_user,
+    get_facility_by_code,
+    get_first_account_for_user,
+    get_manageable_account_for_user,
+    get_manageable_accounts,
+    get_manageable_proposals,
+    get_manageable_proposal_for_user,
+    get_proposal_choices_for_user,
+    sync_memberships_for_account,
+    sync_memberships_for_proposal,
+)
+from custom_code.models import Facility, GeoTarget, TransitEphemeris
 from custom_code.geosat import (
     altaz_to_hadec_point,
     convert_altaz_curve_to_hadec,
@@ -2351,6 +2380,313 @@ class LegacyLogoutView(View):
         logout(request)
         return HttpResponseRedirect(resolve_url(getattr(settings, 'LOGOUT_REDIRECT_URL', '/')))
 
+
+class ProposalAwareLCOSettings(LCOSettings):
+    def __init__(self, account=None):
+        super().__init__(facility_name='LCO')
+        self.account = account
+
+    def get_setting(self, key):
+        if self.account:
+            if key == 'portal_url':
+                return self.account.account_data.get('portal_url', super().get_setting(key))
+            if key == 'archive_url':
+                return self.account.account_data.get('archive_url', super().get_setting(key))
+            if key == 'api_key':
+                return self.account.credentials.get('api_key', '')
+        return super().get_setting(key)
+
+
+class ProposalListView(LoginRequiredMixin, TemplateView):
+    template_name = 'tom_common/proposal_list.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        ensure_default_facilities()
+        facilities = []
+        for facility in Facility.objects.filter(is_active=True).order_by('name'):
+            manageable_proposal_ids = set(get_manageable_proposals(self.request.user, facility.code).values_list('pk', flat=True))
+            proposals = list(get_accessible_proposals(self.request.user, facility.code).order_by('title', 'external_id'))
+            facilities.append({
+                'facility': facility,
+                'proposals': proposals,
+                'can_import': facility.code == 'LCO',
+                'can_add_proposal': facility.code != 'LCO',
+                'manageable_proposal_ids': manageable_proposal_ids,
+            })
+        context['facility_sections'] = facilities
+        return context
+
+
+class FacilityAccountCreateView(LoginRequiredMixin, FormView):
+    template_name = 'tom_common/proposal_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        ensure_default_facilities()
+        self.facility = get_object_or_404(Facility.objects.filter(is_active=True), code=kwargs['facility_code'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_class(self):
+        return FacilityAccountForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update({'facility': self.facility, 'user': self.request.user})
+        return kwargs
+
+    def form_valid(self, form):
+        account = form.save()
+        sync_memberships_for_account(account, self.request.user, form.cleaned_data['shared_users'])
+        messages.success(self.request, f'{self.facility.name} account saved.')
+        return redirect('proposal-list')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = f'Add {self.facility.name} Account'
+        context['submit_label'] = 'Save account'
+        context['cancel_url'] = reverse('proposal-list')
+        return context
+
+
+class FacilityAccountUpdateView(LoginRequiredMixin, FormView):
+    template_name = 'tom_common/proposal_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.account = get_object_or_404(get_manageable_accounts(request.user), pk=kwargs['pk'])
+        self.facility = self.account.facility
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_class(self):
+        return FacilityAccountForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update({'facility': self.facility, 'user': self.request.user, 'account': self.account})
+        return kwargs
+
+    def form_valid(self, form):
+        account = form.save()
+        sync_memberships_for_account(account, self.request.user, form.cleaned_data['shared_users'])
+        messages.success(self.request, f'{self.facility.name} account updated.')
+        return redirect('proposal-list')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = f'Edit {self.facility.name} Account'
+        context['submit_label'] = 'Update account'
+        context['cancel_url'] = reverse('proposal-list')
+        return context
+
+
+class FacilityAccountDeleteView(LoginRequiredMixin, TemplateView):
+    template_name = 'tom_common/proposal_confirm_delete.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.account = get_object_or_404(get_manageable_accounts(request.user), pk=kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        label = str(self.account)
+        self.account.delete()
+        messages.success(request, f'{label} deleted.')
+        return redirect('proposal-list')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = 'Delete Account'
+        context['object_label'] = str(self.account)
+        context['cancel_url'] = reverse('proposal-list')
+        return context
+
+
+class FacilityAccountSyncProposalsView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        account = get_object_or_404(get_manageable_accounts(request.user), pk=kwargs['pk'])
+        try:
+            result = sync_remote_proposals_for_account(account)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+        except requests.RequestException as exc:
+            account.sync_status = account.SyncStatus.ERROR
+            account.last_synced_at = django_timezone.now()
+            account.last_sync_error = str(exc)
+            account.save(update_fields=['sync_status', 'last_synced_at', 'last_sync_error', 'modified'])
+            messages.error(request, f'Proposal sync failed: {exc}')
+        else:
+            messages.success(
+                request,
+                'Imported {imported_count}, updated {updated_count}, active {active_count} proposals.'.format(**result),
+            )
+        return redirect('proposal-list')
+
+
+class FacilityProposalCreateView(LoginRequiredMixin, FormView):
+    template_name = 'tom_common/proposal_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        ensure_default_facilities()
+        self.facility = get_object_or_404(Facility.objects.filter(is_active=True), code=kwargs['facility_code'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_class(self):
+        return DirectFacilityProposalForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update({'facility': self.facility, 'user': self.request.user})
+        return kwargs
+
+    def form_valid(self, form):
+        proposal = form.save()
+        sync_memberships_for_proposal(proposal, self.request.user, form.cleaned_data['shared_users'])
+        messages.success(self.request, f'{self.facility.name} proposal saved.')
+        return redirect('proposal-list')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = f'Add {self.facility.name} Proposal'
+        context['submit_label'] = 'Save proposal'
+        context['cancel_url'] = reverse('proposal-list')
+        return context
+
+
+class FacilityProposalUpdateView(LoginRequiredMixin, FormView):
+    template_name = 'tom_common/proposal_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.proposal = get_object_or_404(get_manageable_proposals(request.user), pk=kwargs['pk'])
+        self.account = self.proposal.account
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_class(self):
+        return DirectFacilityProposalForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update({'facility': self.account.facility, 'user': self.request.user, 'proposal': self.proposal})
+        return kwargs
+
+    def form_valid(self, form):
+        proposal = form.save()
+        sync_memberships_for_proposal(proposal, self.request.user, form.cleaned_data['shared_users'])
+        messages.success(self.request, f'Proposal updated for {self.account.label}.')
+        return redirect('proposal-list')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = f'Edit Proposal for {self.account.label}'
+        context['submit_label'] = 'Update proposal'
+        context['cancel_url'] = reverse('proposal-list')
+        return context
+
+
+class LCOProposalImportView(LoginRequiredMixin, FormView):
+    template_name = 'tom_common/proposal_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        ensure_default_facilities()
+        self.facility = get_object_or_404(Facility.objects.filter(is_active=True), code='LCO')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_class(self):
+        return LCOProposalImportForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update({'user': self.request.user, 'initial': {'facility': self.facility}})
+        return kwargs
+
+    def form_valid(self, form):
+        result = form.save()
+        messages.success(
+            self.request,
+            'Imported {imported_count}, updated {updated_count}, active {active_count} proposals.'.format(**result),
+        )
+        return redirect('proposal-list')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = 'Import LCO Proposals'
+        context['submit_label'] = 'Import proposals'
+        context['cancel_url'] = reverse('proposal-list')
+        return context
+
+
+class FacilityProposalDeleteView(LoginRequiredMixin, TemplateView):
+    template_name = 'tom_common/proposal_confirm_delete.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.proposal = get_object_or_404(get_manageable_proposals(request.user), pk=kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        label = str(self.proposal)
+        self.proposal.delete()
+        messages.success(request, f'{label} deleted.')
+        return redirect('proposal-list')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = 'Delete Proposal'
+        context['object_label'] = str(self.proposal)
+        context['cancel_url'] = reverse('proposal-list')
+        return context
+
+
+class ProposalAwareObservationCreateView(TomObservationCreateView):
+    def get_initial(self):
+        initial = super().get_initial()
+        initial['request_user_id'] = self.request.user.pk
+        return initial
+
+    def _get_lco_facility_settings(self):
+        account = get_first_account_for_user(self.request.user, 'LCO')
+        return ProposalAwareLCOSettings(account=account)
+
+    def _configure_observation_form(self, form):
+        if self.get_facility() == 'LCO' and 'proposal' in form.fields:
+            dynamic_choices = get_proposal_choices_for_user(self.request.user, 'LCO', include_account_label=True)
+            if dynamic_choices:
+                form.fields['proposal'].choices = dynamic_choices
+        return form
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        if self.get_facility() == 'LCO':
+            kwargs['facility_settings'] = self._get_lco_facility_settings()
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super(TomObservationCreateView, self).get_context_data(**kwargs)
+        observation_type_choices = []
+        initial = self.get_initial()
+        for observation_type, observation_form_class in self.get_facility_class().observation_forms.items():
+            form_data = {**initial, **{'observation_type': observation_type}}
+            if observation_type == self.request.POST.get('observation_type'):
+                form_data.update(**self.request.POST.dict())
+            observation_form_class = type(
+                f'Composite{observation_type}Form',
+                (self.get_cadence_strategy_form(), observation_form_class),
+                {},
+            )
+            form_kwargs = {'initial': form_data}
+            if self.get_facility() == 'LCO':
+                form_kwargs['facility_settings'] = self._get_lco_facility_settings()
+            observation_form = observation_form_class(**form_kwargs)
+            if not settings.TARGET_PERMISSIONS_ONLY and 'groups' in observation_form.fields:
+                observation_form.fields['groups'].queryset = self.request.user.groups.all()
+            observation_form.helper.form_action = reverse('tom_observations:create', kwargs=self.kwargs)
+            self._configure_observation_form(observation_form)
+            observation_type_choices.append((observation_type, observation_form))
+        context['observation_type_choices'] = observation_type_choices
+        context['active'] = self.request.POST.get('observation_type')
+        context['target'] = Target.objects.get(pk=self.get_target_id())
+        context.update(self.get_facility_class()().get_facility_context_data())
+        return context
+
+    def get_form(self):
+        form = super().get_form()
+        return self._configure_observation_form(form)
 
 class UserProfileRedirectView(View):
     def get(self, request, *args, **kwargs):

@@ -1,0 +1,63 @@
+{% extends 'tom_common/base.html' %}
+
+{% block title %}Proposals{% endblock %}
+
+{% block content %}
+<h2>Proposals</h2>
+<p>Manage facility proposals and share them with other BHTOM users for observation requests.</p>
+
+{% for section in facility_sections %}
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong>{{ section.facility.name }}</strong>
+      <div>
+        {% if section.can_import %}
+          <a class="btn btn-sm btn-outline-success" href="{% url 'proposal-import-lco' %}">Import Proposals</a>
+        {% endif %}
+        {% if section.can_add_proposal %}
+          <a class="btn btn-sm btn-primary" href="{% url 'proposal-create' section.facility.code %}">Add Proposal</a>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card-body">
+      {% if not section.proposals %}
+        <p class="mb-0 text-muted">No proposals configured for this facility.</p>
+      {% else %}
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th>Proposal</th>
+              <th>Title</th>
+              <th>Valid Until</th>
+              <th>Shared With</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for proposal in section.proposals %}
+              <tr>
+                <td>{{ proposal.external_id }}</td>
+                <td>{{ proposal.title|default:'-' }}</td>
+                <td>{{ proposal.valid_until|date:'Y-m-d H:i'|default:'-' }}</td>
+                <td>
+                  {% for membership in proposal.memberships.all %}
+                    {{ membership.user.username }}{% if not forloop.last %}, {% endif %}
+                  {% empty %}
+                    -
+                  {% endfor %}
+                </td>
+                <td class="text-right">
+                  {% if proposal.pk in section.manageable_proposal_ids %}
+                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'proposal-update' proposal.pk %}">Edit</a>
+                    <a class="btn btn-sm btn-outline-danger" href="{% url 'proposal-delete' proposal.pk %}">Delete</a>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </div>
+  </div>
+{% endfor %}
+{% endblock %}

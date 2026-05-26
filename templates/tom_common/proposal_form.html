@@ -1,0 +1,14 @@
+{% extends 'tom_common/base.html' %}
+{% load bootstrap4 %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<h2>{{ page_title }}</h2>
+<form method="post" novalidate>
+  {% csrf_token %}
+  {% bootstrap_form form %}
+  <button type="submit" class="btn btn-primary">{{ submit_label }}</button>
+  <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
+</form>
+{% endblock %}

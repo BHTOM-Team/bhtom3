@@ -57,3 +57,11 @@ class CustomCodeConfig(AppConfig):
         except Exception:
             # If this TOM version does not expose these receivers, nothing to do.
             pass
+
+        try:
+            from custom_code.views import ProposalAwareObservationCreateView
+            import tom_observations.views as tom_observation_views
+
+            tom_observation_views.ObservationCreateView = ProposalAwareObservationCreateView
+        except Exception:
+            pass
