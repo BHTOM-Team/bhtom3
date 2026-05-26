@@ -71,6 +71,7 @@ from custom_code.forms import (
 )
 from custom_code.proposal_forms import FacilityAccountForm, FacilityProposalForm
 from custom_code.facility_proposals import (
+    ensure_default_facilities,
     get_accessible_accounts,
     get_accessible_facilities,
     get_accessible_proposals,
@@ -2387,6 +2388,7 @@ class ProposalListView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        ensure_default_facilities()
         facilities = []
         for facility in Facility.objects.filter(is_active=True).order_by('name'):
             accounts = []
@@ -2416,6 +2418,7 @@ class FacilityAccountCreateView(LoginRequiredMixin, FormView):
     template_name = 'tom_common/proposal_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        ensure_default_facilities()
         self.facility = get_object_or_404(Facility.objects.filter(is_active=True), code=kwargs['facility_code'])
         return super().dispatch(request, *args, **kwargs)
 

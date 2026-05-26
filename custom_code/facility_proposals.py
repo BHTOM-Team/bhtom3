@@ -10,6 +10,120 @@ from custom_code.models import (
 )
 
 
+DEFAULT_FACILITY_DEFINITIONS = [
+    {
+        'code': 'LCO',
+        'name': 'Las Cumbres Observatory',
+        'supports_remote_proposal_sync': True,
+        'account_schema': {
+            'fields': [
+                {'name': 'api_key', 'label': 'API key', 'type': 'secret', 'required': True},
+            ],
+        },
+        'proposal_schema': {
+            'fields': [],
+            'source': 'remote_sync',
+        },
+    },
+    {
+        'code': 'LT',
+        'name': 'Liverpool Telescope',
+        'supports_remote_proposal_sync': False,
+        'account_schema': {
+            'fields': [
+                {'name': 'username', 'label': 'Username', 'type': 'string', 'required': True},
+                {'name': 'password', 'label': 'Password', 'type': 'secret', 'required': True},
+                {'name': 'host', 'label': 'Host', 'type': 'string', 'required': False},
+                {'name': 'port', 'label': 'Port', 'type': 'string', 'required': False},
+            ],
+        },
+        'proposal_schema': {
+            'fields': [
+                {'name': 'proposal_id', 'label': 'Proposal ID', 'type': 'string', 'required': True},
+            ],
+            'source': 'manual',
+        },
+    },
+    {
+        'code': 'REM',
+        'name': 'Rapid Eye Mount',
+        'supports_remote_proposal_sync': False,
+        'account_schema': {
+            'fields': [
+                {'name': 'notification_email', 'label': 'Notification email', 'type': 'string', 'required': False},
+            ],
+        },
+        'proposal_schema': {
+            'fields': [
+                {'name': 'proposal_id', 'label': 'Proposal ID', 'type': 'string', 'required': True},
+                {'name': 'pi_name', 'label': 'PI name', 'type': 'string', 'required': False},
+                {'name': 'description', 'label': 'Description', 'type': 'string', 'required': False},
+            ],
+            'source': 'manual',
+        },
+    },
+    {
+        'code': 'SUHORA',
+        'name': 'Suhora Observatory',
+        'supports_remote_proposal_sync': False,
+        'account_schema': {'fields': [{'name': 'notification_email', 'label': 'Notification email', 'type': 'string', 'required': False}]},
+        'proposal_schema': {'fields': [{'name': 'proposal_id', 'label': 'Proposal ID', 'type': 'string', 'required': True}], 'source': 'manual'},
+    },
+    {
+        'code': 'BOLECINA',
+        'name': 'Bolecina Observatory',
+        'supports_remote_proposal_sync': False,
+        'account_schema': {'fields': [{'name': 'notification_email', 'label': 'Notification email', 'type': 'string', 'required': False}]},
+        'proposal_schema': {'fields': [{'name': 'proposal_id', 'label': 'Proposal ID', 'type': 'string', 'required': True}], 'source': 'manual'},
+    },
+    {
+        'code': 'LESEDI',
+        'name': 'Lesedi Telescope',
+        'supports_remote_proposal_sync': False,
+        'account_schema': {'fields': [{'name': 'notification_email', 'label': 'Notification email', 'type': 'string', 'required': False}]},
+        'proposal_schema': {'fields': [{'name': 'proposal_id', 'label': 'Proposal ID', 'type': 'string', 'required': True}], 'source': 'manual'},
+    },
+    {
+        'code': 'GEM',
+        'name': 'Gemini',
+        'supports_remote_proposal_sync': False,
+        'account_schema': {
+            'fields': [
+                {'name': 'api_key_gs', 'label': 'GS API key', 'type': 'secret', 'required': False},
+                {'name': 'api_key_gn', 'label': 'GN API key', 'type': 'secret', 'required': False},
+                {'name': 'user_email', 'label': 'User email', 'type': 'string', 'required': False},
+            ],
+        },
+        'proposal_schema': {
+            'fields': [
+                {'name': 'program_id', 'label': 'Program ID', 'type': 'string', 'required': True},
+                {'name': 'mode', 'label': 'Mode', 'type': 'string', 'required': False},
+            ],
+            'source': 'manual',
+        },
+    },
+    {
+        'code': 'SWIFT',
+        'name': 'Swift',
+        'supports_remote_proposal_sync': False,
+        'account_schema': {
+            'fields': [
+                {'name': 'username', 'label': 'Username', 'type': 'string', 'required': True},
+                {'name': 'shared_secret', 'label': 'Shared secret', 'type': 'secret', 'required': True},
+            ],
+        },
+        'proposal_schema': {'fields': [], 'source': 'none'},
+    },
+]
+
+
+def ensure_default_facilities():
+    existing_codes = set(Facility.objects.values_list('code', flat=True))
+    missing_definitions = [payload for payload in DEFAULT_FACILITY_DEFINITIONS if payload['code'] not in existing_codes]
+    for payload in missing_definitions:
+        Facility.objects.create(**payload)
+
+
 def _coerce_user(user_or_id):
     if getattr(user_or_id, 'is_authenticated', False):
         return user_or_id
