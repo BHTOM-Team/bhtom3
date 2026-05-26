@@ -2,8 +2,8 @@
 {% load bootstrap4 observation_extras %}
 {% block title %}Observations{% endblock %}
 {% block content %}
-<div class="row">
-  <div class="col-md-10">
+<div class="row mx-0 observations-layout">
+  <div class="col-md-10 px-0 observations-main-col">
     <div class="row">
       <div class="col-md-6">
         {% bootstrap_pagination page_obj extra=request.GET.urlencode %}
@@ -25,62 +25,65 @@
       </div>
     </div>
 
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Select</th>
-          <th>View</th>
-          <th>Target</th>
-          <th>Requester Username</th>
-          <th>Requester Name</th>
-          <th>Facility</th>
-          <th>Status</th>
-          <th>Start</th>
-          <th>End</th>
-          <th>Groups</th>
-          <th>Saved Data</th>
-          <th>Download All</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for observation in filter.qs %}
-        <tr>
-          <td><input type="checkbox" name="selected" value="{{observation.id}}"></td>
-          <td><a class="btn btn-success" href="{% url 'tom_observations:detail' observation.id %}">Details</a></td>
-          <td><a href="{% url 'tom_targets:detail' observation.target.id %}" title="{{ observation.target.id }}">{{ observation.target.names|join:", " }}</a></td>
-          <td>{{ observation.user.username|default:"-" }}</td>
-          <td>{{ observation.user.get_full_name|default:"-" }}</td>
-          <td>{{ observation.facility }}</td>
-          <td>{{ observation.status }}</td>
-          <td>{{ observation.scheduled_start }}</td>
-          <td>{{ observation.scheduled_end }}</td>
-          <td>{% for o in observation.observationgroup_set.all %}{{ o.name }} {% endfor %}</td>
-          <td>{{ observation.dataproduct_set.count }}</td>
-          <td>
-            {% if observation.status == 'COMPLETED' %}
-            <form method="POST" action="{% url 'tom_dataproducts:save' observation.id %}">
-              {% csrf_token %}
-              <input type="hidden" value="ALL" name="products">
-              <input type="hidden" value="{{ observation.facility }}" name="facility">
-              <input type="submit" value="Save" class="btn btn-primary">
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="12">
-            No observations yet. You might want to create an observation from one of
-            <a href="{% url 'tom_targets:list' %}">your saved targets</a>.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="observations-table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>View</th>
+            <th>Target</th>
+            <th>Requester Username</th>
+            <th>Requester Name</th>
+            <th>Facility</th>
+            <th>Status</th>
+            <th>Start</th>
+            <th>End</th>
+            <th>Groups</th>
+            <th>Saved Data</th>
+            <th>Download All</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for observation in filter.qs %}
+          <tr>
+            <td><input type="checkbox" name="selected" value="{{observation.id}}"></td>
+            <td><a class="btn btn-success" href="{% url 'tom_observations:detail' observation.id %}">Details</a></td>
+            <td><a href="{% url 'tom_targets:detail' observation.target.id %}" title="{{ observation.target.id }}">{{ observation.target.names|join:", " }}</a></td>
+            <td>{{ observation.user.username|default:"-" }}</td>
+            <td>{{ observation.user.get_full_name|default:"-" }}</td>
+            <td>{{ observation.facility }}</td>
+            <td>{{ observation.status }}</td>
+            <td>{{ observation.scheduled_start }}</td>
+            <td>{{ observation.scheduled_end }}</td>
+            <td>{% for o in observation.observationgroup_set.all %}{{ o.name }} {% endfor %}</td>
+            <td>{{ observation.dataproduct_set.count }}</td>
+            <td>
+              {% if observation.status == 'COMPLETED' %}
+              <form method="POST" action="{% url 'tom_dataproducts:save' observation.id %}">
+                {% csrf_token %}
+                <input type="hidden" value="ALL" name="products">
+                <input type="hidden" value="{{ observation.facility }}" name="facility">
+                <input type="submit" value="Save" class="btn btn-primary">
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="12">
+              No observations yet. You might want to create an observation from one of
+              <a href="{% url 'tom_targets:list' %}">your saved targets</a>.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     </form>
     {% bootstrap_pagination page_obj extra=request.GET.urlencode %}
   </div>
-  <div class="col-md-2">
+  <div class="col-md-2 px-0 observations-filter-col">
+    <h4>Filtering</h4>
     <form action="" method="get" class="form">
       {% bootstrap_form filter.form %}
       {% buttons %}
@@ -92,4 +95,75 @@
     </form>
   </div>
 </div>
+{% endblock %}
+{% block javascript %}
+<style>
+  main.container {
+    max-width: 100%;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  main.container .content {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .observations-layout {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .observations-main-col {
+    flex: 1 1 auto;
+    max-width: calc(100% - 320px);
+    overflow-x: hidden;
+    min-width: 0;
+  }
+
+  .observations-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .observations-table-wrap .table {
+    width: 100% !important;
+    max-width: 100%;
+  }
+
+  .observations-filter-col {
+    flex: 0 0 304px;
+    max-width: 304px;
+    min-width: 304px;
+    padding-left: 0;
+    margin-top: 58px;
+    position: sticky;
+    top: 88px;
+    z-index: 2;
+    background: #000;
+    align-self: flex-start;
+  }
+
+  @media (max-width: 1199px) {
+    .observations-layout {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .observations-main-col,
+    .observations-filter-col {
+      flex: 0 0 100%;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .observations-filter-col {
+      margin-top: 8px;
+      position: relative;
+      top: 0;
+    }
+  }
+</style>
 {% endblock %}

@@ -209,6 +209,7 @@ class ExoClockQueryForm(BaseQueryForm):
     declination_max = forms.FloatField(required=False, min_value=-90.0, max_value=90.0, label='Declination max (deg)')
     sun_distance_min = forms.FloatField(
         required=False,
+        initial=90.0,
         min_value=0.0,
         max_value=180.0,
         label='Sun distance min (deg)',
@@ -232,6 +233,7 @@ class ExoClockQueryForm(BaseQueryForm):
         initial = kwargs.setdefault('initial', {})
         now_utc = timezone.now().astimezone(datetime_timezone.utc).replace(tzinfo=None, microsecond=0)
         initial.setdefault('compute_from_date', now_utc)
+        initial.setdefault('sun_distance_min', 90.0)
         initial.setdefault('transit_within_days', 1.0)
         super().__init__(*args, **kwargs)
 
