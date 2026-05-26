@@ -52,6 +52,7 @@ from tom_dataservices.views import (
     CreateTargetFromQueryView,
     DataServiceQueryCreateView,
     DataServiceQueryUpdateView,
+    RunQueryView,
 )
 from tom_common.views import UserCreateView as TomCommonUserCreateView
 from tom_common.views import UserUpdateView as TomCommonUserUpdateView
@@ -143,6 +144,25 @@ def _normalize_json_safe_value(value):
 def _serialize_query_parameters(cleaned_data):
     normalized = _normalize_json_safe_value(dict(cleaned_data))
     return json.loads(json.dumps(normalized, cls=DjangoJSONEncoder))
+
+
+def _annotate_exoclock_results_with_existing_targets(results):
+    names = [str(result.get('name') or '').strip() for result in results]
+    names = [name for name in names if name]
+    if not names:
+        return results
+
+    existing_targets = {
+        target.name: target
+        for target in Target.objects.filter(name__in=names)
+    }
+    for result in results:
+        target = existing_targets.get(str(result.get('name') or '').strip())
+        if target is None:
+            continue
+        result['existing_target_pk'] = target.pk
+        result['existing_target_url'] = reverse('targets:detail', kwargs={'pk': target.pk})
+    return results
 EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY = (
     'Follow the Exoclock emphemeris and observe in one or more bands to cover the entire transit, '
     'with ingres and egres well determined. Adjust the exposure time accordingly to the brightness '
@@ -2156,6 +2176,14 @@ class BhtomDataServiceQueryUpdateView(DataServiceQueryUpdateView):
         context['installed_services'] = installed_services
         context['selected_service'] = selected_service
         context['service_class'] = installed_services.get(selected_service) if selected_service else None
+        return context
+
+
+class BhtomRunQueryView(RunQueryView):
+    def get_context_data(self, *args, **kwargs):
+        context = super().get_context_data(*args, **kwargs)
+        if context.get('data_service') == 'ExoClock':
+            context['results'] = _annotate_exoclock_results_with_existing_targets(context.get('results', []))
         return context
 
 

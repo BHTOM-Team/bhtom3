@@ -83,6 +83,7 @@ from custom_code.target_derivations import derive_sidereal_target_fields
 from custom_code.views import (
     BhtomCatalogQueryView,
     BhtomCreateTargetFromQueryView,
+    _annotate_exoclock_results_with_existing_targets,
     _serialize_query_parameters,
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
@@ -343,6 +344,16 @@ class DataServiceQuerySerializationTests(TestCase):
         })
 
         self.assertEqual(serialized['compute_from_date'], '2026-04-21T12:34:56')
+
+    def test_annotate_exoclock_results_marks_existing_targets(self):
+        target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0)
+        results = [{'id': 0, 'name': 'WASP-12b'}, {'id': 1, 'name': 'WASP-13b'}]
+
+        annotated = _annotate_exoclock_results_with_existing_targets(results)
+
+        self.assertEqual(annotated[0]['existing_target_pk'], target.pk)
+        self.assertIn(f'/targets/{target.pk}/', annotated[0]['existing_target_url'])
+        self.assertNotIn('existing_target_pk', annotated[1])
 
 
 class MOADataServiceTests(TestCase):

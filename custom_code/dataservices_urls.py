@@ -3,13 +3,13 @@ from django.urls import path
 from tom_dataservices.views import (
     DataServiceQueryDeleteView,
     DataServiceQueryListView,
-    RunQueryView,
 )
 
 from custom_code.views import (
     BhtomCreateTargetFromQueryView,
     BhtomDataServiceQueryCreateView,
     BhtomDataServiceQueryUpdateView,
+    BhtomRunQueryView,
 )
 
 
@@ -19,8 +19,8 @@ urlpatterns = [
     path('query/list/', DataServiceQueryListView.as_view(), name='query_list'),
     path('query/create/', BhtomDataServiceQueryCreateView.as_view(), name='create'),
     path('query/<int:pk>/update/', BhtomDataServiceQueryUpdateView.as_view(), name='update'),
-    path('query/<int:pk>/run/', RunQueryView.as_view(), name='run_saved'),
-    path('query/run/', RunQueryView.as_view(), name='run'),
+    path('query/<int:pk>/run/', BhtomRunQueryView.as_view(), name='run_saved'),
+    path('query/run/', BhtomRunQueryView.as_view(), name='run'),
     path('query/<int:pk>/delete/', DataServiceQueryDeleteView.as_view(), name='delete'),
     path('query/create_targets/', BhtomCreateTargetFromQueryView.as_view(), name='create-target'),
 ]

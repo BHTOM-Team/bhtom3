@@ -3,7 +3,7 @@
     <tr>
       <th><input type="checkbox" id="selectAll"/></th>
       {% for column in results.0.keys %}
-        {% if column != 'reduced_datums' and column != 'target_updates' and column != 'transit_ephemeris_updates' and column != 'transit_source_name' and column != 'transit_source_url' and column != 'transit_planet_name' and column != 'transit_host_name' and column != 'transit_t0_bjd_tdb' and column != 'transit_t0_unc' and column != 'transit_period_days' and column != 'transit_period_unc' and column != 'transit_duration_hours' and column != 'transit_depth_r_mmag' and column != 'transit_v_mag' and column != 'transit_r_mag' and column != 'transit_gaia_g_mag' %}
+        {% if column != 'reduced_datums' and column != 'target_updates' and column != 'transit_ephemeris_updates' and column != 'transit_source_name' and column != 'transit_source_url' and column != 'transit_planet_name' and column != 'transit_host_name' and column != 'transit_t0_bjd_tdb' and column != 'transit_t0_unc' and column != 'transit_period_days' and column != 'transit_period_unc' and column != 'transit_duration_hours' and column != 'transit_depth_r_mmag' and column != 'transit_v_mag' and column != 'transit_r_mag' and column != 'transit_gaia_g_mag' and column != 'existing_target_pk' and column != 'existing_target_url' %}
           <th>{{ column|capfirst }}</th>
         {% endif %}
       {% endfor %}
@@ -27,10 +27,10 @@
         {% if result.transit_r_mag is not None %}data-transit-r-mag="{{ result.transit_r_mag }}"{% endif %}
         {% if result.transit_gaia_g_mag is not None %}data-transit-gaia-g-mag="{{ result.transit_gaia_g_mag }}"{% endif %}
       >
-        <td><input type="checkbox" name="selected_results" value="{{ result.id }}"/></td>
+        <td>{% if not result.existing_target_pk %}<input type="checkbox" name="selected_results" value="{{ result.id }}"/>{% endif %}</td>
         {% for key, value in result.items %}
-          {% if key != 'reduced_datums' and key != 'target_updates' and key != 'transit_ephemeris_updates' and key != 'transit_source_name' and key != 'transit_source_url' and key != 'transit_planet_name' and key != 'transit_host_name' and key != 'transit_t0_bjd_tdb' and key != 'transit_t0_unc' and key != 'transit_period_days' and key != 'transit_period_unc' and key != 'transit_duration_hours' and key != 'transit_depth_r_mmag' and key != 'transit_v_mag' and key != 'transit_r_mag' and key != 'transit_gaia_g_mag' %}
-            <td>{{ value }}</td>
+          {% if key != 'reduced_datums' and key != 'target_updates' and key != 'transit_ephemeris_updates' and key != 'transit_source_name' and key != 'transit_source_url' and key != 'transit_planet_name' and key != 'transit_host_name' and key != 'transit_t0_bjd_tdb' and key != 'transit_t0_unc' and key != 'transit_period_days' and key != 'transit_period_unc' and key != 'transit_duration_hours' and key != 'transit_depth_r_mmag' and key != 'transit_v_mag' and key != 'transit_r_mag' and key != 'transit_gaia_g_mag' and key != 'existing_target_pk' and key != 'existing_target_url' %}
+            <td>{% if key == 'name' and result.existing_target_url %}<a href="{{ result.existing_target_url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</td>
           {% endif %}
         {% endfor %}
       </tr>
