@@ -29,6 +29,7 @@ from django.shortcuts import resolve_url
 from django.shortcuts import render
 from django.views.generic import FormView, ListView, RedirectView, TemplateView
 from django.views import View
+from django.utils import timezone as django_timezone
 from django.utils.decorators import method_decorator
 from django.urls import reverse, reverse_lazy
 from django.db.models import Q
@@ -72,6 +73,7 @@ from custom_code.forms import (
 from custom_code.proposal_forms import FacilityAccountForm, FacilityProposalForm
 from custom_code.facility_proposals import (
     ensure_default_facilities,
+    sync_remote_proposals_for_account,
     get_accessible_accounts,
     get_accessible_facilities,
     get_accessible_proposals,
@@ -2493,6 +2495,27 @@ class FacilityAccountDeleteView(LoginRequiredMixin, TemplateView):
         context['object_label'] = str(self.account)
         context['cancel_url'] = reverse('proposal-list')
         return context
+
+
+class FacilityAccountSyncProposalsView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        account = get_object_or_404(get_manageable_accounts(request.user), pk=kwargs['pk'])
+        try:
+            result = sync_remote_proposals_for_account(account)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+        except requests.RequestException as exc:
+            account.sync_status = account.SyncStatus.ERROR
+            account.last_synced_at = django_timezone.now()
+            account.last_sync_error = str(exc)
+            account.save(update_fields=['sync_status', 'last_synced_at', 'last_sync_error', 'modified'])
+            messages.error(request, f'Proposal sync failed: {exc}')
+        else:
+            messages.success(
+                request,
+                'Imported {imported_count}, updated {updated_count}, active {active_count} proposals.'.format(**result),
+            )
+        return redirect('proposal-list')
 
 
 class FacilityProposalCreateView(LoginRequiredMixin, FormView):

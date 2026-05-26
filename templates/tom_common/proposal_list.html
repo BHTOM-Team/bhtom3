@@ -29,9 +29,22 @@
             <div>
               <strong>{{ account.label }}</strong>
               <span class="text-muted">created by {{ account.created_by.username }}</span>
+              {% if account.facility.supports_remote_proposal_sync %}
+                <div class="small text-muted">
+                  Sync: {{ account.get_sync_status_display }}
+                  {% if account.last_synced_at %}| {{ account.last_synced_at|date:'Y-m-d H:i' }}{% endif %}
+                  {% if account.last_sync_error %}| {{ account.last_sync_error }}{% endif %}
+                </div>
+              {% endif %}
             </div>
             <div>
               {% if entry.can_manage %}
+                {% if account.facility.supports_remote_proposal_sync %}
+                  <form method="post" action="{% url 'proposal-account-sync' account.pk %}" style="display:inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-success">Import Proposals</button>
+                  </form>
+                {% endif %}
                 <a class="btn btn-sm btn-outline-primary" href="{% url 'proposal-create' account.pk %}">Add Proposal</a>
                 <a class="btn btn-sm btn-outline-secondary" href="{% url 'proposal-account-update' account.pk %}">Edit</a>
                 <a class="btn btn-sm btn-outline-danger" href="{% url 'proposal-account-delete' account.pk %}">Delete</a>
@@ -45,6 +58,7 @@
                   <tr>
                     <th>Proposal</th>
                     <th>Title</th>
+                    <th>Valid Until</th>
                     <th>Shared With</th>
                     <th></th>
                   </tr>
@@ -54,6 +68,7 @@
                     <tr>
                       <td>{{ proposal.external_id }}</td>
                       <td>{{ proposal.title|default:'-' }}</td>
+                      <td>{{ proposal.valid_until|date:'Y-m-d H:i'|default:'-' }}</td>
                       <td>
                         {% for membership in proposal.memberships.all %}
                           {{ membership.user.username }}{% if not forloop.last %}, {% endif %}

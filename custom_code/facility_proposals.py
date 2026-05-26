@@ -1,5 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from django.utils import timezone
+import requests
+from dateutil.parser import parse as parse_datetime
 
 from custom_code.models import (
     Facility,
@@ -122,6 +125,28 @@ def ensure_default_facilities():
     missing_definitions = [payload for payload in DEFAULT_FACILITY_DEFINITIONS if payload['code'] not in existing_codes]
     for payload in missing_definitions:
         Facility.objects.create(**payload)
+
+
+def _parse_remote_datetime(value):
+    if not value:
+        return None
+    try:
+        parsed = parse_datetime(str(value))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if parsed.tzinfo is None:
+        return timezone.make_aware(parsed, timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _extract_proposal_window(remote_payload):
+    valid_from = None
+    valid_until = None
+    for key in ('start', 'starts', 'start_date', 'start_time', 'active_from', 'valid_from'):
+        valid_from = valid_from or _parse_remote_datetime(remote_payload.get(key))
+    for key in ('end', 'ends', 'end_date', 'end_time', 'active_until', 'expires', 'valid_until'):
+        valid_until = valid_until or _parse_remote_datetime(remote_payload.get(key))
+    return valid_from, valid_until
 
 
 def _coerce_user(user_or_id):
@@ -332,3 +357,94 @@ def sync_memberships_for_proposal(proposal, owner, shared_users):
             },
         )
     proposal.memberships.exclude(user_id__in=keep_ids).delete()
+
+
+def copy_account_memberships_to_proposal(account, proposal):
+    keep_ids = set()
+    for membership in account.memberships.select_related('user'):
+        keep_ids.add(membership.user_id)
+        role = FacilityProposalMembership.Role.USER
+        if membership.role == FacilityAccountMembership.Role.OWNER:
+            role = FacilityProposalMembership.Role.OWNER
+        elif membership.role == FacilityAccountMembership.Role.EDITOR:
+            role = FacilityProposalMembership.Role.EDITOR
+        FacilityProposalMembership.objects.update_or_create(
+            proposal=proposal,
+            user=membership.user,
+            defaults={
+                'role': role,
+                'can_submit_observations': True,
+                'created_by': membership.created_by or account.created_by,
+            },
+        )
+    proposal.memberships.exclude(user_id__in=keep_ids).delete()
+
+
+def sync_remote_proposals_for_account(account):
+    if not account.facility.supports_remote_proposal_sync:
+        raise ValueError(f'{account.facility.code} does not support remote proposal sync.')
+
+    if account.facility.code != 'LCO':
+        raise ValueError(f'{account.facility.code} remote sync is not implemented.')
+
+    api_key = account.credentials.get('api_key', '')
+    if not api_key:
+        raise ValueError('API key is required before syncing proposals.')
+
+    portal_url = account.account_data.get('portal_url') or 'https://observe.lco.global'
+    archive_url = account.account_data.get('archive_url') or 'https://archive-api.lco.global/'
+    account.account_data.setdefault('portal_url', portal_url)
+    account.account_data.setdefault('archive_url', archive_url)
+
+    response = requests.get(
+        f'{portal_url.rstrip("/")}/api/profile/',
+        headers={'Authorization': f'Token {api_key}'},
+        timeout=60,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    remote_proposals = payload.get('proposals') or []
+
+    seen_external_ids = set()
+    imported_count = 0
+    updated_count = 0
+    active_count = 0
+
+    for remote_proposal in remote_proposals:
+        external_id = str(remote_proposal.get('id') or '').strip()
+        if not external_id:
+            continue
+        seen_external_ids.add(external_id)
+        title = str(remote_proposal.get('title') or external_id)
+        valid_from, valid_until = _extract_proposal_window(remote_proposal)
+        defaults = {
+            'title': title,
+            'details': {},
+            'remote_payload': remote_proposal,
+            'is_active': bool(remote_proposal.get('current', True)),
+            'valid_from': valid_from,
+            'valid_until': valid_until,
+        }
+        proposal, created = FacilityProposal.objects.update_or_create(
+            account=account,
+            external_id=external_id,
+            defaults=defaults,
+        )
+        copy_account_memberships_to_proposal(account, proposal)
+        imported_count += int(created)
+        updated_count += int(not created)
+        active_count += int(proposal.is_active)
+
+    if seen_external_ids:
+        account.proposals.exclude(external_id__in=seen_external_ids).update(is_active=False)
+
+    account.sync_status = FacilityAccount.SyncStatus.OK
+    account.last_synced_at = timezone.now()
+    account.last_sync_error = ''
+    account.save(update_fields=['account_data', 'sync_status', 'last_synced_at', 'last_sync_error', 'modified'])
+    return {
+        'imported_count': imported_count,
+        'updated_count': updated_count,
+        'active_count': active_count,
+        'total_remote_count': len(remote_proposals),
+    }
