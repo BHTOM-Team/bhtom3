@@ -21,9 +21,7 @@ TERMINAL_OBSERVING_STATES = SUCCESSFUL_OBSERVING_STATES + FAILED_OBSERVING_STATE
 valid_instruments = ['SOAB_ZWO-ASI294MC-Pro']
 valid_filters = [['B','B'],['R','R'],['I','I']] 
 
-bolecina_proposals = settings.FACILITIES.get('BOLECINA', {}).get('proposalIDs', [])
-
-proposal_choices = [(str(proposal_id), description) for proposal_id, description in bolecina_proposals]
+proposal_choices = []
 
 class BOLECINAPhotometricSequenceForm(BaseRoboticObservationForm):
 #    name = forms.CharField()
@@ -290,11 +288,12 @@ Priority: 2
         """
 
         selected_proposal = get_proposal_by_pk(observation_payload['params'].get('proposal_id'), facility_code='BOLECINA')
-        email = settings.FACILITIES.get('BOLECINA', {}).get('email', ['wyrzykow@gmail.com'])
-        proposal_id = observation_payload['params']['proposal_id']
-        if selected_proposal:
-            proposal_id = selected_proposal.external_id
-            email = selected_proposal.account.account_data.get('notification_email', email)
+        if not selected_proposal:
+            raise ValueError('Selected BOLECINA proposal is not available in the proposal database.')
+        proposal_id = selected_proposal.external_id
+        email = (selected_proposal.details or {}).get('notification_email', '').strip()
+        if not email:
+            raise ValueError('BOLECINA proposal is missing notification email.')
         # Get start and end dates from observation_payload
         start_date_str = observation_payload['params']['start']
         end_date_str = observation_payload['params']['end']

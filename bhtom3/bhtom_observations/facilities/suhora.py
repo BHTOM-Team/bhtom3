@@ -21,9 +21,7 @@ TERMINAL_OBSERVING_STATES = SUCCESSFUL_OBSERVING_STATES + FAILED_OBSERVING_STATE
 valid_instruments = ['Suhora']
 valid_filters = [['U','U'],['B','B'],['V','V'],['I','I']] 
 
-suhora_proposals = settings.FACILITIES.get('SUHORA', {}).get('proposalIDs', [])
-
-proposal_choices = [(str(proposal_id), description) for proposal_id, description in suhora_proposals]
+proposal_choices = []
 
 class SUHORAPhotometricSequenceForm(BaseRoboticObservationForm):
 #    name = forms.CharField()
@@ -290,11 +288,12 @@ Priority: 2
         """
 
         selected_proposal = get_proposal_by_pk(observation_payload['params'].get('proposal_id'), facility_code='SUHORA')
-        email = settings.FACILITIES.get('SUHORA', {}).get('email', ['wyrzykow@gmail.com'])
-        proposal_id = observation_payload['params']['proposal_id']
-        if selected_proposal:
-            proposal_id = selected_proposal.external_id
-            email = selected_proposal.account.account_data.get('notification_email', email)
+        if not selected_proposal:
+            raise ValueError('Selected SUHORA proposal is not available in the proposal database.')
+        proposal_id = selected_proposal.external_id
+        email = (selected_proposal.details or {}).get('notification_email', '').strip()
+        if not email:
+            raise ValueError('SUHORA proposal is missing notification email.')
         # Get start and end dates from observation_payload
         start_date_str = observation_payload['params']['start']
         end_date_str = observation_payload['params']['end']
