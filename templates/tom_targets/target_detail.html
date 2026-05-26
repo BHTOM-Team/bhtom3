@@ -304,7 +304,7 @@
         <hr/>
         <h4>Plan</h4>
         {% if object.type == 'SIDEREAL' %}
-          {% target_plan %}
+          {% sidereal_target_plan %}
           {% moon_distance object %}
         {% elif object.type == 'NON_SIDEREAL' %}
           {% nonsidereal_target_plan %}

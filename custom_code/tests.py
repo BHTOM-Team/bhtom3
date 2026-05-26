@@ -175,6 +175,16 @@ class OGLEEWSDataServiceTests(TestCase):
 
 
 class ExoClockDataServiceTests(TestCase):
+    def test_build_query_parameters_serializes_compute_from_date(self):
+        service = ExoClockDataService()
+
+        params = service.build_query_parameters({
+            'compute_from_date': '2026-04-21T12:34:56',
+            'transit_within_days': '1',
+        })
+
+        self.assertEqual(params['compute_from_date'], '2026-04-21T12:34:56')
+
     def test_query_targets_by_name_returns_ephemeris_fields(self):
         service = ExoClockDataService()
         catalog = {
@@ -313,6 +323,12 @@ class ExoClockDataServiceTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn('transit_within_days', form.errors)
+
+    def test_exoclock_form_sets_default_advanced_time_filters(self):
+        form = ExoClockQueryForm()
+
+        self.assertIsNotNone(form.initial['compute_from_date'])
+        self.assertEqual(form.initial['transit_within_days'], 1.0)
 
 
 class MOADataServiceTests(TestCase):

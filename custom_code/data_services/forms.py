@@ -1,4 +1,7 @@
+from datetime import timezone as datetime_timezone
+
 from django import forms
+from django.utils import timezone
 from astropy.coordinates import Angle
 import astropy.units as u
 
@@ -219,10 +222,18 @@ class ExoClockQueryForm(BaseQueryForm):
     )
     transit_within_days = forms.FloatField(
         required=False,
+        initial=1.0,
         min_value=0.0,
         label='Next transit within (days)',
         help_text='Return only planets whose next transit occurs within this many days from the compute time.',
     )
+
+    def __init__(self, *args, **kwargs):
+        initial = kwargs.setdefault('initial', {})
+        now_utc = timezone.now().astimezone(datetime_timezone.utc).replace(tzinfo=None, microsecond=0)
+        initial.setdefault('compute_from_date', now_utc)
+        initial.setdefault('transit_within_days', 1.0)
+        super().__init__(*args, **kwargs)
 
     def clean(self):
         cleaned = super().clean()

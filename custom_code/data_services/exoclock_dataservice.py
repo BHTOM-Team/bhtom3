@@ -39,6 +39,13 @@ def _planet_page_url(planet_name: str) -> str:
     return f'{EXOCLOCK_PLANET_URL}/{planet_name}'
 
 
+def _serialize_time(value):
+    moment = ExoClockDataService._coerce_time(value)
+    if moment is None:
+        return None
+    return moment.utc.datetime.replace(tzinfo=None, microsecond=0).isoformat()
+
+
 class ExoClockDataService(DataService):
     name = 'ExoClock'
     verbose_name = 'ExoClock'
@@ -71,7 +78,7 @@ class ExoClockDataService(DataService):
             'declination_max': _to_float(parameters.get('declination_max')),
             'sun_distance_min': _to_float(parameters.get('sun_distance_min')),
             'transit_within_days': _to_float(parameters.get('transit_within_days')),
-            'compute_from_date': self._coerce_time(parameters.get('compute_from_date')),
+            'compute_from_date': _serialize_time(parameters.get('compute_from_date')),
         }
         return self.query_parameters
 
@@ -205,7 +212,7 @@ class ExoClockDataService(DataService):
         if declination_max is not None and coord.dec.degree > declination_max:
             return False
 
-        compute_from = query_parameters.get('compute_from_date') or self._coerce_time(timezone.now())
+        compute_from = self._coerce_time(query_parameters.get('compute_from_date')) or self._coerce_time(timezone.now())
 
         sun_distance_min = query_parameters.get('sun_distance_min')
         if sun_distance_min is not None:
@@ -232,7 +239,7 @@ class ExoClockDataService(DataService):
     ):
         coord = SkyCoord(planet_data['ra_j2000'], planet_data['dec_j2000'], unit=(u.hourangle, u.deg))
         query_parameters = query_parameters or {}
-        compute_from = query_parameters.get('compute_from_date') or self._coerce_time(timezone.now())
+        compute_from = self._coerce_time(query_parameters.get('compute_from_date')) or self._coerce_time(timezone.now())
         next_transit = self._compute_next_transit(planet_data, compute_from)
         sun_distance = None
         if query_parameters.get('sun_distance_min') is not None or query_parameters.get('compute_from_date') is not None:
