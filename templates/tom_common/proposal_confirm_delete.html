@@ -1,0 +1,13 @@
+{% extends 'tom_common/base.html' %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<h2>{{ page_title }}</h2>
+<p>Delete <strong>{{ object_label }}</strong>?</p>
+<form method="post">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger">Delete</button>
+  <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
+</form>
+{% endblock %}

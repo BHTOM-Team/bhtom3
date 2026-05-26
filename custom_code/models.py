@@ -256,3 +256,160 @@ class TransitEphemeris(models.Model):
                 'hours': (egress - current_dt).total_seconds() / 3600.0,
             },
         }
+
+
+class Facility(models.Model):
+    """
+    Declarative description of a facility and the shapes of its account/proposal fields.
+    """
+
+    code = models.CharField(max_length=32, unique=True, db_index=True)
+    name = models.CharField(max_length=128)
+    description = models.TextField(blank=True, default='')
+    account_schema = models.JSONField(blank=True, default=dict)
+    proposal_schema = models.JSONField(blank=True, default=dict)
+    supports_remote_proposal_sync = models.BooleanField(default=False, db_index=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('name',)
+
+    def __str__(self):
+        return self.name
+
+
+class FacilityAccount(models.Model):
+    """
+    Shared facility access bundle, such as an LCO API key or REM login/email pair.
+    """
+
+    class SyncStatus(models.TextChoices):
+        NOT_SYNCED = 'not_synced', 'Not synced'
+        OK = 'ok', 'OK'
+        ERROR = 'error', 'Error'
+
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='accounts')
+    label = models.CharField(max_length=128)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='facility_accounts_created',
+    )
+    account_data = models.JSONField(blank=True, default=dict)
+    credentials = models.JSONField(blank=True, default=dict)
+    is_active = models.BooleanField(default=True, db_index=True)
+    sync_status = models.CharField(
+        max_length=16,
+        choices=SyncStatus.choices,
+        default=SyncStatus.NOT_SYNCED,
+        db_index=True,
+    )
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True, default='')
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+    users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through='FacilityAccountMembership',
+        related_name='shared_facility_accounts',
+    )
+
+    class Meta:
+        ordering = ('facility__name', 'label')
+        unique_together = (('facility', 'label'),)
+
+    def __str__(self):
+        return f'{self.facility.code}: {self.label}'
+
+
+class FacilityAccountMembership(models.Model):
+    class Role(models.TextChoices):
+        OWNER = 'owner', 'Owner'
+        EDITOR = 'editor', 'Editor'
+        VIEWER = 'viewer', 'Viewer'
+
+    account = models.ForeignKey(FacilityAccount, on_delete=models.CASCADE, related_name='memberships')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='facility_account_memberships',
+    )
+    role = models.CharField(max_length=16, choices=Role.choices, default=Role.OWNER)
+    can_view_credentials = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='facility_account_memberships_created',
+        null=True,
+        blank=True,
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = (('account', 'user'),)
+
+    def __str__(self):
+        return f'{self.account} -> {self.user}'
+
+
+class FacilityProposal(models.Model):
+    """
+    A proposal/project visible inside one facility account.
+    """
+
+    account = models.ForeignKey(FacilityAccount, on_delete=models.CASCADE, related_name='proposals')
+    external_id = models.CharField(max_length=128)
+    title = models.CharField(max_length=255, blank=True, default='')
+    details = models.JSONField(blank=True, default=dict)
+    remote_payload = models.JSONField(blank=True, default=dict)
+    is_active = models.BooleanField(default=True, db_index=True)
+    valid_from = models.DateTimeField(null=True, blank=True)
+    valid_until = models.DateTimeField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+    users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through='FacilityProposalMembership',
+        related_name='shared_facility_proposals',
+    )
+
+    class Meta:
+        ordering = ('account__facility__name', 'title', 'external_id')
+        unique_together = (('account', 'external_id'),)
+
+    def __str__(self):
+        return self.title or f'{self.account.facility.code} {self.external_id}'
+
+
+class FacilityProposalMembership(models.Model):
+    class Role(models.TextChoices):
+        OWNER = 'owner', 'Owner'
+        EDITOR = 'editor', 'Editor'
+        USER = 'user', 'User'
+
+    proposal = models.ForeignKey(FacilityProposal, on_delete=models.CASCADE, related_name='memberships')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='facility_proposal_memberships',
+    )
+    role = models.CharField(max_length=16, choices=Role.choices, default=Role.USER)
+    can_submit_observations = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='facility_proposal_memberships_created',
+        null=True,
+        blank=True,
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = (('proposal', 'user'),)
+
+    def __str__(self):
+        return f'{self.proposal} -> {self.user}'

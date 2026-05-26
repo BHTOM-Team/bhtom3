@@ -8,6 +8,7 @@ from tom_observations.cadence import CadenceForm
 from tom_targets.models import Target
 
 from custom_code.models import BhtomTarget
+from custom_code.facility_proposals import get_proposal_by_pk, get_proposal_choices_for_user
 from django.core.mail import send_mail
 from django.conf import settings
 
@@ -55,6 +56,9 @@ class LESEDIPhotometricSequenceForm(BaseRoboticObservationForm):
         kwargs['initial'] = initial_data
         
         super().__init__(*args, **kwargs)
+        dynamic_choices = get_proposal_choices_for_user(self.initial.get('request_user_id'), 'LESEDI', include_account_label=True)
+        if dynamic_choices:
+            self.fields['proposal_id'].choices = dynamic_choices
 
         target = Target.objects.get(id=self.initial.get('target_id'))
         # initial_data.setdefault('name', f'BHTOM_LESEDI_{target.name}')
@@ -285,7 +289,12 @@ Priority: 2
 [ENDLESEDIOB]
         """
 
+        selected_proposal = get_proposal_by_pk(observation_payload['params'].get('proposal_id'), facility_code='LESEDI')
         email = settings.FACILITIES.get('LESEDI', {}).get('email', ['wyrzykow@gmail.com'])
+        proposal_id = observation_payload['params']['proposal_id']
+        if selected_proposal:
+            proposal_id = selected_proposal.external_id
+            email = selected_proposal.account.account_data.get('notification_email', email)
         # Get start and end dates from observation_payload
         start_date_str = observation_payload['params']['start']
         end_date_str = observation_payload['params']['end']
@@ -301,7 +310,7 @@ Priority: 2
             target_name=target_name,
             ra=ra,
             dec=dec,
-            proposal_id = observation_payload['params']['proposal_id'],
+            proposal_id=proposal_id,
             email=email,
             cadence = observation_payload['params']['cadence'],
             exptime = observation_payload['params']['exposure_time'],
