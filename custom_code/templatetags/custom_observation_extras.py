@@ -4,12 +4,26 @@ from django import template
 from django.core.cache import cache
 from plotly import offline
 from plotly import graph_objs as go
+from tom_observations.facility import get_service_classes
 
 from custom_code.forms import NonSiderealTargetVisibilityForm
+from custom_code.facility_proposals import get_current_proposals_for_user
 from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
 
 register = template.Library()
 NON_SIDEREAL_PLAN_INTERVAL_MINUTES = 30
+
+
+@register.inclusion_tag('tom_observations/partials/observing_buttons.html', takes_context=True)
+def proposal_observing_buttons(context, target):
+    request = context['request']
+    facilities = get_service_classes()
+    if not getattr(request.user, 'is_authenticated', False):
+        return {'target': target, 'facilities': {}}
+
+    allowed_codes = set(get_current_proposals_for_user(request.user).values_list('account__facility__code', flat=True))
+    visible = {name: clazz for name, clazz in facilities.items() if name in allowed_codes}
+    return {'target': target, 'facilities': visible}
 
 
 @register.inclusion_tag('tom_targets/partials/target_plan.html', takes_context=True)

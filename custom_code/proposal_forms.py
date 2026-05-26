@@ -1,6 +1,6 @@
 from django import forms
 
-from custom_code.facility_proposals import get_manageable_users
+from custom_code.facility_proposals import get_manageable_users, get_or_create_hidden_account, sync_remote_proposals_for_account
 from custom_code.models import FacilityAccount, FacilityProposal
 
 
@@ -114,3 +114,86 @@ class FacilityProposalForm(forms.Form):
             proposal.details[field_spec['name']] = value
         proposal.save()
         return proposal
+
+
+class DirectFacilityProposalForm(forms.Form):
+    external_id = forms.CharField(max_length=128, label='Proposal ID')
+    title = forms.CharField(max_length=255, required=False)
+    is_active = forms.BooleanField(required=False, initial=True)
+    shared_users = forms.ModelMultipleChoiceField(queryset=None, required=False)
+
+    def __init__(self, *args, facility, user, proposal=None, **kwargs):
+        self.facility = facility
+        self.user = user
+        self.proposal = proposal
+        super().__init__(*args, **kwargs)
+        self.fields['shared_users'].queryset = get_manageable_users(exclude_user=user)
+        self._schema_fields = []
+
+        for field_spec in facility.proposal_schema.get('fields', []):
+            if field_spec['name'] == 'proposal_id':
+                continue
+            field_name = f"details__{field_spec['name']}"
+            self.fields[field_name] = _build_dynamic_field(field_spec)
+            self._schema_fields.append((field_name, field_spec))
+
+        if proposal:
+            self.fields['external_id'].initial = proposal.external_id
+            self.fields['title'].initial = proposal.title
+            self.fields['is_active'].initial = proposal.is_active
+            shared_ids = proposal.memberships.exclude(user=user).values_list('user_id', flat=True)
+            self.fields['shared_users'].initial = list(shared_ids)
+            for field_name, field_spec in self._schema_fields:
+                value = proposal.details.get(field_spec['name'])
+                if value not in (None, ''):
+                    self.fields[field_name].initial = value
+
+    def save(self):
+        if self.proposal:
+            proposal = self.proposal
+        else:
+            account = get_or_create_hidden_account(
+                facility=self.facility,
+                owner=self.user,
+                credentials={},
+                account_data={},
+                label=f'{self.facility.code} proposal {self.cleaned_data["external_id"]}',
+            )
+            proposal = FacilityProposal(account=account)
+
+        proposal.external_id = self.cleaned_data['external_id']
+        proposal.title = self.cleaned_data.get('title', '')
+        proposal.is_active = self.cleaned_data.get('is_active', True)
+        proposal.details = {}
+        for field_name, field_spec in self._schema_fields:
+            value = self.cleaned_data.get(field_name)
+            if value in (None, ''):
+                continue
+            proposal.details[field_spec['name']] = value
+        proposal.save()
+        return proposal
+
+
+class LCOProposalImportForm(forms.Form):
+    api_key = forms.CharField(widget=forms.PasswordInput(render_value=True), label='API key')
+    shared_users = forms.ModelMultipleChoiceField(queryset=None, required=False)
+
+    def __init__(self, *args, user, **kwargs):
+        self.user = user
+        super().__init__(*args, **kwargs)
+        self.fields['shared_users'].queryset = get_manageable_users(exclude_user=user)
+
+    def save(self):
+        facility = self.initial['facility']
+        account = get_or_create_hidden_account(
+            facility=facility,
+            owner=self.user,
+            credentials={'api_key': self.cleaned_data['api_key']},
+            account_data={},
+            label=f'LCO API key for {self.user.username}',
+        )
+        return sync_remote_proposals_for_account(
+            account,
+            owner=self.user,
+            shared_users=list(self.cleaned_data['shared_users']),
+        )

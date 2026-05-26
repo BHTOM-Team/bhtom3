@@ -70,9 +70,16 @@ from custom_code.forms import (
     BhtomUserUpdateForm,
     GeoTomAddSatForm,
 )
-from custom_code.proposal_forms import FacilityAccountForm, FacilityProposalForm
+from custom_code.proposal_forms import (
+    DirectFacilityProposalForm,
+    FacilityAccountForm,
+    FacilityProposalForm,
+    LCOProposalImportForm,
+)
 from custom_code.facility_proposals import (
     ensure_default_facilities,
+    get_current_proposals_for_user,
+    get_or_create_hidden_account,
     sync_remote_proposals_for_account,
     get_accessible_accounts,
     get_accessible_facilities,
@@ -2393,23 +2400,13 @@ class ProposalListView(LoginRequiredMixin, TemplateView):
         ensure_default_facilities()
         facilities = []
         for facility in Facility.objects.filter(is_active=True).order_by('name'):
-            accounts = []
-            visible_proposals = get_accessible_proposals(self.request.user, facility.code)
-            manageable_account_ids = set(get_manageable_accounts(self.request.user, facility.code).values_list('pk', flat=True))
             manageable_proposal_ids = set(get_manageable_proposals(self.request.user, facility.code).values_list('pk', flat=True))
-            proposals_by_account = {}
-            for proposal in visible_proposals:
-                proposals_by_account.setdefault(proposal.account_id, []).append(proposal)
-            for account in get_accessible_accounts(self.request.user, facility.code):
-                accounts.append({
-                    'account': account,
-                    'proposals': proposals_by_account.get(account.pk, []),
-                    'can_manage': account.pk in manageable_account_ids,
-                })
+            proposals = list(get_accessible_proposals(self.request.user, facility.code).order_by('title', 'external_id'))
             facilities.append({
                 'facility': facility,
-                'accounts': accounts,
-                'can_add_account': True,
+                'proposals': proposals,
+                'can_import': facility.code == 'LCO',
+                'can_add_proposal': facility.code != 'LCO',
                 'manageable_proposal_ids': manageable_proposal_ids,
             })
         context['facility_sections'] = facilities
@@ -2522,26 +2519,27 @@ class FacilityProposalCreateView(LoginRequiredMixin, FormView):
     template_name = 'tom_common/proposal_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        self.account = get_object_or_404(get_manageable_accounts(request.user), pk=kwargs['account_pk'])
+        ensure_default_facilities()
+        self.facility = get_object_or_404(Facility.objects.filter(is_active=True), code=kwargs['facility_code'])
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_class(self):
-        return FacilityProposalForm
+        return DirectFacilityProposalForm
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs.update({'account': self.account, 'user': self.request.user})
+        kwargs.update({'facility': self.facility, 'user': self.request.user})
         return kwargs
 
     def form_valid(self, form):
         proposal = form.save()
         sync_memberships_for_proposal(proposal, self.request.user, form.cleaned_data['shared_users'])
-        messages.success(self.request, f'Proposal saved for {self.account.label}.')
+        messages.success(self.request, f'{self.facility.name} proposal saved.')
         return redirect('proposal-list')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['page_title'] = f'Add Proposal for {self.account.label}'
+        context['page_title'] = f'Add {self.facility.name} Proposal'
         context['submit_label'] = 'Save proposal'
         context['cancel_url'] = reverse('proposal-list')
         return context
@@ -2556,11 +2554,11 @@ class FacilityProposalUpdateView(LoginRequiredMixin, FormView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_class(self):
-        return FacilityProposalForm
+        return DirectFacilityProposalForm
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs.update({'account': self.account, 'user': self.request.user, 'proposal': self.proposal})
+        kwargs.update({'facility': self.account.facility, 'user': self.request.user, 'proposal': self.proposal})
         return kwargs
 
     def form_valid(self, form):
@@ -2573,6 +2571,38 @@ class FacilityProposalUpdateView(LoginRequiredMixin, FormView):
         context = super().get_context_data(**kwargs)
         context['page_title'] = f'Edit Proposal for {self.account.label}'
         context['submit_label'] = 'Update proposal'
+        context['cancel_url'] = reverse('proposal-list')
+        return context
+
+
+class LCOProposalImportView(LoginRequiredMixin, FormView):
+    template_name = 'tom_common/proposal_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        ensure_default_facilities()
+        self.facility = get_object_or_404(Facility.objects.filter(is_active=True), code='LCO')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_class(self):
+        return LCOProposalImportForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update({'user': self.request.user, 'initial': {'facility': self.facility}})
+        return kwargs
+
+    def form_valid(self, form):
+        result = form.save()
+        messages.success(
+            self.request,
+            'Imported {imported_count}, updated {updated_count}, active {active_count} proposals.'.format(**result),
+        )
+        return redirect('proposal-list')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = 'Import LCO Proposals'
+        context['submit_label'] = 'Import proposals'
         context['cancel_url'] = reverse('proposal-list')
         return context
 

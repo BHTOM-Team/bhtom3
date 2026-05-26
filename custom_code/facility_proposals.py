@@ -189,9 +189,7 @@ def get_accessible_facilities(user):
         return Facility.objects.filter(is_active=True)
     return Facility.objects.filter(
         is_active=True,
-    ).filter(
-        Q(accounts__memberships__user=user) |
-        Q(accounts__proposals__memberships__user=user)
+        accounts__proposals__memberships__user=user,
     ).distinct()
 
 
@@ -240,10 +238,7 @@ def get_accessible_proposals(user, facility_code=None):
         queryset = queryset.filter(account__facility__code=facility_code)
     if user.is_superuser:
         return queryset
-    return queryset.filter(
-        Q(account__memberships__user=user) |
-        Q(memberships__user=user)
-    ).distinct()
+    return queryset.filter(memberships__user=user).distinct()
 
 
 def get_manageable_proposals(user, facility_code=None):
@@ -252,19 +247,25 @@ def get_manageable_proposals(user, facility_code=None):
     if not user or user.is_superuser:
         return queryset
     return queryset.filter(
-        Q(memberships__user=user, memberships__role__in=[
+        memberships__user=user,
+        memberships__role__in=[
             FacilityProposalMembership.Role.OWNER,
             FacilityProposalMembership.Role.EDITOR,
-        ]) |
-        Q(account__memberships__user=user, account__memberships__role__in=[
-            FacilityAccountMembership.Role.OWNER,
-            FacilityAccountMembership.Role.EDITOR,
-        ])
+        ],
     ).distinct()
 
 
 def get_first_account_for_user(user, facility_code):
     return get_accessible_accounts(user, facility_code=facility_code).order_by('label', 'pk').first()
+
+
+def get_current_proposals_for_user(user, facility_code=None):
+    queryset = get_accessible_proposals(user, facility_code=facility_code)
+    now = timezone.now()
+    return queryset.filter(
+        Q(valid_from__isnull=True) | Q(valid_from__lte=now),
+        Q(valid_until__isnull=True) | Q(valid_until__gte=now),
+    )
 
 
 def get_account_for_user(user, account_id):
@@ -301,7 +302,7 @@ def get_facility_by_code(facility_code):
 
 def get_proposal_choices_for_user(user, facility_code, include_account_label=False):
     choices = []
-    for proposal in get_accessible_proposals(user, facility_code=facility_code).order_by(
+    for proposal in get_current_proposals_for_user(user, facility_code=facility_code).order_by(
         'account__label', 'title', 'external_id'
     ):
         label_bits = [proposal.title or proposal.external_id]
@@ -393,7 +394,46 @@ def copy_account_memberships_to_proposal(account, proposal):
     proposal.memberships.exclude(user_id__in=keep_ids).delete()
 
 
-def sync_remote_proposals_for_account(account):
+def get_or_create_hidden_account(facility, owner, credentials=None, account_data=None, label=None):
+    credentials = credentials or {}
+    account_data = account_data or {}
+    queryset = FacilityAccount.objects.filter(facility=facility, created_by=owner, is_active=True)
+    if facility.code == 'LCO' and credentials.get('api_key'):
+        existing = queryset.filter(credentials__api_key=credentials['api_key']).first()
+        if existing:
+            changed = False
+            if account_data:
+                merged = dict(existing.account_data or {})
+                for key, value in account_data.items():
+                    if merged.get(key) != value:
+                        merged[key] = value
+                        changed = True
+                if changed:
+                    existing.account_data = merged
+                    existing.save(update_fields=['account_data', 'modified'])
+            return existing
+
+    account = FacilityAccount.objects.create(
+        facility=facility,
+        label=label or f'{facility.code} hidden credentials {owner.username}',
+        created_by=owner,
+        account_data=account_data,
+        credentials=credentials,
+        is_active=True,
+    )
+    FacilityAccountMembership.objects.update_or_create(
+        account=account,
+        user=owner,
+        defaults={
+            'role': FacilityAccountMembership.Role.OWNER,
+            'can_view_credentials': True,
+            'created_by': owner,
+        },
+    )
+    return account
+
+
+def sync_remote_proposals_for_account(account, owner=None, shared_users=None):
     if not account.facility.supports_remote_proposal_sync:
         raise ValueError(f'{account.facility.code} does not support remote proposal sync.')
 
@@ -443,7 +483,10 @@ def sync_remote_proposals_for_account(account):
             external_id=external_id,
             defaults=defaults,
         )
-        copy_account_memberships_to_proposal(account, proposal)
+        if owner is not None:
+            sync_memberships_for_proposal(proposal, owner, shared_users or [])
+        else:
+            copy_account_memberships_to_proposal(account, proposal)
         imported_count += int(created)
         updated_count += int(not created)
         active_count += int(proposal.is_active)
