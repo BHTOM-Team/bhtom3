@@ -53,6 +53,8 @@ For visata (test production server)
 There are two lunchd setups running automatically, using dns entry from GoDaddy: bhtom3.bhtom.space
 No need to run anything. The https certificate will exprire in July 2026, needs renewal.
 
-settings.py
-settings.production.py
-
+Settings modules:
+- `bhtom3.settings_base` contains shared settings.
+- `bhtom3.settings_dev` is for local development.
+- `bhtom3.settings_production` is for the visata deployment.
+- `bhtom3.settings` and `bhtom3/settings.production.py` remain as compatibility shims.
