@@ -455,6 +455,11 @@ class BhtomPallasView(BhtomPallasBaseMixin, TemplateView):
     bhtom_pallas_active_tab = 'overview'
 
 
+class BhtomPallasVisibleView(BhtomPallasBaseMixin, TemplateView):
+    template_name = 'tom_common/bhtom_pallas_visible.html'
+    bhtom_pallas_active_tab = 'visible'
+
+
 class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     template_name = 'tom_common/bhtom_pallas_photometry.html'
     bhtom_pallas_active_tab = 'photometry'

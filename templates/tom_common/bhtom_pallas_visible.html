@@ -1,5 +1,5 @@
 {% extends 'tom_common/base.html' %}
-{% block title %}BHTOM-PALLAS Photometry{% endblock %}
+{% block title %}BHTOM-PALLAS Visible to me{% endblock %}
 {% block content %}
 <div style="margin: -0.5rem -15px 0; padding: 0 15px 3rem; background-color: #182431; background-image:
   radial-gradient(circle at 12% 18%, rgba(214,229,242,0.045) 0, rgba(214,229,242,0.045) 8px, transparent 9px),
@@ -41,8 +41,53 @@
         </li>
       </ul>
       <div class="pb-4" style="width: 100%; max-width: none; margin: 0 auto;">
-        <h2 class="h4 mb-2">Photometry</h2>
-        <p class="mb-0">Photometry tools will appear here.</p>
+        <h2 class="h4 mb-3">Visible to me</h2>
+        <form class="mb-0">
+          <div class="form-row">
+            <div class="form-group col-lg-3 col-md-6 d-flex flex-column">
+              <label for="id_visible_location">MPC observatory code</label>
+              <input id="id_visible_location" type="text" class="form-control" placeholder="e.g. 500">
+            </div>
+            <div class="form-group col-lg-2 col-md-6 d-flex flex-column">
+              <label for="id_visible_mag_min">Magnitude min</label>
+              <input id="id_visible_mag_min" type="text" inputmode="decimal" class="form-control" placeholder="Min">
+            </div>
+            <div class="form-group col-lg-2 col-md-6 d-flex flex-column">
+              <label for="id_visible_mag_max">Magnitude max</label>
+              <input id="id_visible_mag_max" type="text" inputmode="decimal" class="form-control" placeholder="Max">
+            </div>
+            <div class="form-group col-lg-2 col-md-6 d-flex flex-column">
+              <label for="id_visible_airmass_min">Airmass min</label>
+              <input id="id_visible_airmass_min" type="text" inputmode="decimal" class="form-control" placeholder="Min">
+            </div>
+            <div class="form-group col-lg-2 col-md-6 d-flex flex-column">
+              <label for="id_visible_airmass_max">Airmass max</label>
+              <input id="id_visible_airmass_max" type="text" inputmode="decimal" class="form-control" placeholder="Max">
+            </div>
+          </div>
+          <button type="button" class="btn btn-light">Find targets</button>
+        </form>
+        <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem;">
+          <h3 class="h5 mb-2">Visible targets</h3>
+          <div class="table-responsive">
+            <table class="table table-sm table-dark table-striped mb-0">
+              <thead>
+                <tr>
+                  <th>Target</th>
+                  <th>Type</th>
+                  <th>Magnitude</th>
+                  <th>Airmass</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colspan="5" style="color: rgba(255,255,255,0.74);">Matching targets will appear here.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   </div>
