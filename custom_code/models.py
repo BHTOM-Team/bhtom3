@@ -313,6 +313,7 @@ class FacilityAccount(models.Model):
     users = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through='FacilityAccountMembership',
+        through_fields=('account', 'user'),
         related_name='shared_facility_accounts',
     )
 
@@ -373,6 +374,7 @@ class FacilityProposal(models.Model):
     users = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through='FacilityProposalMembership',
+        through_fields=('proposal', 'user'),
         related_name='shared_facility_proposals',
     )
 
