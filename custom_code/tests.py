@@ -83,6 +83,7 @@ from custom_code.target_derivations import derive_sidereal_target_fields
 from custom_code.views import (
     BhtomCatalogQueryView,
     BhtomCreateTargetFromQueryView,
+    _serialize_query_parameters,
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
     EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
@@ -329,6 +330,19 @@ class ExoClockDataServiceTests(TestCase):
 
         self.assertIsNotNone(form.initial['compute_from_date'])
         self.assertEqual(form.initial['transit_within_days'], 1.0)
+
+
+class DataServiceQuerySerializationTests(TestCase):
+    def test_serialize_query_parameters_converts_datetime_to_iso_string(self):
+        serialized = _serialize_query_parameters({
+            'data_service': 'ExoClock',
+            'compute_from_date': datetime(2026, 4, 21, 12, 34, 56),
+            'transit_within_days': 1.0,
+            'query_save': False,
+            'query_name': '',
+        })
+
+        self.assertEqual(serialized['compute_from_date'], '2026-04-21T12:34:56')
 
 
 class MOADataServiceTests(TestCase):

@@ -1,11 +1,11 @@
-import csv
-from io import StringIO
 import json
 import logging
 import math
 import re
 import requests
+import csv
 from datetime import datetime, timedelta, timezone
+from io import StringIO
 from urllib.parse import urlencode
 
 from astropy.time import Time
@@ -22,6 +22,7 @@ from django.contrib.sites.shortcuts import get_current_site
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import redirect
 from django.shortcuts import get_object_or_404
@@ -46,6 +47,7 @@ from tom_targets.forms import TargetExtraFormset
 from tom_targets.models import Target
 from tom_targets.views import TargetCreateView, TargetDetailView, TargetListView, TargetUpdateView
 from tom_dataservices.dataservices import get_data_service_class, get_data_service_classes
+from tom_dataservices.models import DataServiceQuery
 from tom_dataservices.views import (
     CreateTargetFromQueryView,
     DataServiceQueryCreateView,
@@ -126,6 +128,21 @@ LIST_OBSERVER_PRESETS = {
     'piwnice': {'name': 'Piwnice', 'lat_deg': 53.09546, 'lon_deg': 18.56406, 'elevation_m': 87.0},
     'lasilla': {'name': 'La Silla', 'lat_deg': -29.2567, 'lon_deg': -70.7346, 'elevation_m': 2400.0},
 }
+
+
+def _normalize_json_safe_value(value):
+    if isinstance(value, Time):
+        return value.utc.datetime.replace(tzinfo=None, microsecond=0).isoformat()
+    if isinstance(value, dict):
+        return {key: _normalize_json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_json_safe_value(item) for item in value]
+    return value
+
+
+def _serialize_query_parameters(cleaned_data):
+    normalized = _normalize_json_safe_value(dict(cleaned_data))
+    return json.loads(json.dumps(normalized, cls=DjangoJSONEncoder))
 EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY = (
     'Follow the Exoclock emphemeris and observe in one or more bands to cover the entire transit, '
     'with ingres and egres well determined. Adjust the exposure time accordingly to the brightness '
@@ -2097,6 +2114,17 @@ class BhtomDataServiceQueryCreateView(DataServiceQueryCreateView):
             return render(request, self.template_name, self.get_context_data(form=None))
         return super().get(request, *args, **kwargs)
 
+    def form_valid(self, form):
+        serialized_parameters = _serialize_query_parameters(form.cleaned_data)
+        if serialized_parameters['query_save']:
+            DataServiceQuery.objects.create(
+                name=serialized_parameters['query_name'],
+                data_service=serialized_parameters['data_service'],
+                parameters=serialized_parameters,
+            )
+        self.request.session['query_parameters'] = serialized_parameters
+        return redirect(self.success_url)
+
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs) if self.get_data_service_name() else {}
         installed_services = get_data_service_classes()
@@ -2110,6 +2138,16 @@ class BhtomDataServiceQueryCreateView(DataServiceQueryCreateView):
 class BhtomDataServiceQueryUpdateView(DataServiceQueryUpdateView):
     template_name = 'tom_dataservices/query_form.html'
     success_url = reverse_lazy('dataservices:run')
+
+    def form_valid(self, form):
+        serialized_parameters = _serialize_query_parameters(form.cleaned_data)
+        if serialized_parameters['query_save']:
+            self.object.name = serialized_parameters['query_name']
+            self.object.data_service = serialized_parameters['data_service']
+            self.object.parameters = serialized_parameters
+            self.object.save()
+        self.request.session['query_parameters'] = serialized_parameters
+        return redirect(self.success_url)
 
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs)
