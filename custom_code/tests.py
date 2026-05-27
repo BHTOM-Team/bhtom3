@@ -2475,6 +2475,21 @@ class TargetDerivedFieldsTests(TestCase):
 
 
 class TargetListViewTests(TestCase):
+    def test_generic_target_search_redirects_name_queries_to_target_list_filter(self):
+        response = self.client.get(reverse('targets-generic-search'), {'q': 'Gaia21abc'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, f"{reverse('targets:list')}?name=Gaia21abc")
+
+    def test_generic_target_search_redirects_coordinate_queries_to_cone_search(self):
+        response = self.client.get(reverse('targets-generic-search'), {'q': '12.34,-45.67'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            f"{reverse('targets:list')}?cone_search=12.34000000%2C-45.67000000%2C0.0008333333",
+        )
+
     def test_main_target_list_displays_geotom_style_time_and_observer_controls(self):
         user = get_user_model().objects.create_user(username='tester', password='pass')
         self.client.force_login(user)

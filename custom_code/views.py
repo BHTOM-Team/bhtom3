@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from io import StringIO
 from urllib.parse import urlencode
 
+from astropy import units as u
+from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from astroquery.jplhorizons import Horizons
 from astroquery.mpc import MPC
@@ -129,6 +131,7 @@ LIST_OBSERVER_PRESETS = {
     'piwnice': {'name': 'Piwnice', 'lat_deg': 53.09546, 'lon_deg': 18.56406, 'elevation_m': 87.0},
     'lasilla': {'name': 'La Silla', 'lat_deg': -29.2567, 'lon_deg': -70.7346, 'elevation_m': 2400.0},
 }
+GENERIC_TARGET_SEARCH_RADIUS_ARCSEC = 3.0
 
 
 def _normalize_json_safe_value(value):
@@ -187,6 +190,25 @@ def _parse_float(value, default=None):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _parse_generic_target_search_coordinates(search_term):
+    parts = [part.strip() for part in str(search_term or '').split(',')]
+    if len(parts) != 2 or not all(parts):
+        return None
+
+    ra_text, dec_text = parts
+    coordinate_attempts = (
+        {'unit': (u.deg, u.deg)},
+        {'unit': (u.hourangle, u.deg)},
+    )
+    for kwargs in coordinate_attempts:
+        try:
+            coord = SkyCoord(ra_text, dec_text, frame='icrs', **kwargs)
+        except (TypeError, ValueError):
+            continue
+        return coord.ra.deg, coord.dec.deg
+    return None
 
 
 def _is_finite_number(value):
@@ -1724,6 +1746,27 @@ class Bhtom2TargetListView(TargetListView):
             ]
         )
         return context
+
+
+class GenericTargetSearchRedirectView(View):
+    def get(self, request, *args, **kwargs):
+        search_term = str(request.GET.get('q') or '').strip()
+        fallback_url = request.GET.get('next') or resolve_url('home')
+
+        if not search_term:
+            messages.error(request, 'Provide a target name or RA,Dec coordinates.')
+            return redirect(fallback_url)
+
+        coordinates = _parse_generic_target_search_coordinates(search_term)
+        if coordinates is not None:
+            ra_deg, dec_deg = coordinates
+            query = {
+                'cone_search': f'{ra_deg:.8f},{dec_deg:.8f},{GENERIC_TARGET_SEARCH_RADIUS_ARCSEC / 3600.0:.10f}',
+            }
+        else:
+            query = {'name': search_term}
+
+        return redirect(f"{reverse('targets:list')}?{urlencode(query)}")
 
 
 class BhtomTargetCreateView(TargetCreateView):

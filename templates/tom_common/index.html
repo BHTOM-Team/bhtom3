@@ -15,6 +15,22 @@
       <div class="col-md-8">
         <h1 class="display-4 fw-bold">Black Hole TOM 3.0001</h1>
         <p class="lead">Welcome to the official BHTOM3 platform</p>
+        <form class="welcome-target-search-form mt-4" method="get" action="{% url 'targets-generic-search' %}">
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <div class="input-group input-group-lg">
+            <input
+              class="form-control"
+              type="search"
+              name="q"
+              placeholder="Search by name, fuzzy name, or RA,Dec"
+              aria-label="Search targets by name or coordinates"
+            >
+            <div class="input-group-append">
+              <button class="btn btn-primary" type="submit">Search Targets</button>
+            </div>
+          </div>
+          <small class="form-text text-muted">Coordinate searches use a default 3 arcsec radius.</small>
+        </form>
       </div>
 
     </div>
