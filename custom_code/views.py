@@ -135,6 +135,15 @@ LIST_OBSERVER_PRESETS = {
     'lasilla': {'name': 'La Silla', 'lat_deg': -29.2567, 'lon_deg': -70.7346, 'elevation_m': 2400.0},
 }
 GENERIC_TARGET_SEARCH_RADIUS_ARCSEC = 3.0
+ALL_CATALOG_QUERY_SERVICE_NAMES = (
+    'ExoClock',
+    'Gaia Alerts',
+    'Gaia DR3',
+    'JPL Horizons',
+    'OGLE EWS',
+    'Simbad',
+    'TNS',
+)
 
 
 def _normalize_json_safe_value(value):
@@ -266,10 +275,15 @@ def _run_single_catalog_service_query(service_name, cleaned_data):
     return [_build_catalog_single_result_row(service_name, service.to_target(), term)]
 
 
+def _get_all_catalog_query_service_names():
+    installed_service_names = set(get_service_classes().keys())
+    return [service_name for service_name in ALL_CATALOG_QUERY_SERVICE_NAMES if service_name in installed_service_names]
+
+
 def _run_all_catalog_services_query(cleaned_data):
     rows = []
     feedback = []
-    for service_name in sorted(get_service_classes().keys()):
+    for service_name in _get_all_catalog_query_service_names():
         try:
             rows.extend(_run_single_catalog_service_query(service_name, cleaned_data))
         except MissingDataException:

@@ -1354,6 +1354,67 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertContains(response, 'TNS')
         self.assertContains(response, 'Create')
 
+    def test_catalog_all_services_skips_non_selected_harvesters(self):
+        request = RequestFactory().post(
+            reverse('tom_catalogs:query'),
+            data={'service': ALL_DATA_SERVICES_VALUE, 'term': 'SN 2026abc'},
+        )
+        request.user = get_user_model().objects.create_user(username='catalog-all-skip-jpl', password='secret')
+        request.session = {}
+
+        class FakeTNSHarvester:
+            name = 'TNS'
+
+            def query(self, term):
+                self.term = term
+
+            def to_target(self):
+                return Target(name='SN 2026abc', type='SIDEREAL', ra=12.3, dec=-45.6, epoch=2000.0)
+
+        class FakeExoClockHarvester:
+            name = 'ExoClock'
+
+            def query(self, term):
+                self.term = term
+
+            def to_target(self):
+                return Target(name='WASP-12b', type='SIDEREAL', ra=100.0, dec=20.0, epoch=2000.0)
+
+        class FakeJPLHarvester:
+            name = 'JPL Horizons'
+
+            def query(self, term):
+                self.term = term
+
+            def to_target(self):
+                return Target(name='Ceres', type='NON_SIDEREAL', ra=None, dec=None, epoch=2000.0)
+
+        class FakeNEDHarvester:
+            name = 'NED'
+
+            def query(self, term):
+                raise AssertionError('NED should not run in the selected All Services catalog subset')
+
+            def to_target(self):
+                raise AssertionError('NED should not run in the selected All Services catalog subset')
+
+        with patch(
+            'custom_code.views.get_service_classes',
+            return_value={
+                'TNS': FakeTNSHarvester,
+                'ExoClock': FakeExoClockHarvester,
+                'JPL Horizons': FakeJPLHarvester,
+                'NED': FakeNEDHarvester,
+            },
+        ), patch('custom_code.views._get_catalog_matches', return_value=[]):
+            response = BhtomCatalogQueryView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'SN 2026abc')
+        self.assertContains(response, 'JPL Horizons')
+        self.assertContains(response, 'ExoClock')
+        self.assertNotContains(response, 'NED')
+
     def test_ogle_ews_harvester_maps_target_name_and_coordinates(self):
         harvester = OGLEEWSHarvester()
         harvester.catalog_data = {
