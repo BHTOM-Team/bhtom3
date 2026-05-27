@@ -43,7 +43,7 @@ from rest_framework.authtoken.models import Token
 
 from tom_common.hints import add_hint
 from tom_common.hooks import run_hook
-from tom_catalogs.harvester import MissingDataException
+from tom_catalogs.harvester import MissingDataException, get_service_classes
 from tom_dataproducts.models import ReducedDatum
 from tom_targets.forms import TargetExtraFormset
 from tom_targets.models import Target
@@ -238,6 +238,44 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
             )
         except Exception as exc:
             logger.warning('All-data-services query failed for %s: %s', service_name, exc)
+            feedback.append(f'{service_name}: query failed')
+    rows.sort(key=lambda row: (str(row.get('name') or ''), str(row.get('service') or '')))
+    return rows, feedback
+
+
+def _run_single_catalog_service_query(service_name, cleaned_data):
+    matches = _get_catalog_matches(service_name, cleaned_data)
+    if matches:
+        return [_build_catalog_result_row(service_name, index, row) for index, row in enumerate(matches)]
+
+    term = (cleaned_data.get('term') or '').strip()
+    if not term and service_name != 'Simbad':
+        return []
+
+    service_class = get_service_classes()[service_name]
+    service = service_class()
+    if service_name == 'Simbad':
+        service.query(
+            term,
+            ra=cleaned_data.get('ra'),
+            dec=cleaned_data.get('dec'),
+            radius_arcsec=3.0,
+        )
+    else:
+        service.query(term)
+    return [_build_catalog_single_result_row(service_name, service.to_target(), term)]
+
+
+def _run_all_catalog_services_query(cleaned_data):
+    rows = []
+    feedback = []
+    for service_name in sorted(get_service_classes().keys()):
+        try:
+            rows.extend(_run_single_catalog_service_query(service_name, cleaned_data))
+        except MissingDataException:
+            continue
+        except Exception as exc:
+            logger.warning('All-catalog-services query failed for %s: %s', service_name, exc)
             feedback.append(f'{service_name}: query failed')
     rows.sort(key=lambda row: (str(row.get('name') or ''), str(row.get('service') or '')))
     return rows, feedback
@@ -2096,20 +2134,14 @@ class BhtomCatalogQueryView(FormView):
     def form_valid(self, form):
         service_name = form.cleaned_data.get('service')
         if service_name == ALL_DATA_SERVICES_VALUE:
-            parameters = {
-                'target_name': (form.cleaned_data.get('term') or '').strip(),
-                'ra': form.cleaned_data.get('ra'),
-                'dec': form.cleaned_data.get('dec'),
-                'radius_arcsec': form.cleaned_data.get('radius_arcsec') or 3.0,
-            }
-            rows, feedback = _run_all_data_services_query(parameters, cache_prefix='catalog_all')
+            rows, feedback = _run_all_catalog_services_query(form.cleaned_data)
             if not rows:
                 form.add_error('term', ValidationError('Object not found'))
                 return self.form_invalid(form)
             context = self.get_context_data(form=form)
             context.update({
                 'data_service': ALL_DATA_SERVICES_LABEL,
-                'query': parameters['target_name'],
+                'query': (form.cleaned_data.get('term') or '').strip(),
                 'results': rows,
                 'query_feedback': ' | '.join(feedback),
             })

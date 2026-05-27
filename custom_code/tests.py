@@ -62,6 +62,7 @@ from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
 from custom_code.data_services.forms import ExoClockQueryForm, GaiaDR3QueryForm, SimbadQueryForm, WISEQueryForm
 from custom_code.data_services.service_utils import resolve_query_coordinates
 from custom_code.forms import (
+    ALL_DATA_SERVICES_VALUE,
     BhtomNonSiderealTargetCreateForm,
     NonSiderealTargetVisibilityForm,
     BhtomPlanetaryTransitTargetCreateForm,
@@ -1324,6 +1325,34 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertContains(response, 'Object not found')
         get_matches.assert_called_once()
         get_target.assert_not_called()
+
+    def test_catalog_all_services_includes_tns_single_result_lookups(self):
+        request = RequestFactory().post(
+            reverse('tom_catalogs:query'),
+            data={'service': ALL_DATA_SERVICES_VALUE, 'term': 'SN 2026abc'},
+        )
+        request.user = get_user_model().objects.create_user(username='catalog-all-tns', password='secret')
+        request.session = {}
+
+        class FakeTNSHarvester:
+            name = 'TNS'
+
+            def query(self, term):
+                self.term = term
+
+            def to_target(self):
+                return Target(name='SN 2026abc', type='SIDEREAL', ra=12.3, dec=-45.6, epoch=2000.0)
+
+        with patch('custom_code.views.get_service_classes', return_value={'TNS': FakeTNSHarvester}), patch(
+            'custom_code.views._get_catalog_matches',
+            return_value=[],
+        ):
+            response = BhtomCatalogQueryView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'SN 2026abc')
+        self.assertContains(response, 'TNS')
+        self.assertContains(response, 'Create')
 
     def test_ogle_ews_harvester_maps_target_name_and_coordinates(self):
         harvester = OGLEEWSHarvester()
