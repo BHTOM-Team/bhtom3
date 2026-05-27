@@ -2,38 +2,9 @@
 {% block title %}Catalog Query Result{% endblock %}
 {% block content %}
 <h2>{{ data_service }} Query Result{% if query %} for {{ query }}{% endif %}</h2>
-<form method="POST" action="{% url 'catalog-select-result' %}">
-  {% csrf_token %}
-  <div class="mb-3">
-    <input type="submit" value="Continue to Target Form" class="btn btn-primary"/>
-  </div>
-  <table class="table table-striped">
-    <thead>
-      <tr>
-        <th>Select</th>
-        <th>Name</th>
-        <th>RA</th>
-        <th>Dec</th>
-        <th>Summary</th>
-        <th>View</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for result in results %}
-      <tr>
-        <td><input type="radio" name="selected_result" value="{{ result.id }}"/></td>
-        <td>{{ result.name }}</td>
-        <td>{% if result.ra is not None %}{{ result.ra|floatformat:6 }}{% endif %}</td>
-        <td>{% if result.dec is not None %}{{ result.dec|floatformat:6 }}{% endif %}</td>
-        <td>{{ result.summary }}</td>
-        <td>
-          {% if result.url %}
-          <a href="{{ result.url }}" target="_blank" rel="noopener noreferrer">View</a>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</form>
+<p class="mt-3 mb-2"><strong>{{ results|length }}</strong> target{{ results|length|pluralize }} returned.</p>
+{% include 'tom_common/partials/target_query_results_table.html' %}
+{% if query_feedback %}
+  <div class="alert alert-warning" role="alert">{{ query_feedback }}</div>
+{% endif %}
 {% endblock %}

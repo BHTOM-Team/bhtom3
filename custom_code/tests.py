@@ -83,7 +83,7 @@ from custom_code.target_derivations import derive_sidereal_target_fields
 from custom_code.views import (
     BhtomCatalogQueryView,
     BhtomCreateTargetFromQueryView,
-    _annotate_exoclock_results_with_existing_targets,
+    _annotate_results_with_existing_targets,
     _serialize_query_parameters,
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
@@ -345,11 +345,11 @@ class DataServiceQuerySerializationTests(TestCase):
 
         self.assertEqual(serialized['compute_from_date'], '2026-04-21T12:34:56')
 
-    def test_annotate_exoclock_results_marks_existing_targets(self):
+    def test_annotate_results_marks_existing_targets(self):
         target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0)
         results = [{'id': 0, 'name': 'WASP-12b'}, {'id': 1, 'name': 'WASP-13b'}]
 
-        annotated = _annotate_exoclock_results_with_existing_targets(results)
+        annotated = _annotate_results_with_existing_targets(results)
 
         self.assertEqual(annotated[0]['existing_target_pk'], target.pk)
         self.assertIn(f'/targets/{target.pk}/', annotated[0]['existing_target_url'])
@@ -1225,6 +1225,7 @@ class DataServiceSelectorViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Select a data service')
+        self.assertContains(response, 'All Data Services')
         self.assertContains(response, 'Saved Queries')
 
     def test_dataservices_create_exoclock_renders_advanced_filter_fields(self):
@@ -1279,7 +1280,7 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertIn('period_days=1.091418859', location)
         self.assertIn('recommended_observing_strategy=', location)
 
-    def test_catalog_query_reuses_single_match_without_second_lookup(self):
+    def test_catalog_query_renders_single_match_results_without_second_lookup(self):
         request = RequestFactory().post(
             reverse('tom_catalogs:query'),
             data={'service': 'Simbad', 'term': 'Target 1'},
@@ -1299,8 +1300,9 @@ class DataServiceSelectorViewTests(TestCase):
         ):
             response = BhtomCatalogQueryView.as_view()(request)
 
-        self.assertEqual(response.status_code, 302)
-        self.assertIn('/targets/create/', response['Location'])
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Create')
+        self.assertContains(response, 'Target_1')
         get_matches.assert_called_once()
         build_target.assert_called_once_with('Simbad', match)
 

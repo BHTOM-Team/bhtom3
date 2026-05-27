@@ -1,0 +1,56 @@
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>Service</th>
+      <th>Name</th>
+      <th>RA</th>
+      <th>Dec</th>
+      <th>Summary</th>
+      <th>View</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for result in results %}
+      <tr>
+        <td>{{ result.service }}</td>
+        <td>
+          {% if result.existing_target_url %}
+            <a href="{{ result.existing_target_url }}">{{ result.name }}</a>
+          {% else %}
+            {{ result.name }}
+          {% endif %}
+        </td>
+        <td>{% if result.ra is not None %}{{ result.ra|floatformat:6 }}{% endif %}</td>
+        <td>{% if result.dec is not None %}{{ result.dec|floatformat:6 }}{% endif %}</td>
+        <td>{{ result.summary }}</td>
+        <td>
+          {% if result.url %}
+            <a href="{{ result.url }}" target="_blank" rel="noopener noreferrer">View</a>
+          {% endif %}
+        </td>
+        <td>
+          {% if result.existing_target_url %}
+            <a href="{{ result.existing_target_url }}" class="btn btn-sm btn-outline-secondary">View Target</a>
+          {% elif result.create_url %}
+            <a href="{{ result.create_url }}" class="btn btn-sm btn-primary">Create</a>
+          {% elif result.id %}
+            <form method="POST" action="{% url 'dataservices:create-target' %}" class="mb-0">
+              {% csrf_token %}
+              <input type="hidden" name="data_service" value="{{ result.service }}">
+              {% if result.query_id %}
+                <input type="hidden" name="query_id" value="{{ result.query_id }}">
+              {% endif %}
+              <input type="hidden" name="selected_results" value="{{ result.id }}">
+              <button type="submit" class="btn btn-sm btn-primary">Create</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% empty %}
+      <tr>
+        <td colspan="7">No matching targets found.</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>

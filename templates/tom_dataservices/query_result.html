@@ -8,72 +8,10 @@
     Please refine the query to reduce the number of results.
   </div>
 {% endif %}
-<form method="POST" action="{% url 'dataservices:create-target' %}" id="dataservice-query-result-form">
-  {% csrf_token %}
-  <div class="">
-    <input type="hidden" name="data_service" value="{{ data_service }}"/>
-    <input type="hidden" name="query_id" value="{{ query.id }}"/>
-    <input type="submit" value="Open Target Create Form" class="btn btn-primary"/>
-  </div>
-  <p class="mt-3 mb-2"><strong>{{ results|length }}</strong> target{{ results|length|pluralize }} returned.</p>
-  <div id="dataservice-query-result-feedback" class="alert alert-warning mt-2 d-none" role="alert"></div>
-  {% include query_results_table %}
-</form>
+<p class="mt-3 mb-2"><strong>{{ results|length }}</strong> target{{ results|length|pluralize }} returned.</p>
+{% include 'tom_common/partials/target_query_results_table.html' %}
 {% if query_feedback %}
   <div class="alert alert-danger" role="alert">{{query_feedback |safe }}</div>
 {% endif %}
-
-<script>
-  (function() {
-    const form = document.getElementById('dataservice-query-result-form');
-    const selectAll = document.getElementById('selectAll');
-    const feedback = document.getElementById('dataservice-query-result-feedback');
-    const selectedResults = () => Array.from(document.querySelectorAll('input[name="selected_results"]'));
-
-    function setFeedback(message) {
-      if (!feedback) {
-        return;
-      }
-      if (message) {
-        feedback.textContent = message;
-        feedback.classList.remove('d-none');
-      } else {
-        feedback.textContent = '';
-        feedback.classList.add('d-none');
-      }
-    }
-
-    if (selectAll) {
-      selectAll.addEventListener('change', function() {
-        selectedResults().forEach((item) => {
-          item.checked = this.checked;
-        });
-      });
-    }
-
-    selectedResults().forEach((item) => {
-      item.addEventListener('change', function() {
-        if (selectAll) {
-          const checkboxes = selectedResults();
-          const allChecked = checkboxes.length > 0 && checkboxes.every((checkbox) => checkbox.checked);
-          selectAll.checked = allChecked;
-        }
-      });
-    });
-
-    if (form) {
-      form.addEventListener('submit', function(event) {
-        const checked = selectedResults().filter((item) => item.checked);
-        if (checked.length !== 1) {
-          event.preventDefault();
-          setFeedback(checked.length < 1 ? 'Select one result to open the target create form.' : 'Select only one result to open the target create form.');
-        } else {
-          setFeedback('');
-        }
-      });
-    }
-
-  })();
-</script>
 
 {% endblock %}

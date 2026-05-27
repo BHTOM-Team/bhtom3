@@ -64,6 +64,8 @@ from tom_observations.facilities.lco import LCOSettings
 from custom_code.filters import BhtomTargetFilterSet
 from custom_code.astrometry import can_compute_current_coordinates, compute_current_coordinates
 from custom_code.forms import (
+    ALL_DATA_SERVICES_LABEL,
+    ALL_DATA_SERVICES_VALUE,
     BhtomCatalogQueryForm,
     BhtomNonSiderealTargetCreateForm,
     BhtomPlanetaryTransitTargetCreateForm,
@@ -101,6 +103,7 @@ from custom_code.facility_proposals import (
     sync_memberships_for_proposal,
 )
 from custom_code.models import Facility, GeoTarget, TransitEphemeris
+from custom_code.data_services.forms import AllDataServicesQueryForm
 from custom_code.geosat import (
     altaz_to_hadec_point,
     convert_altaz_curve_to_hadec,
@@ -149,23 +152,95 @@ def _serialize_query_parameters(cleaned_data):
     return json.loads(json.dumps(normalized, cls=DjangoJSONEncoder))
 
 
-def _annotate_exoclock_results_with_existing_targets(results):
-    names = [str(result.get('name') or '').strip() for result in results]
-    names = [name for name in names if name]
-    if not names:
-        return results
+def _find_existing_target_by_name(name):
+    normalized = str(name or '').strip()
+    if not normalized:
+        return None
+    return (
+        Target.objects.filter(Q(name__iexact=normalized) | Q(aliases__name__iexact=normalized))
+        .distinct()
+        .first()
+    )
 
-    existing_targets = {
-        target.name: target
-        for target in Target.objects.filter(name__in=names)
-    }
+
+def _annotate_results_with_existing_targets(results):
     for result in results:
-        target = existing_targets.get(str(result.get('name') or '').strip())
+        target = _find_existing_target_by_name(result.get('name'))
         if target is None:
             continue
         result['existing_target_pk'] = target.pk
         result['existing_target_url'] = reverse('targets:detail', kwargs={'pk': target.pk})
     return results
+
+
+def _summarize_target_query_result(result):
+    preferred_keys = (
+        'main_id',
+        'source_id',
+        'designation',
+        'field',
+        'classification',
+        'comment',
+        'type',
+        'gaia_variability_type',
+    )
+    parts = []
+    for key in preferred_keys:
+        value = result.get(key)
+        if value in (None, '', [], {}):
+            continue
+        parts.append(f'{key}: {value}')
+        if len(parts) == 2:
+            break
+    return ' | '.join(parts)
+
+
+def _build_data_service_result_row(result, data_service_name, query_id=''):
+    row = dict(result)
+    row['service'] = data_service_name
+    row['summary'] = _summarize_target_query_result(row)
+    row['url'] = str(row.get('source_location') or '').strip()
+    row['query_id'] = str(query_id or '')
+    return row
+
+
+def _cache_query_result(result_id, payload):
+    cache.set(f'result_{result_id}', payload, 3600)
+
+
+def _run_single_data_service_query(data_service_name, parameters, *, query_id='', cache_prefix='query'):
+    service = get_data_service_class(data_service_name)()
+    query_parameters = service.build_query_parameters(parameters)
+    raw_results = service.query_targets(query_parameters) or []
+    rows = []
+    for index, result in enumerate(raw_results):
+        result_id = f'{cache_prefix}_{data_service_name}_{index}'
+        cached_result = dict(result)
+        cached_result['id'] = result_id
+        _cache_query_result(result_id, cached_result)
+        row = _build_data_service_result_row(cached_result, data_service_name, query_id=query_id)
+        rows.append(row)
+    return _annotate_results_with_existing_targets(rows)
+
+
+def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all'):
+    rows = []
+    feedback = []
+    for service_name in sorted(get_data_service_classes().keys()):
+        try:
+            rows.extend(
+                _run_single_data_service_query(
+                    service_name,
+                    parameters,
+                    query_id=query_id,
+                    cache_prefix=f'{cache_prefix}_{service_name}',
+                )
+            )
+        except Exception as exc:
+            logger.warning('All-data-services query failed for %s: %s', service_name, exc)
+            feedback.append(f'{service_name}: query failed')
+    rows.sort(key=lambda row: (str(row.get('name') or ''), str(row.get('service') or '')))
+    return rows, feedback
 EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY = (
     'Follow the Exoclock emphemeris and observe in one or more bands to cover the entire transit, '
     'with ingres and egres well determined. Adjust the exposure time accordingly to the brightness '
@@ -1562,14 +1637,37 @@ def _build_catalog_result_row(service_name, index, match):
         view_url = ''
         summary = str(match.get('source_id') or match.get('SOURCE_ID') or '').strip()
 
-    return {
+    row = {
         'id': index,
+        'service': service_name,
         'name': target.name,
         'ra': target.ra,
         'dec': target.dec,
         'summary': summary,
         'url': view_url,
+        'create_url': BhtomCatalogSelectResultView._build_create_url(service_name, match),
     }
+    return _annotate_results_with_existing_targets([row])[0]
+
+
+def _build_catalog_single_result_row(service_name, target, query_term=''):
+    row = {
+        'id': 0,
+        'service': service_name,
+        'name': target.name,
+        'ra': getattr(target, 'ra', None),
+        'dec': getattr(target, 'dec', None),
+        'summary': str(query_term or '').strip(),
+        'url': '',
+        'create_url': reverse('targets:create') + '?' + urlencode(_catalog_target_params(target)),
+    }
+    aliases = getattr(target, 'extra_aliases', None) or []
+    for alias in aliases:
+        alias_url = str(alias.get('url') or '').strip() if isinstance(alias, dict) else ''
+        if alias_url:
+            row['url'] = alias_url
+            break
+    return _annotate_results_with_existing_targets([row])[0]
 
 
 def _add_transit_target_params(target_params, target):
@@ -1599,6 +1697,17 @@ def _add_transit_target_params(target_params, target):
         target_params['classification'] = 'Planetary Transit'
         if getattr(target, 'transit_source_name', '') == 'ExoClock':
             target_params['recommended_observing_strategy'] = EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY
+    return target_params
+
+
+def _catalog_target_params(target):
+    target_params = _add_transit_target_params(target.as_dict(), target)
+    target_params['names'] = ','.join(
+        alias['name'] for alias in getattr(target, 'extra_aliases', []) if alias.get('name')
+    )
+    alias_payload = BhtomCatalogQueryForm.serialize_alias_payload(target)
+    if alias_payload:
+        target_params['alias_payload'] = alias_payload
     return target_params
 
 
@@ -1976,11 +2085,6 @@ class BhtomCatalogQueryView(FormView):
 
     def _render_catalog_results(self, form, matches):
         service_name = form.cleaned_data.get('service')
-        self.request.session[CATALOG_RESULTS_SESSION_KEY] = matches
-        self.request.session[CATALOG_FORM_SESSION_KEY] = {
-            'service': service_name,
-            'term': (form.cleaned_data.get('term') or '').strip(),
-        }
         context = self.get_context_data(form=form)
         context.update({
             'data_service': service_name,
@@ -1991,13 +2095,29 @@ class BhtomCatalogQueryView(FormView):
 
     def form_valid(self, form):
         service_name = form.cleaned_data.get('service')
-        matches = _get_catalog_matches(service_name, form.cleaned_data)
-        if len(matches) > 1:
-            return self._render_catalog_results(form, matches)
+        if service_name == ALL_DATA_SERVICES_VALUE:
+            parameters = {
+                'target_name': (form.cleaned_data.get('term') or '').strip(),
+                'ra': form.cleaned_data.get('ra'),
+                'dec': form.cleaned_data.get('dec'),
+                'radius_arcsec': form.cleaned_data.get('radius_arcsec') or 3.0,
+            }
+            rows, feedback = _run_all_data_services_query(parameters, cache_prefix='catalog_all')
+            if not rows:
+                form.add_error('term', ValidationError('Object not found'))
+                return self.form_invalid(form)
+            context = self.get_context_data(form=form)
+            context.update({
+                'data_service': ALL_DATA_SERVICES_LABEL,
+                'query': parameters['target_name'],
+                'results': rows,
+                'query_feedback': ' | '.join(feedback),
+            })
+            return render(self.request, 'tom_catalogs/query_result.html', context)
 
-        if len(matches) == 1:
-            self.target = _build_catalog_target_from_match(service_name, matches[0])
-            return super().form_valid(form)
+        matches = _get_catalog_matches(service_name, form.cleaned_data)
+        if matches:
+            return self._render_catalog_results(form, matches)
 
         if service_name in {'Gaia Alerts', 'Gaia DR3', 'OGLE EWS', 'Simbad'}:
             error_target = 'ra' if service_name == 'Simbad' else 'term'
@@ -2010,29 +2130,23 @@ class BhtomCatalogQueryView(FormView):
             error_target = 'ra' if form.cleaned_data.get('service') == 'Simbad' else 'term'
             form.add_error(error_target, ValidationError('Object not found'))
             return self.form_invalid(form)
-        return super().form_valid(form)
+        context = self.get_context_data(form=form)
+        context.update({
+            'data_service': service_name,
+            'query': (form.cleaned_data.get('term') or '').strip(),
+            'results': [_build_catalog_single_result_row(service_name, self.target, form.cleaned_data.get('term') or '')],
+        })
+        return render(self.request, 'tom_catalogs/query_result.html', context)
 
     def get_success_url(self):
-        target_params = self.target.as_dict()
-        target_params = _add_transit_target_params(target_params, self.target)
-        target_params['names'] = ','.join(
-            alias['name'] for alias in getattr(self.target, 'extra_aliases', []) if alias.get('name')
-        )
-        alias_payload = BhtomCatalogQueryForm.serialize_alias_payload(self.target)
-        if alias_payload:
-            target_params['alias_payload'] = alias_payload
-        return reverse('targets:create') + '?' + urlencode(target_params)
+        return reverse('targets:create') + '?' + urlencode(_catalog_target_params(self.target))
 
 
 class BhtomCatalogSelectResultView(LoginRequiredMixin, View):
     @staticmethod
     def _build_create_url(service_name, row):
         target = _build_catalog_target_from_match(service_name, row)
-        target_params = _add_transit_target_params(target.as_dict(), target)
-        alias_payload = BhtomCatalogQueryForm.serialize_alias_payload(target)
-        if alias_payload:
-            target_params['alias_payload'] = alias_payload
-        return reverse('targets:create') + '?' + urlencode(target_params)
+        return reverse('targets:create') + '?' + urlencode(_catalog_target_params(target))
 
     def post(self, request, *args, **kwargs):
         stored_results = request.session.get(CATALOG_RESULTS_SESSION_KEY) or []
@@ -2168,8 +2282,11 @@ class BhtomDataServiceQueryCreateView(DataServiceQueryCreateView):
     success_url = reverse_lazy('dataservices:run')
 
     def get_form_class(self):
-        if not self.get_data_service_name():
+        data_service_name = self.get_data_service_name()
+        if not data_service_name:
             return None
+        if data_service_name == ALL_DATA_SERVICES_VALUE:
+            return AllDataServicesQueryForm
         return super().get_form_class()
 
     def get(self, request, *args, **kwargs):
@@ -2194,13 +2311,21 @@ class BhtomDataServiceQueryCreateView(DataServiceQueryCreateView):
         selected_service = self.get_data_service_name()
         context['installed_services'] = installed_services
         context['selected_service'] = selected_service
-        context['service_class'] = installed_services.get(selected_service) if selected_service else None
+        context['service_class'] = installed_services.get(selected_service) if selected_service and selected_service != ALL_DATA_SERVICES_VALUE else None
+        context['all_data_services_value'] = ALL_DATA_SERVICES_VALUE
+        context['all_data_services_label'] = ALL_DATA_SERVICES_LABEL
+        context['is_all_data_services'] = selected_service == ALL_DATA_SERVICES_VALUE
         return context
 
 
 class BhtomDataServiceQueryUpdateView(DataServiceQueryUpdateView):
     template_name = 'tom_dataservices/query_form.html'
     success_url = reverse_lazy('dataservices:run')
+
+    def get_form_class(self):
+        if self.object.data_service == ALL_DATA_SERVICES_VALUE:
+            return AllDataServicesQueryForm
+        return super().get_form_class()
 
     def form_valid(self, form):
         serialized_parameters = _serialize_query_parameters(form.cleaned_data)
@@ -2218,15 +2343,48 @@ class BhtomDataServiceQueryUpdateView(DataServiceQueryUpdateView):
         selected_service = self.object.data_service
         context['installed_services'] = installed_services
         context['selected_service'] = selected_service
-        context['service_class'] = installed_services.get(selected_service) if selected_service else None
+        context['service_class'] = installed_services.get(selected_service) if selected_service and selected_service != ALL_DATA_SERVICES_VALUE else None
+        context['all_data_services_value'] = ALL_DATA_SERVICES_VALUE
+        context['all_data_services_label'] = ALL_DATA_SERVICES_LABEL
+        context['is_all_data_services'] = selected_service == ALL_DATA_SERVICES_VALUE
         return context
 
 
 class BhtomRunQueryView(RunQueryView):
+    def _get_query_source(self):
+        if self.kwargs.get('pk'):
+            query = get_object_or_404(DataServiceQuery, pk=self.kwargs['pk'])
+            return query, dict(query.parameters or {})
+        return None, dict(self.request.session.get('query_parameters') or {})
+
+    def get(self, request, *args, **kwargs):
+        query, parameters = self._get_query_source()
+        if parameters.get('data_service') == ALL_DATA_SERVICES_VALUE:
+            rows, feedback = _run_all_data_services_query(
+                parameters,
+                query_id=getattr(query, 'id', ''),
+                cache_prefix='dataservices_all',
+            )
+            context = {
+                'data_service': ALL_DATA_SERVICES_LABEL,
+                'query': parameters.get('target_name') or '',
+                'results': rows,
+                'query_object': query,
+                'query_feedback': ' | '.join(feedback),
+            }
+            return render(request, 'tom_dataservices/query_result.html', context)
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs)
-        if context.get('data_service') == 'ExoClock':
-            context['results'] = _annotate_exoclock_results_with_existing_targets(context.get('results', []))
+        query = context.get('query')
+        query_id = getattr(query, 'id', '') if query is not None else ''
+        data_service_name = context.get('data_service')
+        context['results'] = [
+            _build_data_service_result_row(result, data_service_name, query_id=query_id)
+            for result in context.get('results', [])
+        ]
+        context['results'] = _annotate_results_with_existing_targets(context.get('results', []))
         return context
 
 

@@ -15,6 +15,9 @@
                 onchange="this.form.submit()"
             >
                 <option value="">Select a data service...</option>
+                <option value="{{ all_data_services_value }}"{% if selected_service == all_data_services_value %} selected{% endif %}>
+                    {{ all_data_services_label }}
+                </option>
                 {% for service_name, service in installed_services.items %}
                     <option value="{{ service_name }}"{% if service_name == selected_service %} selected{% endif %}>
                         {{ service_name }}
@@ -30,9 +33,11 @@
 </form>
 
 {% if selected_service and form %}
-    <h3>{{ selected_service }} Query Form</h3>
+    <h3>{% if is_all_data_services %}{{ all_data_services_label }}{% else %}{{ selected_service }}{% endif %} Query Form</h3>
     {% if service_class and service_class.service_notes %}
         <p class="text-muted">{{ service_class.service_notes }}</p>
+    {% elif is_all_data_services %}
+        <p class="text-muted">Run the same target-name or coordinate query across all installed data services.</p>
     {% endif %}
     <form method="post" class="form">
         {% csrf_token %}
@@ -47,7 +52,9 @@
             </div>
         {% endif %}
         {% bootstrap_field form.data_service %}
-        {% if selected_service == 'ExoClock' %}
+        {% if is_all_data_services %}
+            {% bootstrap_form form exclude='data_service,query_save,query_name' %}
+        {% elif selected_service == 'ExoClock' %}
             {% bootstrap_field form.target_name %}
             <div class="form-row">
                 <div class="col-md-4">

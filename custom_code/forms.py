@@ -31,6 +31,14 @@ SIDEREAL_CREATE_FORM_HIDDEN_FIELDS = CREATE_FORM_HIDDEN_FIELDS + (
     'galactic_lng',
     'galactic_lat',
 )
+ALL_DATA_SERVICES_VALUE = '__all__'
+ALL_DATA_SERVICES_LABEL = 'All Data Services'
+
+
+def catalog_service_choices():
+    choices = [(ALL_DATA_SERVICES_VALUE, ALL_DATA_SERVICES_LABEL)]
+    choices.extend((key, key) for key in get_service_classes().keys())
+    return choices
 
 
 class GeoTomAddSatForm(forms.Form):
@@ -214,7 +222,7 @@ BhtomTargetNamesFormset = inlineformset_factory(
 
 
 class BhtomCatalogQueryForm(forms.Form):
-    service = forms.ChoiceField(choices=lambda: [(key, key) for key in get_service_classes().keys()])
+    service = forms.ChoiceField(choices=catalog_service_choices)
     term = forms.CharField(required=False, label='Object name or identifier')
     ra = forms.FloatField(required=False, label='RA (deg)')
     dec = forms.FloatField(required=False, label='Dec (deg)')
@@ -225,7 +233,10 @@ class BhtomCatalogQueryForm(forms.Form):
         service = cleaned.get('service')
         term = (cleaned.get('term') or '').strip()
         has_coords = cleaned.get('ra') is not None and cleaned.get('dec') is not None
-        if service == 'Simbad':
+        if service == ALL_DATA_SERVICES_VALUE:
+            if not term and not has_coords:
+                raise forms.ValidationError('Provide target name or RA+Dec.')
+        elif service == 'Simbad':
             if not term and not has_coords:
                 raise forms.ValidationError('Provide SIMBAD object name or RA+Dec.')
             cleaned['radius_arcsec'] = 3.0
