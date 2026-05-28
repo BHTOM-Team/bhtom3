@@ -1354,7 +1354,7 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertContains(response, 'TNS')
         self.assertContains(response, 'Create')
 
-    def test_catalog_all_services_skips_non_selected_harvesters(self):
+    def test_catalog_all_services_skips_irrelevant_harvesters_for_tns_like_terms(self):
         request = RequestFactory().post(
             reverse('tom_catalogs:query'),
             data={'service': ALL_DATA_SERVICES_VALUE, 'term': 'SN 2026abc'},
@@ -1411,9 +1411,37 @@ class DataServiceSelectorViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'SN 2026abc')
-        self.assertContains(response, 'JPL Horizons')
-        self.assertContains(response, 'ExoClock')
+        self.assertContains(response, 'TNS')
+        self.assertNotContains(response, 'JPL Horizons')
+        self.assertNotContains(response, 'ExoClock')
         self.assertNotContains(response, 'NED')
+
+    def test_catalog_all_services_keeps_exoclock_for_exoplanet_like_terms(self):
+        request = RequestFactory().post(
+            reverse('tom_catalogs:query'),
+            data={'service': ALL_DATA_SERVICES_VALUE, 'term': 'WASP-12b'},
+        )
+        request.user = get_user_model().objects.create_user(username='catalog-all-exoclock', password='secret')
+        request.session = {}
+
+        class FakeExoClockHarvester:
+            name = 'ExoClock'
+
+            def query(self, term):
+                self.term = term
+
+            def to_target(self):
+                return Target(name='WASP-12b', type='SIDEREAL', ra=100.0, dec=20.0, epoch=2000.0)
+
+        with patch(
+            'custom_code.views.get_service_classes',
+            return_value={'ExoClock': FakeExoClockHarvester},
+        ), patch('custom_code.views._get_catalog_matches', return_value=[]):
+            response = BhtomCatalogQueryView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'WASP-12b')
+        self.assertContains(response, 'ExoClock')
 
     def test_ogle_ews_harvester_maps_target_name_and_coordinates(self):
         harvester = OGLEEWSHarvester()

@@ -4,6 +4,7 @@ import math
 import re
 import requests
 import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from urllib.parse import urlencode
@@ -144,6 +145,7 @@ ALL_CATALOG_QUERY_SERVICE_NAMES = (
     'Simbad',
     'TNS',
 )
+ALL_CATALOG_QUERY_TIMEOUT_SECONDS = 12.0
 
 
 def _normalize_json_safe_value(value):
@@ -280,17 +282,69 @@ def _get_all_catalog_query_service_names():
     return [service_name for service_name in ALL_CATALOG_QUERY_SERVICE_NAMES if service_name in installed_service_names]
 
 
+def _catalog_query_services_for_input(cleaned_data):
+    service_names = _get_all_catalog_query_service_names()
+    term = str(cleaned_data.get('term') or '').strip()
+    if not term:
+        return service_names
+
+    lowered_term = term.lower()
+    is_tns_like = bool(re.match(r'^(sn|at)\s*\d{4}[a-z]+$', lowered_term)) or bool(re.match(r'^\d{4}[a-z]+$', lowered_term))
+    is_exoplanet_like = bool(re.search(r'(?:^|[-_ ])(?:[bcdefghij])$', lowered_term)) or any(
+        lowered_term.startswith(prefix)
+        for prefix in ('wasp-', 'hat-', 'toi-', 'kelt-', 'xo-', 'tres-', 'corot-', 'kepler-', 'hd ')
+    )
+    is_solar_system_like = bool(re.match(r'^\(?\d+\)?\s*\w*$', term)) or bool(
+        re.match(r'^(c/|p/|\d{4}\s+[a-z]{1,2}\d*)', lowered_term)
+    )
+
+    filtered_service_names = []
+    for service_name in service_names:
+        if service_name == 'TNS' and not is_tns_like:
+            continue
+        if service_name == 'ExoClock' and not is_exoplanet_like:
+            continue
+        if service_name == 'JPL Horizons' and not is_solar_system_like:
+            continue
+        filtered_service_names.append(service_name)
+    return filtered_service_names or service_names
+
+
 def _run_all_catalog_services_query(cleaned_data):
     rows = []
     feedback = []
-    for service_name in _get_all_catalog_query_service_names():
-        try:
-            rows.extend(_run_single_catalog_service_query(service_name, cleaned_data))
-        except MissingDataException:
-            continue
-        except Exception as exc:
-            logger.warning('All-catalog-services query failed for %s: %s', service_name, exc)
-            feedback.append(f'{service_name}: query failed')
+    service_names = _catalog_query_services_for_input(cleaned_data)
+    if not service_names:
+        return rows, feedback
+
+    executor = ThreadPoolExecutor(max_workers=len(service_names))
+    future_map = {
+        executor.submit(_run_single_catalog_service_query, service_name, cleaned_data): service_name
+        for service_name in service_names
+    }
+    timed_out = False
+    try:
+        for future in as_completed(future_map, timeout=ALL_CATALOG_QUERY_TIMEOUT_SECONDS):
+            service_name = future_map[future]
+            try:
+                rows.extend(future.result())
+            except MissingDataException:
+                continue
+            except Exception as exc:
+                logger.warning('All-catalog-services query failed for %s: %s', service_name, exc)
+                feedback.append(f'{service_name}: query failed')
+    except FuturesTimeoutError:
+        timed_out = True
+    finally:
+        if timed_out:
+            feedback.append('Some services timed out')
+        for future, service_name in future_map.items():
+            if future.done():
+                continue
+            future.cancel()
+            logger.warning('All-catalog-services query timed out for %s', service_name)
+            feedback.append(f'{service_name}: timed out')
+        executor.shutdown(wait=False, cancel_futures=True)
     rows.sort(key=lambda row: (str(row.get('name') or ''), str(row.get('service') or '')))
     return rows, feedback
 EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY = (
