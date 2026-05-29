@@ -9,9 +9,11 @@ from datetime import datetime, timedelta, timezone
 from io import StringIO
 from urllib.parse import urlencode
 
+import numpy as np
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
+from astropy.timeseries import LombScargle
 from astroquery.jplhorizons import Horizons
 from astroquery.mpc import MPC
 from django.contrib import messages
@@ -3182,3 +3184,156 @@ class UpdateReducedDataAndDataServicesView(LoginRequiredMixin, RedirectView):
                 enqueue_target_dataservices_update(pk, force_all_services=force_all_services)
             except Exception as exc:
                 logger.warning('Could not enqueue DataServices for target %s: %s', pk, exc)
+
+
+class TargetPeriodicityView(LoginRequiredMixin, TemplateView):
+    template_name = 'custom_code/target_periodicity.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        target = get_object_or_404(Target, pk=self.kwargs['pk'])
+
+        try:
+            photometry_type = settings.DATA_PRODUCT_TYPES['photometry'][0]
+        except (AttributeError, KeyError):
+            photometry_type = 'photometry'
+
+        if settings.TARGET_PERMISSIONS_ONLY:
+            datums = ReducedDatum.objects.filter(target=target, data_type=photometry_type)
+        else:
+            from guardian.shortcuts import get_objects_for_user
+            datums = get_objects_for_user(
+                self.request.user,
+                'tom_dataproducts.view_reduceddatum',
+                klass=ReducedDatum.objects.filter(target=target, data_type=photometry_type),
+            )
+        datums = datums.order_by('timestamp')
+
+        # Build JSON structure: {filter_name: {telescope_name: [{mjd, mag, err, t}]}}
+        series = {}
+        for datum in datums:
+            mag = datum.value.get('magnitude')
+            if mag is None:
+                continue  # skip upper limits
+            err = datum.value.get('error') or datum.value.get('magnitude_error')
+            filter_name = str(datum.value.get('filter') or 'Unknown').strip() or 'Unknown'
+            telescope = str(
+                datum.value.get('telescope') or datum.value.get('facility') or datum.source_name or 'Unknown'
+            ).strip() or 'Unknown'
+            try:
+                mag = float(mag)
+                err = float(err) if err is not None else None
+                mjd = float(Time(datum.timestamp).mjd)
+            except (TypeError, ValueError):
+                continue
+
+            series.setdefault(filter_name, {})
+            series[filter_name].setdefault(telescope, [])
+            series[filter_name][telescope].append({
+                'mjd': round(mjd, 6),
+                'mag': round(mag, 4),
+                'err': round(err, 4) if err is not None else None,
+                't': datum.timestamp.strftime('%Y-%m-%d %H:%M'),
+            })
+
+        context['target'] = target
+        context['photometry_json'] = json.dumps(series)
+        return context
+
+
+class TargetPeriodicityComputeView(LoginRequiredMixin, View):
+    def post(self, request, pk, *args, **kwargs):
+        from scipy.optimize import curve_fit
+
+        try:
+            body = json.loads(request.body)
+            times_mjd = np.array(body['times_mjd'], dtype=float)
+            magnitudes = np.array(body['magnitudes'], dtype=float)
+            raw_errors = body.get('errors') or []
+            errors = np.array(raw_errors, dtype=float) if raw_errors else np.zeros(len(times_mjd))
+            min_period = max(float(body.get('min_period', 0.1)), 1e-4)
+            max_period = float(body.get('max_period', 1000.0))
+        except (KeyError, ValueError, json.JSONDecodeError) as exc:
+            return JsonResponse({'error': f'Invalid request: {exc}'}, status=400)
+
+        n = len(times_mjd)
+        if n < 5:
+            return JsonResponse({'error': f'Need at least 5 data points (got {n})'}, status=400)
+        if min_period >= max_period:
+            return JsonResponse({'error': 'min_period must be less than max_period'}, status=400)
+
+        # Sort by time
+        sort_idx = np.argsort(times_mjd)
+        times_mjd = times_mjd[sort_idx]
+        magnitudes = magnitudes[sort_idx]
+        errors = errors[sort_idx]
+
+        # Only use errors if all positive
+        use_errors = errors if (len(errors) == n and np.all(errors > 0)) else None
+
+        # Cap max_period to avoid unconstrained long periods
+        time_baseline = float(times_mjd[-1] - times_mjd[0])
+        if time_baseline > 0:
+            max_period = min(max_period, 2.0 * time_baseline)
+        max_period = max(max_period, min_period * 2)
+
+        try:
+            ls = LombScargle(times_mjd, magnitudes, use_errors)
+            frequency, power = ls.autopower(
+                minimum_frequency=1.0 / max_period,
+                maximum_frequency=1.0 / min_period,
+                samples_per_peak=5,
+            )
+        except Exception as exc:
+            logger.error('LSP computation failed for target pk=%s: %s', pk, exc)
+            return JsonResponse({'error': f'LSP computation failed: {exc}'}, status=500)
+
+        periods = 1.0 / frequency
+        # Downsample to keep response manageable
+        if len(periods) > 15000:
+            step = len(periods) // 15000
+            periods = periods[::step]
+            power = power[::step]
+
+        best_idx = int(np.argmax(power))
+        best_period = float(periods[best_idx])
+
+        fap_10 = fap_1 = fap_01 = None
+        try:
+            fap_levels = ls.false_alarm_level([0.1, 0.01, 0.001])
+            fap_10 = float(fap_levels[0])
+            fap_1 = float(fap_levels[1])
+            fap_01 = float(fap_levels[2])
+        except Exception:
+            pass
+
+        fit_result = None
+        try:
+            def sinusoid(t, amplitude, phase, offset):
+                return offset + amplitude * np.sin(2 * np.pi / best_period * t + phase)
+
+            p0 = [float(np.std(magnitudes)), 0.0, float(np.mean(magnitudes))]
+            popt, _ = curve_fit(sinusoid, times_mjd, magnitudes, p0=p0, maxfev=10000)
+
+            t_fine = np.linspace(times_mjd[0], times_mjd[-1], 600)
+            mags_fine = sinusoid(t_fine, *popt)
+
+            fit_result = {
+                'times_fine': t_fine.tolist(),
+                'mags_fine': mags_fine.tolist(),
+                'amplitude': float(popt[0]),
+                'phase': float(popt[1]),
+                'offset': float(popt[2]),
+            }
+        except Exception as exc:
+            logger.warning('Sinusoidal fit failed for target pk=%s: %s', pk, exc)
+
+        return JsonResponse({
+            'periods': periods.tolist(),
+            'powers': power.tolist(),
+            'best_period': best_period,
+            'fap_10': fap_10,
+            'fap_1': fap_1,
+            'fap_01': fap_01,
+            'fit': fit_result,
+        })

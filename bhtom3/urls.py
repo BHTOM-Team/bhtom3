@@ -50,6 +50,8 @@ from custom_code.views import (
     UserProfileRedirectView,
     UserUpdateWithTokenView,
     UpdateReducedDataAndDataServicesView,
+    TargetPeriodicityView,
+    TargetPeriodicityComputeView,
 )
 
 urlpatterns = [
@@ -76,6 +78,8 @@ urlpatterns = [
     path('targets/create/', BhtomTargetCreateView.as_view(), name='targets-create-override'),
     path('targets/<int:pk>/update/', BhtomTargetUpdateView.as_view(), name='targets-update-override'),
     path('targets/<int:pk>/', BhtomTargetDetailView.as_view(), name='targets-detail-override'),
+    path('targets/<int:pk>/models/periodicity/', TargetPeriodicityView.as_view(), name='target-periodicity'),
+    path('targets/<int:pk>/models/periodicity/compute/', TargetPeriodicityComputeView.as_view(), name='target-periodicity-compute'),
     path('geotom/', GeoTomTargetListView.as_view(), name='geotom-list'),
     path('geotom/live-data/', GeoTomLiveDataView.as_view(), name='geotom-live-data'),
     path('bhtom-pallas/', BhtomPallasView.as_view(), name='bhtom-pallas'),

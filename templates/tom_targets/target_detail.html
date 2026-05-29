@@ -285,6 +285,9 @@
       <li class="nav-item">
         <a class="nav-link" id="manage-groups-tab" href="#manage-groups" role="tab" data-toggle="tab">Manage Groups</a>
       </li>
+      <li class="nav-item">
+        <a class="nav-link" id="models-tab" href="#models" role="tab" data-toggle="tab">Models</a>
+      </li>
     </ul>
     <div class="tab-content">
         <div class="tab-pane active" id="photometry">
@@ -327,6 +330,25 @@
       </div>
       <div class="tab-pane" id="manage-groups">
         {% target_groups target %}
+      </div>
+
+      <div class="tab-pane" id="models">
+        <h4 class="mb-3 mt-2">Light Curve Models</h4>
+        <div class="row">
+          <div class="col-md-4 col-sm-6">
+            <div class="card h-100">
+              <div class="card-body text-center d-flex flex-column">
+                <h5 class="card-title" style="color: black;">Periodicity</h5>
+                <p class="card-text text-muted small flex-grow-1">
+                  Detect periodic signals using the Lomb-Scargle periodogram.
+                  Select filters and time ranges interactively, compute the LSP,
+                  and fit a sinusoidal model to the light curve.
+                </p>
+                <a href="{% url 'target-periodicity' pk=object.pk %}" class="btn btn-primary mt-2">Open</a>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {% comments_enabled as comments_are_enabled %}
