@@ -2030,6 +2030,7 @@ class BhtomTargetCreateView(TargetCreateView):
 
     def get_form(self, *args, **kwargs):
         form = super().get_form(*args, **kwargs)
+        form.user = self.request.user
         if self.request.user.is_superuser:
             _set_groups_field_visibility(form, Group.objects.all())
         else:
@@ -2117,6 +2118,7 @@ class BhtomTargetUpdateView(TargetUpdateView):
 
     def get_form(self, *args, **kwargs):
         form = super().get_form(*args, **kwargs)
+        form.user = self.request.user
         if self.request.user.is_superuser:
             _set_groups_field_visibility(form, Group.objects.all())
         else:

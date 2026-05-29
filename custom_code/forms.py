@@ -9,6 +9,7 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from tom_catalogs.harvester import get_service_classes
 from tom_targets.forms import NonSiderealTargetCreateForm, SiderealTargetCreateForm
 from tom_targets.models import Target, TargetName
+from tom_targets.permissions import targets_for_user
 
 from custom_code.models import TargetAliasInfo, TransitEphemeris
 
@@ -33,6 +34,7 @@ SIDEREAL_CREATE_FORM_HIDDEN_FIELDS = CREATE_FORM_HIDDEN_FIELDS + (
 )
 ALL_DATA_SERVICES_VALUE = '__all__'
 ALL_DATA_SERVICES_LABEL = 'All Data Services'
+PRIVATE_TARGET_COORDINATE_MATCH_RADIUS_ARCSEC = 3.0
 
 
 def catalog_service_choices():
@@ -347,6 +349,38 @@ class BhtomSiderealTargetCreateForm(GaiaAstrometryFormMixin, PlanetaryTransitTar
         if not getattr(self.instance, 'pk', None):
             self.fields.pop('priority', None)
         self._set_transit_initials()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        user = getattr(self, 'user', None)
+        if getattr(self.instance, 'pk', None) or user is None:
+            return cleaned_data
+
+        ra = cleaned_data.get('ra')
+        dec = cleaned_data.get('dec')
+        if ra is None or dec is None:
+            return cleaned_data
+
+        coordinate_matches = Target.matches.match_cone_search(
+            ra,
+            dec,
+            PRIVATE_TARGET_COORDINATE_MATCH_RADIUS_ARCSEC,
+        ).exclude(pk=self.instance.pk)
+        if not coordinate_matches.exists():
+            return cleaned_data
+
+        visible_target_ids = set(
+            targets_for_user(user, Target.objects.all(), 'view_target').values_list('pk', flat=True)
+        )
+        private_hidden_match_exists = coordinate_matches.filter(
+            permissions=Target.Permissions.PRIVATE,
+        ).exclude(pk__in=visible_target_ids).exists()
+        if private_hidden_match_exists:
+            raise forms.ValidationError(
+                'A target already exists at these coordinates, but it remains private.'
+            )
+
+        return cleaned_data
 
     class Meta(SiderealTargetCreateForm.Meta):
         fields = tuple(dict.fromkeys(

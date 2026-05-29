@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.test.client import RequestFactory
 from django.test import TestCase
 from django.urls import reverse
+from guardian.shortcuts import assign_perm
 from rest_framework.authtoken.models import Token
 from tom_catalogs.harvester import MissingDataException
 from tom_dataproducts.models import ReducedDatum
@@ -1543,6 +1544,61 @@ class TargetCreateFormVisibilityTests(TestCase):
         self.assertIn('v_mag', form.fields)
         self.assertIn('r_mag', form.fields)
         self.assertIn('gaia_g_mag', form.fields)
+
+    def test_sidereal_form_reports_hidden_private_coordinate_match(self):
+        creator = get_user_model().objects.create_user(username='private-coordinate-checker', password='secret')
+        Target.objects.create(
+            name='HiddenTarget',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+            permissions=Target.Permissions.PRIVATE,
+        )
+
+        form = BhtomSiderealTargetCreateForm(data={
+            'name': 'VisibleAttempt',
+            'type': Target.SIDEREAL,
+            'ra': 12.3,
+            'dec': -45.6,
+            'permissions': Target.Permissions.PUBLIC,
+            'importance': 0,
+            'cadence': 0,
+            'recommended_observing_strategy': 'Observe nightly.',
+        })
+        form.user = creator
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            'A target already exists at these coordinates, but it remains private.',
+            form.non_field_errors(),
+        )
+
+    def test_sidereal_form_allows_private_coordinate_match_when_user_has_access(self):
+        creator = get_user_model().objects.create_user(username='private-coordinate-member', password='secret')
+        hidden_target = Target.objects.create(
+            name='SharedHiddenTarget',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+            permissions=Target.Permissions.PRIVATE,
+        )
+        assign_perm('tom_targets.view_target', creator, hidden_target)
+
+        form = BhtomSiderealTargetCreateForm(data={
+            'name': 'VisibleAttempt',
+            'type': Target.SIDEREAL,
+            'ra': 12.3,
+            'dec': -45.6,
+            'permissions': Target.Permissions.PUBLIC,
+            'importance': 0,
+            'cadence': 0,
+            'recommended_observing_strategy': 'Observe nightly.',
+        })
+        form.user = creator
+
+        self.assertTrue(form.is_valid(), form.errors)
 
     def test_sidereal_update_form_includes_transit_ephemeris_fields(self):
         target = Target.objects.create(name='WASP-12b', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
