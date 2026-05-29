@@ -15,7 +15,14 @@
       <div class="col-md-8">
         <h1 class="display-4 fw-bold">Black Hole TOM 3.0001</h1>
         <p class="lead">Welcome to the official BHTOM3 platform</p>
-        <form class="welcome-target-search-form mt-4" method="get" action="{% url 'targets-generic-search' %}">
+      </div>
+    </div>
+  </div>
+
+<hr class="border-3 border-light opacity-100 my-5">
+
+<div class="container-fluid d-flex justify-content-center">
+  <form class="welcome-target-search-form mt-4 w-75" method="get" action="{% url 'targets-generic-search' %}">
           <input type="hidden" name="next" value="{{ request.get_full_path }}">
           <div class="input-group input-group-lg">
             <input
@@ -30,13 +37,8 @@
             </div>
           </div>
           <small class="form-text text-muted">Coordinate searches use a default 3 arcsec radius.</small>
-        </form>
-      </div>
-
-    </div>
-  </div>
-
-<hr class="border-3 border-light opacity-100 my-5">
+  </form>
+</div>
 
 <div class="row mt-5">
 {% if user.is_authenticated %}
