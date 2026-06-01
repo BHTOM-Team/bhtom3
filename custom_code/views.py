@@ -3059,6 +3059,18 @@ class ProposalAwareObservationCreateView(TomObservationCreateView):
         form = super().get_form()
         return self._configure_observation_form(form)
 
+    def post(self, request, *args, **kwargs):
+        form_class = self.get_form_class()
+        form_kwargs = self.get_form_kwargs()
+        form = form_class(**form_kwargs)
+        form = self._configure_observation_form(form)
+
+        if form.is_valid():
+            if 'validate' in request.POST:
+                return self.form_validation_valid(form)
+            return self.form_valid(form)
+        return self.form_invalid(form)
+
 class UserProfileRedirectView(View):
     def get(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
