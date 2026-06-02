@@ -5,6 +5,7 @@ import requests
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from tom_observations.facilities.lco import (
     LCOFacility as BaseLCOFacility,
     LCOSettings,
@@ -16,11 +17,25 @@ from tom_observations.facilities.lco import (
 )
 from tom_observations.facilities.ocs import make_request
 from tom_observations.models import ObservationRecord
+from tom_dataproducts.data_processor import run_data_processor
+from tom_dataproducts.exceptions import InvalidFileFormatException
+from tom_dataproducts.models import DataProduct
+from tom_common.hooks import run_hook
 
+from custom_code.bhtom2_uploads import (
+    forward_dataproduct_to_bhtom2,
+    has_successful_bhtom2_upload,
+    load_extra_data_dict,
+    normalize_fits_upload,
+    save_extra_data_dict,
+)
 from custom_code.facility_proposals import get_proposal_by_pk, get_proposal_choices_for_user
 
 
 logger = logging.getLogger(__name__)
+LCO_ARCHIVE_API_URL = 'https://archive-api.lco.global'
+LCO_BHTOM2_AUTOMATED_OBSERVATORY = 'LCOGT-Teide-40cm_QHY600M'
+LCO_BHTOM2_AUTOMATED_FILTER = 'GaiaSP/any'
 
 
 class AccountLCOSettings(LCOSettings):
@@ -196,3 +211,139 @@ class LCOFacility(BaseLCOFacility):
             record.scheduled_start = status['scheduled_start']
             record.scheduled_end = status['scheduled_end']
             record.save()
+            if record.status == 'COMPLETED':
+                try:
+                    self._sync_completed_lco_dataproducts(record, facility.facility_settings)
+                except Exception as exc:
+                    logger.warning(
+                        'Automatic LCO data sync failed for observation %s: %s',
+                        record.observation_id,
+                        exc,
+                    )
+
+    def _archive_api_url(self, path):
+        root_url = str(getattr(settings, 'LCO_ARCHIVE_API_URL', LCO_ARCHIVE_API_URL) or LCO_ARCHIVE_API_URL).rstrip('/')
+        return f'{root_url}/{str(path).lstrip("/")}'
+
+    def _archive_timeout(self):
+        try:
+            return max(1, int(getattr(settings, 'LCO_ARCHIVE_TIMEOUT_SECONDS', 30)))
+        except (TypeError, ValueError):
+            return 30
+
+    def _archive_headers(self, api_key):
+        return {'Authorization': f'Token {api_key}'}
+
+    def _iter_completed_archive_frames(self, observation_id, api_key):
+        next_url = self._archive_api_url('/frames/')
+        params = {
+            'request_id': observation_id,
+            'reduction_level': 91,
+            'configuration_type': 'EXPOSE',
+            'public': 'false',
+            'limit': 100,
+        }
+        while next_url:
+            response = requests.get(
+                next_url,
+                params=params,
+                headers=self._archive_headers(api_key),
+                timeout=self._archive_timeout(),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            for frame in payload.get('results') or []:
+                yield frame
+            next_url = payload.get('next')
+            params = None
+
+    def _frame_filename(self, frame):
+        basename = str(frame.get('basename') or '').strip()
+        extension = str(frame.get('extension') or '').strip()
+        if basename and extension:
+            return f'{basename}{extension}'
+        return basename or f'lco-frame-{frame.get("id")}.fits'
+
+    def _create_lco_dataproduct(self, record, frame, api_key):
+        frame_id = str(frame.get('id') or '').strip()
+        if not frame_id:
+            raise ValueError(f'Missing LCO archive frame id for observation {record.observation_id}.')
+
+        existing = DataProduct.objects.filter(observation_record=record, product_id=frame_id).order_by('-created').first()
+        if existing is not None:
+            return existing, False
+
+        download_url = str(frame.get('url') or '').strip()
+        if not download_url:
+            raise ValueError(f'Missing download url for LCO archive frame {frame_id}.')
+
+        download_response = requests.get(
+            download_url,
+            headers=self._archive_headers(api_key),
+            timeout=self._archive_timeout(),
+        )
+        download_response.raise_for_status()
+
+        uploaded_file = SimpleUploadedFile(
+            self._frame_filename(frame),
+            download_response.content,
+            content_type='application/fits',
+        )
+        normalized_file, normalization_metadata = normalize_fits_upload(uploaded_file)
+        normalized_file.seek(0)
+
+        dataproduct = DataProduct.objects.create(
+            target=record.target,
+            observation_record=record,
+            product_id=frame_id,
+            data=normalized_file,
+            data_product_type='fits_file',
+        )
+
+        metadata = load_extra_data_dict(dataproduct)
+        metadata['lco_archive_frame'] = {
+            'frame_id': frame_id,
+            'request_id': str(frame.get('request_id') or record.observation_id),
+            'observation_id': str(frame.get('observation_id') or ''),
+            'basename': str(frame.get('basename') or ''),
+            'filename': normalized_file.name,
+            'reduction_level': frame.get('reduction_level'),
+            'normalization': normalization_metadata,
+        }
+        save_extra_data_dict(dataproduct, metadata)
+
+        try:
+            run_hook('data_product_post_upload', dataproduct)
+            run_data_processor(dataproduct)
+        except InvalidFileFormatException:
+            dataproduct.delete()
+            raise
+        except Exception:
+            dataproduct.delete()
+            raise
+
+        return dataproduct, True
+
+    def _sync_completed_lco_dataproducts(self, record, facility_settings):
+        archive_api_key = str(facility_settings.get_setting('api_key') or '').strip()
+        if not archive_api_key:
+            logger.warning('Skipping LCO archive sync for observation %s because no LCO API key is configured.', record.observation_id)
+            return
+
+        bhtom2_token = str(getattr(settings, 'BHTOM2_API_TOKEN', '') or '').strip()
+        if not bhtom2_token:
+            logger.warning('Skipping automatic BHTOM2 forwarding for observation %s because BHTOM2_API_TOKEN is empty.', record.observation_id)
+            return
+
+        for frame in self._iter_completed_archive_frames(record.observation_id, archive_api_key):
+            dataproduct, created = self._create_lco_dataproduct(record, frame, archive_api_key)
+            if not created and has_successful_bhtom2_upload(dataproduct):
+                continue
+            forward_dataproduct_to_bhtom2(
+                dataproduct,
+                token=bhtom2_token,
+                observatory=LCO_BHTOM2_AUTOMATED_OBSERVATORY,
+                calibration_filter=LCO_BHTOM2_AUTOMATED_FILTER,
+                comment=f'Uploaded automatically from BHTOM3 LCO observation {record.observation_id}',
+                user_id=record.user_id,
+            )

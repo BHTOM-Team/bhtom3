@@ -3070,6 +3070,133 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertEqual(record.status, 'COMPLETED')
         self.assertEqual(mock_get_observation_status.call_count, 1)
 
+    @patch('custom_code.bhtom2_uploads.requests.post')
+    @patch('bhtom3.bhtom_observations.facilities.lco.run_data_processor', return_value=ReducedDatum.objects.none())
+    @patch('bhtom3.bhtom_observations.facilities.lco.run_hook')
+    @patch('bhtom3.bhtom_observations.facilities.lco.requests.get')
+    @patch('bhtom3.bhtom_observations.facilities.lco.BaseLCOFacility.get_observation_status', autospec=True)
+    def test_update_status_downloads_completed_lco_frames_and_forwards_to_bhtom2(
+        self,
+        mock_get_observation_status,
+        mock_requests_get,
+        mock_run_hook,
+        mock_run_data_processor,
+        mock_post,
+    ):
+        mock_get_observation_status.return_value = {
+            'state': 'COMPLETED',
+            'scheduled_start': datetime(2026, 6, 1, 1, 0, tzinfo=timezone.utc),
+            'scheduled_end': datetime(2026, 6, 1, 2, 0, tzinfo=timezone.utc),
+        }
+        mock_requests_get.side_effect = [
+            Mock(
+                raise_for_status=Mock(),
+                json=Mock(return_value={
+                    'results': [{
+                        'id': 123456,
+                        'basename': 'tfn0m410-sq01-20260601-0001-e91',
+                        'extension': '.fits.fz',
+                        'url': 'https://archive-api.lco.global/frames/123456/file',
+                        'request_id': 4205507,
+                        'observation_id': 4205507,
+                        'reduction_level': 91,
+                    }],
+                    'next': None,
+                }),
+            ),
+            Mock(
+                raise_for_status=Mock(),
+                content=_build_test_fits_bytes(),
+            ),
+        ]
+        mock_post.return_value = Mock(status_code=201, json=Mock(return_value={'ok': True}), text='created')
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            parameters={'proposal': str(self.proposal.pk)},
+            observation_id='4205507',
+            status='PENDING',
+        )
+
+        with self.settings(BHTOM2_API_TOKEN='auto-token', BHTOM2_UPLOAD_SERVICE_URL='http://upload.example/api/upload'):
+            LCOFacility().update_observation_status('4205507')
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'COMPLETED')
+        dataproduct = DataProduct.objects.get(observation_record=record, product_id='123456')
+        self.assertEqual(dataproduct.data_product_type, 'fits_file')
+        self.assertTrue(has_successful_bhtom2_upload(dataproduct))
+        self.assertEqual(dataproduct.get_file_name(), 'tfn0m410-sq01-20260601-0001-e91.fits')
+        self.assertEqual(mock_post.call_args.kwargs['headers']['Authorization'], 'Token auto-token')
+        self.assertEqual(
+            mock_post.call_args.kwargs['data']['observatory'],
+            'LCOGT-Teide-40cm_QHY600M',
+        )
+        self.assertEqual(mock_requests_get.call_args_list[0].kwargs['headers']['Authorization'], 'Token account-api-key')
+        self.assertEqual(mock_requests_get.call_args_list[0].kwargs['params']['request_id'], '4205507')
+        self.assertEqual(mock_requests_get.call_args_list[0].kwargs['params']['reduction_level'], 91)
+        self.assertEqual(mock_requests_get.call_args_list[0].kwargs['params']['public'], 'false')
+        mock_run_hook.assert_called()
+        mock_run_data_processor.assert_called_once()
+
+    @patch('custom_code.bhtom2_uploads.requests.post')
+    @patch('bhtom3.bhtom_observations.facilities.lco.requests.get')
+    @patch('bhtom3.bhtom_observations.facilities.lco.BaseLCOFacility.get_observation_status', autospec=True)
+    def test_update_status_skips_redownload_for_already_forwarded_lco_frame(
+        self,
+        mock_get_observation_status,
+        mock_requests_get,
+        mock_post,
+    ):
+        mock_get_observation_status.return_value = {
+            'state': 'COMPLETED',
+            'scheduled_start': datetime(2026, 6, 1, 1, 0, tzinfo=timezone.utc),
+            'scheduled_end': datetime(2026, 6, 1, 2, 0, tzinfo=timezone.utc),
+        }
+        mock_requests_get.return_value = Mock(
+            raise_for_status=Mock(),
+            json=Mock(return_value={
+                'results': [{
+                    'id': 123456,
+                    'basename': 'tfn0m410-sq01-20260601-0001-e91',
+                    'extension': '.fits',
+                    'url': 'https://archive-api.lco.global/frames/123456/file',
+                    'request_id': 4205507,
+                    'observation_id': 4205507,
+                    'reduction_level': 91,
+                }],
+                'next': None,
+            }),
+        )
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            parameters={'proposal': str(self.proposal.pk)},
+            observation_id='4205507',
+            status='PENDING',
+        )
+        dataproduct = DataProduct.objects.create(
+            target=self.target,
+            observation_record=record,
+            product_id='123456',
+            data=SimpleUploadedFile('existing.fits', _build_test_fits_bytes()),
+            data_product_type='fits_file',
+        )
+        extra_data = json.loads(dataproduct.extra_data or '{}') if dataproduct.extra_data else {}
+        extra_data['bhtom2_fits_upload'] = {'status': 'uploaded'}
+        dataproduct.extra_data = json.dumps(extra_data)
+        dataproduct.save(update_fields=['extra_data'])
+
+        with self.settings(BHTOM2_API_TOKEN='auto-token', BHTOM2_UPLOAD_SERVICE_URL='http://upload.example/api/upload'):
+            LCOFacility().update_observation_status('4205507')
+
+        dataproduct.refresh_from_db()
+        self.assertTrue(has_successful_bhtom2_upload(dataproduct))
+        self.assertEqual(mock_requests_get.call_count, 1)
+        mock_post.assert_not_called()
+
     @patch('bhtom3.bhtom_observations.facilities.lco.BaseLCOFacility.submit_observation', autospec=True)
     def test_submit_uses_imported_lco_proposal_id(self, mock_submit_observation):
         self.proposal.external_id = '24'

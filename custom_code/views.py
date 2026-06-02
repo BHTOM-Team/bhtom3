@@ -73,9 +73,8 @@ from tom_observations.models import ObservationRecord
 from custom_code.filters import BhtomTargetFilterSet
 from custom_code.bhtom2_uploads import (
     ensure_fits_dataproduct_type,
+    forward_dataproduct_to_bhtom2,
     has_successful_bhtom2_upload,
-    record_bhtom2_upload_state,
-    upload_fits_dataproduct_to_bhtom2,
 )
 from custom_code.astrometry import can_compute_current_coordinates, compute_current_coordinates
 from custom_code.forms import (
@@ -263,64 +262,14 @@ def _build_bhtom2_comment(user, source_label):
 
 
 def _upload_dataproduct_to_bhtom2(dataproduct, *, user, token, oname, calibration_filter, comment):
-    try:
-        response, upload_metadata = upload_fits_dataproduct_to_bhtom2(
-            dataproduct,
-            token=token,
-            observatory=oname,
-            calibration_filter=calibration_filter,
-            comment=comment,
-        )
-    except requests.RequestException as exc:
-        record_bhtom2_upload_state(
-            dataproduct,
-            status='failed',
-            observatory=oname,
-            calibration_filter=calibration_filter,
-            message=str(exc),
-            user_id=getattr(user, 'pk', None),
-        )
-        raise
-    except Exception as exc:
-        record_bhtom2_upload_state(
-            dataproduct,
-            status='failed',
-            observatory=oname,
-            calibration_filter=calibration_filter,
-            message=str(exc),
-            user_id=getattr(user, 'pk', None),
-        )
-        raise
-
-    if response.status_code != 201:
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {}
-        message = payload.get('message') or payload.get('detail') or response.text.strip() or f'HTTP {response.status_code}'
-        record_bhtom2_upload_state(
-            dataproduct,
-            status='failed',
-            observatory=oname,
-            calibration_filter=calibration_filter,
-            response_status=response.status_code,
-            message=message,
-            upload_metadata=upload_metadata,
-            user_id=getattr(user, 'pk', None),
-        )
-        raise ValidationError(message)
-
-    record_bhtom2_upload_state(
+    return forward_dataproduct_to_bhtom2(
         dataproduct,
-        status='uploaded',
+        token=token,
         observatory=oname,
         calibration_filter=calibration_filter,
-        response_status=response.status_code,
-        message='Uploaded to BHTOM2.',
-        upload_metadata=upload_metadata,
+        comment=comment,
         user_id=getattr(user, 'pk', None),
     )
-    return response
 
 
 def _run_single_data_service_query(data_service_name, parameters, *, query_id='', cache_prefix='query'):

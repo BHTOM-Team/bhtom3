@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import requests
 from astropy.io import fits
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 
@@ -245,3 +246,65 @@ def upload_fits_dataproduct_to_bhtom2(dataproduct, *, token, observatory, calibr
         timeout=_upload_timeout(),
     )
     return response, upload_metadata
+
+
+def forward_dataproduct_to_bhtom2(dataproduct, *, token, observatory, calibration_filter, comment='',
+                                  user_id=None):
+    try:
+        response, upload_metadata = upload_fits_dataproduct_to_bhtom2(
+            dataproduct,
+            token=token,
+            observatory=observatory,
+            calibration_filter=calibration_filter,
+            comment=comment,
+        )
+    except requests.RequestException as exc:
+        record_bhtom2_upload_state(
+            dataproduct,
+            status='failed',
+            observatory=observatory,
+            calibration_filter=calibration_filter,
+            message=str(exc),
+            user_id=user_id,
+        )
+        raise
+    except Exception as exc:
+        record_bhtom2_upload_state(
+            dataproduct,
+            status='failed',
+            observatory=observatory,
+            calibration_filter=calibration_filter,
+            message=str(exc),
+            user_id=user_id,
+        )
+        raise
+
+    if response.status_code != 201:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        message = payload.get('message') or payload.get('detail') or response.text.strip() or f'HTTP {response.status_code}'
+        record_bhtom2_upload_state(
+            dataproduct,
+            status='failed',
+            observatory=observatory,
+            calibration_filter=calibration_filter,
+            response_status=response.status_code,
+            message=message,
+            upload_metadata=upload_metadata,
+            user_id=user_id,
+        )
+        raise ValidationError(message)
+
+    record_bhtom2_upload_state(
+        dataproduct,
+        status='uploaded',
+        observatory=observatory,
+        calibration_filter=calibration_filter,
+        response_status=response.status_code,
+        message='Uploaded to BHTOM2.',
+        upload_metadata=upload_metadata,
+        user_id=user_id,
+    )
+    return response
