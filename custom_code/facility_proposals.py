@@ -174,14 +174,6 @@ def _coerce_user(user_or_id):
         return None
 
 
-def _first_non_numeric_value(payload, keys):
-    for key in keys:
-        value = str(payload.get(key) or '').strip()
-        if value and not value.isdigit():
-            return value
-    return ''
-
-
 def get_manageable_users(exclude_user=None):
     queryset = get_user_model().objects.filter(is_active=True).order_by('username')
     if exclude_user is not None and getattr(exclude_user, 'pk', None):
@@ -472,12 +464,10 @@ def sync_remote_proposals_for_account(account, owner=None, shared_users=None):
     active_count = 0
 
     for remote_proposal in remote_proposals:
-        external_id = _first_non_numeric_value(remote_proposal, ('proposal', 'proposal_code', 'code'))
-        title = str(remote_proposal.get('title') or external_id).strip()
-        if not external_id and title and not title.isdigit() and ' ' not in title:
-            external_id = title
+        external_id = str(remote_proposal.get('id') or '').strip()
         if not external_id:
             continue
+        title = str(remote_proposal.get('title') or external_id).strip()
         seen_external_ids.add(external_id)
         valid_from, valid_until = _extract_proposal_window(remote_proposal)
         defaults = {

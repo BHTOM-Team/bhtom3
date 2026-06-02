@@ -22,11 +22,6 @@ from custom_code.facility_proposals import get_proposal_by_pk, get_proposal_choi
 logger = logging.getLogger(__name__)
 
 
-def _is_lco_proposal_code(value):
-    value = str(value or '').strip()
-    return bool(value and not value.isdigit())
-
-
 class AccountLCOSettings(LCOSettings):
     def __init__(self, account=None):
         super().__init__(facility_name='LCO')
@@ -103,21 +98,10 @@ class LCOFacility(BaseLCOFacility):
     }
 
     def _proposal_external_identifier(self, proposal):
-        remote_payload = proposal.remote_payload or {}
-        for key in ('proposal', 'proposal_code', 'code'):
-            value = str(remote_payload.get(key) or '').strip()
-            if _is_lco_proposal_code(value):
-                return value
-        title = str(remote_payload.get('title') or '').strip()
-        if _is_lco_proposal_code(title) and ' ' not in title:
-            return title
         external_id = str(proposal.external_id or '').strip()
-        if _is_lco_proposal_code(external_id):
+        if external_id:
             return external_id
-        raise ValidationError(
-            f'LCO proposal "{proposal}" has no non-numeric LCO proposal code. '
-            'Re-sync LCO proposals and try again.'
-        )
+        raise ValidationError(f'LCO proposal "{proposal}" has no remote LCO proposal id. Re-sync LCO proposals and try again.')
 
     def _proposal_account_facility(self, observation_payload):
         proposal_value = observation_payload.get('proposal') or observation_payload.get('params', {}).get('proposal')
