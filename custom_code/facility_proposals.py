@@ -464,7 +464,12 @@ def sync_remote_proposals_for_account(account, owner=None, shared_users=None):
     active_count = 0
 
     for remote_proposal in remote_proposals:
-        external_id = str(remote_proposal.get('id') or '').strip()
+        external_id = str(
+            remote_proposal.get('proposal')
+            or remote_proposal.get('code')
+            or remote_proposal.get('id')
+            or ''
+        ).strip()
         if not external_id:
             continue
         seen_external_ids.add(external_id)

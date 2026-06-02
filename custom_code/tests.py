@@ -2997,6 +2997,31 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertEqual(record.status, 'COMPLETED')
         self.assertEqual(mock_get_observation_status.call_count, 1)
 
+    @patch('bhtom3.bhtom_observations.facilities.lco.BaseLCOFacility.submit_observation', autospec=True)
+    def test_submit_uses_lco_proposal_code_from_remote_payload(self, mock_submit_observation):
+        self.proposal.external_id = '24'
+        self.proposal.remote_payload = {'id': 24, 'proposal': 'LCO2026A-001'}
+        self.proposal.save()
+        mock_submit_observation.return_value = ['4205507']
+
+        result = LCOFacility().submit_observation({
+            'name': 'BHTOM Gaia26abc 20260602',
+            'proposal': str(self.proposal.pk),
+            'requests': [],
+        })
+
+        self.assertEqual(result, ['4205507'])
+        submitted_payload = mock_submit_observation.call_args.args[1]
+        self.assertEqual(submitted_payload['proposal'], 'LCO2026A-001')
+
+    def test_submit_rejects_unresolved_numeric_lco_proposal(self):
+        with self.assertRaisesMessage(Exception, 'LCO proposal 999999 is not available in BHTOM'):
+            LCOFacility().submit_observation({
+                'name': 'BHTOM Gaia26abc 20260602',
+                'proposal': '999999',
+                'requests': [],
+            })
+
 
 class LCOObservationCreateInitialTests(TestCase):
     def test_lco_initial_prefills_name_and_utc_window(self):
