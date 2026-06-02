@@ -19,6 +19,7 @@ from tom_observations.models import ObservationRecord
 from tom_targets.models import Target, TargetName
 
 from bhtom3.bhtom_observations.facilities.lco import AccountLCOSettings, LCOFacility
+from bhtom3.bhtom_observations.facilities.lco import BhtomLCOImagingObservationForm
 from custom_code.data_services.ogle_ews_dataservice import (
     OGLEEWSDataService,
     _dec_to_decimal,
@@ -74,7 +75,15 @@ from custom_code.forms import (
     BhtomSiderealTargetUpdateForm,
     BhtomTargetNamesFormset,
 )
-from custom_code.models import Facility, FacilityAccount, FacilityProposal, GeoTarget, TransitEphemeris
+from custom_code.models import (
+    Facility,
+    FacilityAccount,
+    FacilityAccountMembership,
+    FacilityProposal,
+    FacilityProposalMembership,
+    GeoTarget,
+    TransitEphemeris,
+)
 from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
 from custom_code.signals import cleanup_target_relations_on_target_delete
 from custom_code.templatetags.custom_observation_extras import nonsidereal_target_plan
@@ -94,6 +103,38 @@ from custom_code.views import (
     EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
     ProposalAwareObservationCreateView,
 )
+
+
+def _minimal_lco_instruments():
+    return {
+        '0M4-SCICAM-SBIG': {
+            'type': 'IMAGE',
+            'class': '0m4',
+            'name': '0.4 meter SBIG',
+            'optical_elements': {
+                'filters': [
+                    {'name': 'SDSS-gp', 'code': 'gp', 'schedulable': True, 'default': False},
+                ],
+            },
+            'modes': {
+                'readout': {
+                    'modes': [
+                        {'name': '1x1 binning', 'code': '1x1'},
+                    ],
+                },
+                'guiding': {
+                    'modes': [
+                        {'name': 'On', 'code': 'ON'},
+                        {'name': 'Off', 'code': 'OFF'},
+                    ],
+                },
+            },
+            'configuration_types': {
+                'EXPOSE': {'name': 'Expose', 'code': 'EXPOSE', 'schedulable': True},
+            },
+            'default_configuration_type': 'EXPOSE',
+        },
+    }
 
 
 class OGLEEWSDataServiceTests(TestCase):
@@ -2936,6 +2977,7 @@ class TargetDownloadPhotometryApiTests(TestCase):
 
 class LCOFacilityAccountRoutingTests(TestCase):
     def setUp(self):
+        cache.delete('LCO_instruments')
         self.user = get_user_model().objects.create_user(username='lco-user', password='secret')
         self.target = Target.objects.create(
             name='LCO Target',
@@ -2955,10 +2997,20 @@ class LCOFacilityAccountRoutingTests(TestCase):
             account_data={'portal_url': 'https://observe.lco.global'},
             credentials={'api_key': 'account-api-key'},
         )
+        FacilityAccountMembership.objects.create(
+            account=self.account,
+            user=self.user,
+            role=FacilityAccountMembership.Role.OWNER,
+        )
         self.proposal = FacilityProposal.objects.create(
             account=self.account,
             external_id='LCO2026A-001',
             title='Proposal A',
+        )
+        FacilityProposalMembership.objects.create(
+            proposal=self.proposal,
+            user=self.user,
+            role=FacilityProposalMembership.Role.OWNER,
         )
 
     def test_account_settings_return_account_api_key(self):
@@ -3021,6 +3073,33 @@ class LCOFacilityAccountRoutingTests(TestCase):
                 'proposal': '999999',
                 'requests': [],
             })
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    def test_lco_form_uses_local_proposal_choices(self, mock_get_instruments):
+        mock_get_instruments.return_value = _minimal_lco_instruments()
+
+        form = BhtomLCOImagingObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+
+        proposal_values = [value for value, label in form.fields['proposal'].choices]
+        self.assertIn(str(self.proposal.pk), proposal_values)
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.requests.get')
+    def test_lco_instrument_loading_uses_timeout_and_fallback(self, mock_get):
+        mock_get.side_effect = TimeoutError('slow LCO instruments')
+        form = BhtomLCOImagingObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+
+        instruments = form._get_instruments()
+
+        self.assertIn('No Instrument Found', instruments)
+        self.assertEqual(mock_get.call_args.kwargs['timeout'], 8)
 
 
 class LCOObservationCreateInitialTests(TestCase):

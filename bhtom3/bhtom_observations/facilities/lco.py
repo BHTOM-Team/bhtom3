@@ -1,8 +1,25 @@
+import logging
+from urllib.parse import urljoin
+
+import requests
+from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from tom_observations.facilities.lco import LCOFacility as BaseLCOFacility, LCOSettings
+from tom_observations.facilities.lco import (
+    LCOFacility as BaseLCOFacility,
+    LCOSettings,
+    LCOImagingObservationForm,
+    LCOMuscatImagingObservationForm,
+    LCOPhotometricSequenceForm,
+    LCOSpectroscopyObservationForm,
+    LCOSpectroscopicSequenceForm,
+)
 from tom_observations.models import ObservationRecord
 
-from custom_code.facility_proposals import get_proposal_by_pk
+from custom_code.facility_proposals import get_proposal_by_pk, get_proposal_choices_for_user
+
+
+logger = logging.getLogger(__name__)
 
 
 class AccountLCOSettings(LCOSettings):
@@ -21,7 +38,65 @@ class AccountLCOSettings(LCOSettings):
         return super().get_setting(key)
 
 
+class BhtomLCOFormMixin:
+    def proposal_choices(self):
+        user_id = self.initial.get('request_user_id') or self.data.get('request_user_id')
+        choices = get_proposal_choices_for_user(user_id, 'LCO', include_account_label=True)
+        return choices or [(0, 'No proposals found')]
+
+    def _get_instruments(self):
+        cache_key = f'{self.facility_settings.facility_name}_instruments'
+        cached_instruments = cache.get(cache_key)
+        if cached_instruments:
+            return cached_instruments
+
+        timeout = getattr(settings, 'LCO_INSTRUMENTS_TIMEOUT_SECONDS', 8)
+        cache_seconds = getattr(settings, 'LCO_INSTRUMENTS_CACHE_SECONDS', 86400)
+        try:
+            response = requests.get(
+                urljoin(self.facility_settings.get_setting('portal_url'), '/api/instruments/'),
+                headers={'Authorization': f'Token {self.facility_settings.get_setting("api_key")}'},
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            cached_instruments = {key: value for key, value in response.json().items()}
+        except Exception as exc:
+            logger.warning('Could not load LCO instruments within %ss: %s', timeout, exc)
+            cached_instruments = self.facility_settings.default_instrument_config
+
+        cache.set(cache_key, cached_instruments, cache_seconds)
+        return cached_instruments
+
+
+class BhtomLCOImagingObservationForm(BhtomLCOFormMixin, LCOImagingObservationForm):
+    pass
+
+
+class BhtomLCOMuscatImagingObservationForm(BhtomLCOFormMixin, LCOMuscatImagingObservationForm):
+    pass
+
+
+class BhtomLCOSpectroscopyObservationForm(BhtomLCOFormMixin, LCOSpectroscopyObservationForm):
+    pass
+
+
+class BhtomLCOPhotometricSequenceForm(BhtomLCOFormMixin, LCOPhotometricSequenceForm):
+    pass
+
+
+class BhtomLCOSpectroscopicSequenceForm(BhtomLCOFormMixin, LCOSpectroscopicSequenceForm):
+    pass
+
+
 class LCOFacility(BaseLCOFacility):
+    observation_forms = {
+        'IMAGING': BhtomLCOImagingObservationForm,
+        'MUSCAT_IMAGING': BhtomLCOMuscatImagingObservationForm,
+        'SPECTRA': BhtomLCOSpectroscopyObservationForm,
+        'PHOTOMETRIC_SEQUENCE': BhtomLCOPhotometricSequenceForm,
+        'SPECTROSCOPIC_SEQUENCE': BhtomLCOSpectroscopicSequenceForm,
+    }
+
     def _proposal_external_identifier(self, proposal):
         remote_payload = proposal.remote_payload or {}
         for key in ('proposal', 'code', 'id'):
