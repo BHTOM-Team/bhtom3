@@ -15,8 +15,10 @@ from guardian.shortcuts import assign_perm
 from rest_framework.authtoken.models import Token
 from tom_catalogs.harvester import MissingDataException
 from tom_dataproducts.models import ReducedDatum
+from tom_observations.models import ObservationRecord
 from tom_targets.models import Target, TargetName
 
+from bhtom3.bhtom_observations.facilities.lco import AccountLCOSettings, LCOFacility
 from custom_code.data_services.ogle_ews_dataservice import (
     OGLEEWSDataService,
     _dec_to_decimal,
@@ -72,7 +74,7 @@ from custom_code.forms import (
     BhtomSiderealTargetUpdateForm,
     BhtomTargetNamesFormset,
 )
-from custom_code.models import GeoTarget, TransitEphemeris
+from custom_code.models import Facility, FacilityAccount, FacilityProposal, GeoTarget, TransitEphemeris
 from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
 from custom_code.signals import cleanup_target_relations_on_target_delete
 from custom_code.templatetags.custom_observation_extras import nonsidereal_target_plan
@@ -2929,3 +2931,67 @@ class TargetDownloadPhotometryApiTests(TestCase):
         self.assertEqual(first_row[3:], ['LCO', 'LCO(r)', 'bot'])
         self.assertEqual(second_row[3:], ['OGLE', 'OGLE(I)', 'survey'])
         self.assertLess(float(first_row[0]), float(second_row[0]))
+
+
+class LCOFacilityAccountRoutingTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='lco-user', password='secret')
+        self.target = Target.objects.create(
+            name='LCO Target',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+        )
+        self.facility, _ = Facility.objects.get_or_create(
+            code='LCO',
+            defaults={'name': 'Las Cumbres Observatory'},
+        )
+        self.account = FacilityAccount.objects.create(
+            facility=self.facility,
+            label='Account A',
+            created_by=self.user,
+            account_data={'portal_url': 'https://observe.lco.global'},
+            credentials={'api_key': 'account-api-key'},
+        )
+        self.proposal = FacilityProposal.objects.create(
+            account=self.account,
+            external_id='LCO2026A-001',
+            title='Proposal A',
+        )
+
+    def test_account_settings_return_account_api_key(self):
+        settings = AccountLCOSettings(account=self.account)
+
+        self.assertEqual(settings.get_setting('api_key'), 'account-api-key')
+        self.assertEqual(settings.get_setting('portal_url'), 'https://observe.lco.global')
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BaseLCOFacility.get_observation_status', autospec=True)
+    def test_update_status_uses_proposal_account_credentials(self, mock_get_observation_status):
+        def fake_get_observation_status(facility_instance, observation_id):
+            self.assertEqual(observation_id, '4205507')
+            self.assertEqual(
+                facility_instance.facility_settings.get_setting('api_key'),
+                'account-api-key',
+            )
+            return {
+                'state': 'COMPLETED',
+                'scheduled_start': datetime(2026, 6, 1, 1, 0, tzinfo=timezone.utc),
+                'scheduled_end': datetime(2026, 6, 1, 2, 0, tzinfo=timezone.utc),
+            }
+
+        mock_get_observation_status.side_effect = fake_get_observation_status
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            parameters={'proposal': str(self.proposal.pk)},
+            observation_id='4205507',
+            status='PENDING',
+        )
+
+        LCOFacility().update_observation_status('4205507')
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'COMPLETED')
+        self.assertEqual(mock_get_observation_status.call_count, 1)

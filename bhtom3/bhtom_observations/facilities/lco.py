@@ -1,4 +1,5 @@
 from tom_observations.facilities.lco import LCOFacility as BaseLCOFacility, LCOSettings
+from tom_observations.models import ObservationRecord
 
 from custom_code.facility_proposals import get_proposal_by_pk
 
@@ -26,6 +27,12 @@ class LCOFacility(BaseLCOFacility):
             return proposal, BaseLCOFacility(facility_settings=AccountLCOSettings(account=proposal.account))
         return None, BaseLCOFacility()
 
+    def _record_account_facility(self, record):
+        proposal = get_proposal_by_pk((record.parameters or {}).get('proposal'), facility_code='LCO')
+        if proposal:
+            return proposal, BaseLCOFacility(facility_settings=AccountLCOSettings(account=proposal.account))
+        return None, BaseLCOFacility()
+
     def submit_observation(self, observation_payload):
         proposal, facility = self._proposal_account_facility(observation_payload)
         payload = dict(observation_payload)
@@ -39,3 +46,23 @@ class LCOFacility(BaseLCOFacility):
         if proposal:
             payload['proposal'] = proposal.external_id
         return facility.validate_observation(payload)
+
+    def cancel_observation(self, observation_id):
+        record = ObservationRecord.objects.filter(observation_id=observation_id, facility=self.name).order_by('-created').first()
+        if record is None:
+            return super().cancel_observation(observation_id)
+        _, facility = self._record_account_facility(record)
+        return facility.cancel_observation(observation_id)
+
+    def update_observation_status(self, observation_id):
+        records = ObservationRecord.objects.filter(observation_id=observation_id, facility=self.name)
+        if not records:
+            raise Exception('No records exist for that observation id')
+
+        for record in records:
+            _, facility = self._record_account_facility(record)
+            status = facility.get_observation_status(observation_id)
+            record.status = status['state']
+            record.scheduled_start = status['scheduled_start']
+            record.scheduled_end = status['scheduled_end']
+            record.save()
