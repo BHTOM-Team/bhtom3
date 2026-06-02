@@ -3079,7 +3079,13 @@ class ProposalAwareObservationCreateView(TomObservationCreateView):
         form = form_class(**form_kwargs)
         form = self._configure_observation_form(form)
 
-        if form.is_valid():
+        try:
+            form_is_valid = form.is_valid()
+        except ValidationError as exc:
+            form.add_error(None, exc)
+            return self.form_invalid(form)
+
+        if form_is_valid:
             if 'validate' in request.POST:
                 return self.form_validation_valid(form)
             return self.form_valid(form)

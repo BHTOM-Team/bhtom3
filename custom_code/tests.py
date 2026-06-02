@@ -3074,6 +3074,18 @@ class LCOFacilityAccountRoutingTests(TestCase):
                 'requests': [],
             })
 
+    def test_submit_rejects_numeric_lco_identifier(self):
+        self.proposal.external_id = '3'
+        self.proposal.remote_payload = {'id': 3}
+        self.proposal.save()
+
+        with self.assertRaisesMessage(Exception, 'has no non-numeric LCO proposal code'):
+            LCOFacility().submit_observation({
+                'name': 'BHTOM Gaia26abc 20260602',
+                'proposal': str(self.proposal.pk),
+                'requests': [],
+            })
+
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_form_uses_local_proposal_choices(self, mock_get_instruments):
         mock_get_instruments.return_value = _minimal_lco_instruments()

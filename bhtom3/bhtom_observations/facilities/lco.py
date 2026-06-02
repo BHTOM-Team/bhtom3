@@ -99,11 +99,17 @@ class LCOFacility(BaseLCOFacility):
 
     def _proposal_external_identifier(self, proposal):
         remote_payload = proposal.remote_payload or {}
-        for key in ('proposal', 'code', 'id'):
+        for key in ('proposal', 'code'):
             value = str(remote_payload.get(key) or '').strip()
             if value:
                 return value
-        return str(proposal.external_id or '').strip()
+        external_id = str(proposal.external_id or '').strip()
+        if external_id and not external_id.isdigit():
+            return external_id
+        raise ValidationError(
+            f'LCO proposal "{proposal}" has no non-numeric LCO proposal code. '
+            'Re-sync LCO proposals and try again.'
+        )
 
     def _proposal_account_facility(self, observation_payload):
         proposal_value = observation_payload.get('proposal') or observation_payload.get('params', {}).get('proposal')
