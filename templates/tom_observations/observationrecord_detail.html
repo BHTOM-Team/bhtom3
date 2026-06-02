@@ -36,7 +36,13 @@
       {% csrf_token %}
       <div class="form-row">
         <div class="col-sm-4">
-          {% bootstrap_field group_form.group layout='inline' %}
+          {% if group_form %}
+            <label for="{{ group_form.group.id_for_label }}">Group</label>
+            {{ group_form.group }}
+          {% elif form %}
+            <label for="{{ form.group.id_for_label }}">Group</label>
+            {{ form.group }}
+          {% endif %}
           {% for product in data_products.saved %}
             <input type="hidden" name="products" value="{{ product.id }}">
           {% endfor %}
