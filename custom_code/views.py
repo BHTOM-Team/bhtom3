@@ -50,6 +50,7 @@ from tom_common.hooks import run_hook
 from tom_catalogs.harvester import MissingDataException, get_service_classes
 from tom_dataproducts.data_processor import run_data_processor
 from tom_dataproducts.exceptions import InvalidFileFormatException
+from tom_dataproducts.forms import AddProductToGroupForm
 from tom_dataproducts.models import DataProduct
 from tom_dataproducts.models import ReducedDatum
 from tom_targets.forms import TargetExtraFormset
@@ -66,6 +67,7 @@ from tom_dataservices.views import (
 from tom_common.views import UserCreateView as TomCommonUserCreateView
 from tom_common.views import UserUpdateView as TomCommonUserUpdateView
 from tom_observations.views import ObservationCreateView as TomObservationCreateView
+from tom_observations.views import ObservationRecordDetailView as TomObservationRecordDetailView
 from tom_observations.facilities.lco import LCOSettings
 from tom_observations.facility import get_service_class
 from tom_observations.models import ObservationRecord
@@ -3141,6 +3143,13 @@ class ProposalAwareObservationCreateView(TomObservationCreateView):
                 return self.form_validation_valid(form)
             return self.form_valid(form)
         return self.form_invalid(form)
+
+
+class BhtomObservationRecordDetailView(TomObservationRecordDetailView):
+    def get_context_data(self, *args, **kwargs):
+        context = super().get_context_data(*args, **kwargs)
+        context['group_form'] = context.get('form') or AddProductToGroupForm()
+        return context
 
 class UserProfileRedirectView(View):
     def get(self, request, *args, **kwargs):

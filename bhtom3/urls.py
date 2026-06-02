@@ -19,6 +19,7 @@ from rest_framework.authtoken.views import obtain_auth_token
 from custom_code.views import (
     BhtomCatalogSelectResultView,
     BhtomCatalogQueryView,
+    BhtomObservationRecordDetailView,
     BhtomPallasAView,
     Bhtom2TargetListView,
     BhtomTargetCreateView,
@@ -84,6 +85,7 @@ urlpatterns = [
     path('targets/<int:pk>/models/periodicity/compute/', TargetPeriodicityComputeView.as_view(), name='target-periodicity-compute'),
     path('dataproducts/data/upload/', BhtomDataProductUploadView.as_view(), name='dataproduct-upload'),
     path('dataproducts/<int:pk>/save/', BhtomDataProductSaveView.as_view(), name='observation-dataproduct-save'),
+    path('observations/<int:pk>/', BhtomObservationRecordDetailView.as_view(), name='observation-detail-override'),
     path('geotom/', GeoTomTargetListView.as_view(), name='geotom-list'),
     path('geotom/live-data/', GeoTomLiveDataView.as_view(), name='geotom-live-data'),
     path('bhtom-pallas/', BhtomPallasView.as_view(), name='bhtom-pallas'),
