@@ -85,6 +85,7 @@ from custom_code.models import (
     TransitEphemeris,
 )
 from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
+from custom_code.facility_proposals import _first_non_numeric_value
 from custom_code.signals import cleanup_target_relations_on_target_delete
 from custom_code.templatetags.custom_observation_extras import nonsidereal_target_plan
 from custom_code.templatetags.custom_target_extras import bhtom_target_data, non_sidereal_aladin
@@ -3085,6 +3086,26 @@ class LCOFacilityAccountRoutingTests(TestCase):
                 'proposal': str(self.proposal.pk),
                 'requests': [],
             })
+
+    def test_submit_rejects_numeric_lco_proposal_payload_value(self):
+        self.proposal.external_id = '26'
+        self.proposal.remote_payload = {'id': 26, 'proposal': '26'}
+        self.proposal.save()
+
+        with self.assertRaisesMessage(Exception, 'has no non-numeric LCO proposal code'):
+            LCOFacility().submit_observation({
+                'name': 'BHTOM Gaia26abc 20260602',
+                'proposal': str(self.proposal.pk),
+                'requests': [],
+            })
+
+    def test_import_identifier_helper_ignores_numeric_values(self):
+        payload = {'id': 26, 'proposal': '26', 'proposal_code': '', 'code': 'LCO2026A-001'}
+
+        self.assertEqual(
+            _first_non_numeric_value(payload, ('proposal', 'proposal_code', 'code')),
+            'LCO2026A-001',
+        )
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_form_uses_local_proposal_choices(self, mock_get_instruments):
