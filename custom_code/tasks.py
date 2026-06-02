@@ -223,7 +223,7 @@ def run_observation_status_update():
     for facility_name in facility.get_service_classes():
         instance = facility.get_service_class(facility_name)()
         instance.set_user(None)
-        failed_records[facility_name] = instance.update_all_observation_statuses()
+        failed_records[facility_name] = instance.update_all_observation_statuses(target=None)
     failed_records_with_errors = {
         facility_name: errors
         for facility_name, errors in failed_records.items()

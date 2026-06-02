@@ -91,7 +91,7 @@ from custom_code.templatetags.custom_observation_extras import nonsidereal_targe
 from custom_code.templatetags.custom_target_extras import bhtom_target_data, non_sidereal_aladin
 from custom_code.templatetags.custom_target_extras import truncate_decimals
 from custom_code.tasks import _build_query_parameters_for_service, _run_service_for_target
-from custom_code.tasks import _get_or_create_target_alias
+from custom_code.tasks import _get_or_create_target_alias, run_observation_status_update
 from custom_code.sun_separation import get_live_target_values
 from custom_code.target_derivations import derive_sidereal_target_fields
 from custom_code.views import (
@@ -401,6 +401,20 @@ class DataServiceQuerySerializationTests(TestCase):
         self.assertEqual(annotated[0]['existing_target_pk'], target.pk)
         self.assertIn(f'/targets/{target.pk}/', annotated[0]['existing_target_url'])
         self.assertNotIn('existing_target_pk', annotated[1])
+
+
+class ObservationStatusTaskTests(TestCase):
+    def test_run_observation_status_update_passes_target_none(self):
+        facility_instance = Mock()
+        facility_instance.update_all_observation_statuses.return_value = []
+
+        with patch('custom_code.tasks.facility.get_service_classes', return_value=['Swift']), \
+             patch('custom_code.tasks.facility.get_service_class', return_value=Mock(return_value=facility_instance)):
+            result = run_observation_status_update()
+
+        facility_instance.set_user.assert_called_once_with(None)
+        facility_instance.update_all_observation_statuses.assert_called_once_with(target=None)
+        self.assertEqual(result, {'Swift': []})
 
 
 class MOADataServiceTests(TestCase):
