@@ -160,7 +160,7 @@ class ScheduledStatusWorker:
 
 
 class Command(BaseCommand):
-    help = "Run the BHTOM database worker and enqueue observation status updates periodically."
+    help = "Run the database worker and enqueue observation status updates periodically."
 
     def add_arguments(self, parser):
         parser.add_argument(

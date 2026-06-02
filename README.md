@@ -34,14 +34,10 @@ Each has to have env setup and run on python3.11 ("type -a python" to check)
 
 `./manage.py runserver`
 
-`./manage.py bhtom_db_worker`
-
-The BHTOM worker runs background DataServices jobs and enqueues observation
-status updates every 10 minutes.
-
-If you need the original worker without automatic observation status updates:
-
 `./manage.py db_worker`
+
+DB_Worker runs background DataServices jobs and enqueues observation status
+updates every 10 minutes.
 
 For one-shot enqueueing, for example from cron or launchd:
 

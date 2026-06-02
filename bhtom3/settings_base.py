@@ -53,8 +53,8 @@ INSTALLED_APPS = [
     'tom_observations',
     'tom_dataproducts',
     'django_tasks',
-    'django_tasks.backends.database',
     'custom_code',
+    'django_tasks.backends.database',
     'tom_swift',
 ]
 
