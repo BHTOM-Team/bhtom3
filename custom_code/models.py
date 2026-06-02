@@ -415,3 +415,23 @@ class FacilityProposalMembership(models.Model):
 
     def __str__(self):
         return f'{self.proposal} -> {self.user}'
+
+
+class UserBhtom2UploadPreference(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='bhtom2_upload_preference',
+    )
+    token = models.CharField(max_length=255, blank=True, default='')
+    oname = models.CharField(max_length=255, blank=True, default='')
+    calibration_filter = models.CharField(max_length=64, blank=True, default='GaiaSP/any')
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'BHTOM2 upload preference'
+        verbose_name_plural = 'BHTOM2 upload preferences'
+
+    def __str__(self):
+        return f'BHTOM2 upload preference for {self.user}'

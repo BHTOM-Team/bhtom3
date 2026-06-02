@@ -11,11 +11,12 @@ import numpy as np
 import astropy.units as u
 import json
 
-from tom_dataproducts.forms import DataProductUploadForm
 from tom_dataproducts.models import ReducedDatum
 from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 from tom_observations.models import ObservationRecord
 from tom_targets.models import Target
+
+from custom_code.forms import BhtomDataProductUploadForm
 
 
 register = template.Library()
@@ -31,7 +32,7 @@ def upload_dataproduct(context, obj):
     elif isinstance(obj, ObservationRecord):
         initial['observation_record'] = obj
         initial['referrer'] = reverse('tom_observations:detail', args=(obj.id,))
-    form = DataProductUploadForm(initial=initial)
+    form = BhtomDataProductUploadForm(initial=initial, user=user)
     if not settings.TARGET_PERMISSIONS_ONLY:
         if user.is_superuser:
             form.fields['groups'].queryset = Group.objects.all()

@@ -1,20 +1,25 @@
+import gzip
 import json
+from io import BytesIO
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
 from astropy.time import Time
 from astropy import units as u
 from astropy.coordinates import SkyCoord
+from astropy.io import fits
 from datetime import timezone
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
 from django.test.client import RequestFactory
 from django.test import TestCase
 from django.urls import reverse
 from guardian.shortcuts import assign_perm
+import numpy as np
 from rest_framework.authtoken.models import Token
 from tom_catalogs.harvester import MissingDataException
-from tom_dataproducts.models import ReducedDatum
+from tom_dataproducts.models import DataProduct, ReducedDatum
 from tom_observations.models import ObservationRecord
 from tom_targets.models import Target, TargetName
 
@@ -65,6 +70,7 @@ from custom_code.bhtom_catalogs.harvesters.moa import MOAHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
 from custom_code.data_services.forms import ExoClockQueryForm, GaiaDR3QueryForm, SimbadQueryForm, WISEQueryForm
 from custom_code.data_services.service_utils import resolve_query_coordinates
+from custom_code.bhtom2_uploads import has_successful_bhtom2_upload, is_supported_fits_filename, normalize_fits_upload
 from custom_code.forms import (
     ALL_DATA_SERVICES_VALUE,
     BhtomNonSiderealTargetCreateForm,
@@ -83,6 +89,7 @@ from custom_code.models import (
     FacilityProposalMembership,
     GeoTarget,
     TransitEphemeris,
+    UserBhtom2UploadPreference,
 )
 from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
 from custom_code.signals import cleanup_target_relations_on_target_delete
@@ -3197,3 +3204,121 @@ class LCOObservationCreateInitialTests(TestCase):
         self.assertEqual(initial['name'], 'BHTOM Gaia26abc 20260602')
         self.assertEqual(initial['start'], fixed_now)
         self.assertEqual(initial['end'], fixed_now + timedelta(hours=24))
+
+
+def _build_test_fits_bytes():
+    handle = BytesIO()
+    fits.PrimaryHDU(np.arange(16).reshape((4, 4))).writeto(handle)
+    return handle.getvalue()
+
+
+class Bhtom2FitsUploadTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='fits-user', password='secret')
+        self.target = Target.objects.create(
+            name='Gaia26fits',
+            type=Target.SIDEREAL,
+            ra=1.23,
+            dec=4.56,
+            epoch=2000.0,
+        )
+        assign_perm('tom_targets.view_target', self.user, self.target)
+        self.client.force_login(self.user)
+
+    def test_supported_fits_extensions_and_gzip_normalization(self):
+        self.assertTrue(is_supported_fits_filename('image.fits'))
+        self.assertTrue(is_supported_fits_filename('image.fit'))
+        self.assertTrue(is_supported_fits_filename('image.fts'))
+        self.assertTrue(is_supported_fits_filename('image.fits.gz'))
+        self.assertTrue(is_supported_fits_filename('image.fits.fz'))
+
+        gz_payload = gzip.compress(_build_test_fits_bytes())
+        normalized_file, metadata = normalize_fits_upload(
+            SimpleUploadedFile('image.fits.gz', gz_payload, content_type='application/gzip')
+        )
+
+        self.assertEqual(normalized_file.name, 'image.fits')
+        self.assertEqual(metadata['recognized_format'], 'fits.gz')
+        self.assertEqual(metadata['decompression_method'], 'gzip')
+        with fits.open(normalized_file) as hdul:
+            self.assertEqual(hdul[0].data.shape, (4, 4))
+
+    @patch('custom_code.bhtom2_uploads.requests.post')
+    @patch('custom_code.views.run_data_processor', return_value=ReducedDatum.objects.none())
+    @patch('custom_code.views.run_hook')
+    def test_manage_data_fits_upload_forwards_to_bhtom2_and_saves_preferences(
+        self,
+        mock_run_hook,
+        mock_run_data_processor,
+        mock_post,
+    ):
+        mock_post.return_value = Mock(status_code=201, json=Mock(return_value={'ok': True}), text='created')
+
+        response = self.client.post(
+            reverse('dataproduct-upload'),
+            data={
+                'target': self.target.pk,
+                'data_product_type': 'fits_file',
+                'bhtom2_upload_token': 'token-123',
+                'bhtom2_upload_oname': 'OBS-01',
+                'bhtom2_upload_filter': 'GaiaSP/any',
+                'referrer': reverse('targets:detail', kwargs={'pk': self.target.pk}),
+                'files': SimpleUploadedFile('managed.fits.gz', gzip.compress(_build_test_fits_bytes())),
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        preference = UserBhtom2UploadPreference.objects.get(user=self.user)
+        self.assertEqual(preference.token, 'token-123')
+        self.assertEqual(preference.oname, 'OBS-01')
+        self.assertEqual(preference.calibration_filter, 'GaiaSP/any')
+
+        dataproduct = DataProduct.objects.get(target=self.target)
+        self.assertTrue(has_successful_bhtom2_upload(dataproduct))
+        self.assertEqual(mock_post.call_args.kwargs['data']['observatory'], 'OBS-01')
+        upload_tuple = mock_post.call_args.kwargs['files']['file_0']
+        self.assertEqual(upload_tuple[0], 'managed.fits')
+
+    @patch('custom_code.bhtom2_uploads.requests.post')
+    @patch('custom_code.views.run_hook')
+    def test_observation_save_forwards_fits_using_saved_profile_preferences(self, mock_run_hook, mock_post):
+        mock_post.return_value = Mock(status_code=201, json=Mock(return_value={'ok': True}), text='created')
+        preference = UserBhtom2UploadPreference.objects.create(
+            user=self.user,
+            token='token-xyz',
+            oname='OBS-77',
+            calibration_filter='GaiaSP/any',
+        )
+        observation = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            parameters={},
+            observation_id='obs-123',
+            status='COMPLETED',
+        )
+        dataproduct = DataProduct.objects.create(
+            target=self.target,
+            observation_record=observation,
+            product_id='product-1',
+            data=SimpleUploadedFile('obs-product.fits', _build_test_fits_bytes()),
+            data_product_type='',
+        )
+
+        with patch('custom_code.views.get_service_class') as mock_get_service_class:
+            service = Mock()
+            service.save_data_products.return_value = [dataproduct]
+            mock_get_service_class.return_value = service
+            response = self.client.post(
+                reverse('observation-dataproduct-save', kwargs={'pk': observation.pk}),
+                data={'facility': 'LCO', 'products': ['product-1']},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        dataproduct.refresh_from_db()
+        preference.refresh_from_db()
+        self.assertEqual(dataproduct.data_product_type, 'fits_file')
+        self.assertTrue(has_successful_bhtom2_upload(dataproduct))
+        self.assertEqual(mock_post.call_args.kwargs['headers']['Authorization'], 'Token token-xyz')

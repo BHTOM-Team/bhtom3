@@ -176,5 +176,7 @@ bhtom2/.DS_Store
 *.env
 
 /data
-custom_code/migrations/
+custom_code/migrations/*
+!custom_code/migrations/
+!custom_code/migrations/0013_userbhtom2uploadpreference.py
 info.txt

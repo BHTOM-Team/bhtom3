@@ -42,11 +42,15 @@ from django.db.models import Q
 from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
 from django_comments.models import Comment
+from guardian.shortcuts import assign_perm
 from rest_framework.authtoken.models import Token
 
 from tom_common.hints import add_hint
 from tom_common.hooks import run_hook
 from tom_catalogs.harvester import MissingDataException, get_service_classes
+from tom_dataproducts.data_processor import run_data_processor
+from tom_dataproducts.exceptions import InvalidFileFormatException
+from tom_dataproducts.models import DataProduct
 from tom_dataproducts.models import ReducedDatum
 from tom_targets.forms import TargetExtraFormset
 from tom_targets.models import Target
@@ -63,12 +67,21 @@ from tom_common.views import UserCreateView as TomCommonUserCreateView
 from tom_common.views import UserUpdateView as TomCommonUserUpdateView
 from tom_observations.views import ObservationCreateView as TomObservationCreateView
 from tom_observations.facilities.lco import LCOSettings
+from tom_observations.facility import get_service_class
+from tom_observations.models import ObservationRecord
 
 from custom_code.filters import BhtomTargetFilterSet
+from custom_code.bhtom2_uploads import (
+    ensure_fits_dataproduct_type,
+    has_successful_bhtom2_upload,
+    record_bhtom2_upload_state,
+    upload_fits_dataproduct_to_bhtom2,
+)
 from custom_code.astrometry import can_compute_current_coordinates, compute_current_coordinates
 from custom_code.forms import (
     ALL_DATA_SERVICES_LABEL,
     ALL_DATA_SERVICES_VALUE,
+    BhtomDataProductUploadForm,
     BhtomCatalogQueryForm,
     BhtomNonSiderealTargetCreateForm,
     BhtomPlanetaryTransitTargetCreateForm,
@@ -106,6 +119,7 @@ from custom_code.facility_proposals import (
     sync_memberships_for_proposal,
 )
 from custom_code.models import Facility, GeoTarget, TransitEphemeris
+from custom_code.models import UserBhtom2UploadPreference
 from custom_code.data_services.forms import AllDataServicesQueryForm
 from custom_code.geosat import (
     altaz_to_hadec_point,
@@ -219,6 +233,94 @@ def _build_data_service_result_row(result, data_service_name, query_id=''):
 
 def _cache_query_result(result_id, payload):
     cache.set(f'result_{result_id}', payload, 3600)
+
+
+def _save_bhtom2_upload_preference(user, token, oname, calibration_filter):
+    if user is None or not getattr(user, 'is_authenticated', False):
+        return None
+    preference, _ = UserBhtom2UploadPreference.objects.get_or_create(user=user)
+    preference.token = str(token or '').strip()
+    preference.oname = str(oname or '').strip()
+    preference.calibration_filter = str(calibration_filter or 'GaiaSP/any').strip() or 'GaiaSP/any'
+    preference.save()
+    return preference
+
+
+def _get_bhtom2_upload_preference(user):
+    if user is None or not getattr(user, 'is_authenticated', False):
+        return None
+    return getattr(user, 'bhtom2_upload_preference', None)
+
+
+def _build_bhtom2_comment(user, source_label):
+    if user is None or not getattr(user, 'is_authenticated', False):
+        return source_label
+    full_name = user.get_full_name().strip()
+    username = user.get_username()
+    if full_name:
+        return f'{source_label} by {full_name} ({username})'
+    return f'{source_label} by {username}'
+
+
+def _upload_dataproduct_to_bhtom2(dataproduct, *, user, token, oname, calibration_filter, comment):
+    try:
+        response, upload_metadata = upload_fits_dataproduct_to_bhtom2(
+            dataproduct,
+            token=token,
+            observatory=oname,
+            calibration_filter=calibration_filter,
+            comment=comment,
+        )
+    except requests.RequestException as exc:
+        record_bhtom2_upload_state(
+            dataproduct,
+            status='failed',
+            observatory=oname,
+            calibration_filter=calibration_filter,
+            message=str(exc),
+            user_id=getattr(user, 'pk', None),
+        )
+        raise
+    except Exception as exc:
+        record_bhtom2_upload_state(
+            dataproduct,
+            status='failed',
+            observatory=oname,
+            calibration_filter=calibration_filter,
+            message=str(exc),
+            user_id=getattr(user, 'pk', None),
+        )
+        raise
+
+    if response.status_code != 201:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        message = payload.get('message') or payload.get('detail') or response.text.strip() or f'HTTP {response.status_code}'
+        record_bhtom2_upload_state(
+            dataproduct,
+            status='failed',
+            observatory=oname,
+            calibration_filter=calibration_filter,
+            response_status=response.status_code,
+            message=message,
+            upload_metadata=upload_metadata,
+            user_id=getattr(user, 'pk', None),
+        )
+        raise ValidationError(message)
+
+    record_bhtom2_upload_state(
+        dataproduct,
+        status='uploaded',
+        observatory=oname,
+        calibration_filter=calibration_filter,
+        response_status=response.status_code,
+        message='Uploaded to BHTOM2.',
+        upload_metadata=upload_metadata,
+        user_id=getattr(user, 'pk', None),
+    )
+    return response
 
 
 def _run_single_data_service_query(data_service_name, parameters, *, query_id='', cache_prefix='query'):
@@ -3112,6 +3214,184 @@ class UserCreateWithFixedFormView(TomCommonUserCreateView):
         logger.warning('User create form invalid: %s', form.errors.as_json())
         messages.error(self.request, 'User form could not be saved. Check the highlighted fields.')
         return super().form_invalid(form)
+
+
+class BhtomDataProductUploadView(LoginRequiredMixin, FormView):
+    form_class = BhtomDataProductUploadForm
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        if not settings.TARGET_PERMISSIONS_ONLY:
+            if self.request.user.is_superuser:
+                form.fields['groups'].queryset = Group.objects.all()
+            else:
+                form.fields['groups'].queryset = self.request.user.groups.all()
+        return form
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+
+    def form_valid(self, form):
+        target = form.cleaned_data['target']
+        if not target:
+            observation_record = form.cleaned_data['observation_record']
+            target = observation_record.target
+        else:
+            observation_record = None
+
+        dp_type = form.cleaned_data['data_product_type']
+        data_product_files = self.request.FILES.getlist('files')
+        successful_uploads = []
+        bhtom2_successes = []
+        bhtom2_failures = []
+
+        if dp_type == 'fits_file':
+            _save_bhtom2_upload_preference(
+                self.request.user,
+                form.cleaned_data.get('bhtom2_upload_token'),
+                form.cleaned_data.get('bhtom2_upload_oname'),
+                form.cleaned_data.get('bhtom2_upload_filter'),
+            )
+
+        for uploaded_file in data_product_files:
+            dp = DataProduct(
+                target=target,
+                observation_record=observation_record,
+                data=uploaded_file,
+                product_id=None,
+                data_product_type=dp_type,
+            )
+            dp.save()
+            try:
+                run_hook('data_product_post_upload', dp)
+                reduced_data = run_data_processor(dp)
+                if not settings.TARGET_PERMISSIONS_ONLY:
+                    for group in form.cleaned_data['groups']:
+                        assign_perm('tom_dataproducts.view_dataproduct', group, dp)
+                        assign_perm('tom_dataproducts.delete_dataproduct', group, dp)
+                        assign_perm('tom_dataproducts.view_reduceddatum', group, reduced_data)
+                successful_uploads.append(str(dp))
+            except InvalidFileFormatException as exc:
+                ReducedDatum.objects.filter(data_product=dp).delete()
+                dp.delete()
+                messages.error(self.request, f'File format invalid for file {dp} -- error was {exc}')
+                continue
+            except Exception:
+                ReducedDatum.objects.filter(data_product=dp).delete()
+                dp.delete()
+                messages.error(self.request, f'There was a problem processing your file: {dp}')
+                continue
+
+            if dp_type != 'fits_file':
+                continue
+
+            try:
+                _upload_dataproduct_to_bhtom2(
+                    dp,
+                    user=self.request.user,
+                    token=form.cleaned_data.get('bhtom2_upload_token'),
+                    oname=form.cleaned_data.get('bhtom2_upload_oname'),
+                    calibration_filter=form.cleaned_data.get('bhtom2_upload_filter') or 'GaiaSP/any',
+                    comment=_build_bhtom2_comment(self.request.user, 'Uploaded from BHTOM3 Manage Data'),
+                )
+                bhtom2_successes.append(dp.get_file_name())
+            except Exception as exc:
+                logger.warning('BHTOM2 FITS upload failed for dataproduct %s: %s', dp.pk, exc)
+                bhtom2_failures.append(f'{dp.get_file_name()}: {exc}')
+
+        if successful_uploads:
+            messages.success(
+                self.request,
+                'Successfully uploaded: {0}'.format('\n'.join([p for p in successful_uploads]))
+            )
+        if bhtom2_successes:
+            messages.success(
+                self.request,
+                'Sent to BHTOM2: {0}'.format(', '.join(bhtom2_successes))
+            )
+        for failure in bhtom2_failures:
+            messages.warning(self.request, f'Local FITS upload succeeded but BHTOM2 forwarding failed: {failure}')
+
+        return redirect(form.cleaned_data.get('referrer', '/'))
+
+    def form_invalid(self, form):
+        messages.error(self.request, 'There was a problem uploading your file: {}'.format(form.errors.as_json()))
+        return redirect(self.request.POST.get('referrer', '/'))
+
+
+class BhtomDataProductSaveView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        service_class = get_service_class(request.POST['facility'])
+        observation_record = ObservationRecord.objects.get(pk=kwargs['pk'])
+        products = request.POST.getlist('products')
+        if not products:
+            messages.warning(request, 'No products were saved, please select at least one dataproduct')
+            return redirect(reverse('tom_observations:detail', kwargs={'pk': observation_record.id}))
+
+        if products[0] == 'ALL':
+            total_saved_products = service_class().save_data_products(observation_record)
+            messages.success(request, 'Saved all available data products')
+        else:
+            total_saved_products = []
+            for product in products:
+                saved_products = service_class().save_data_products(observation_record, product)
+                total_saved_products += saved_products
+                run_hook('data_product_post_save', saved_products)
+                messages.success(
+                    request,
+                    'Successfully saved: {0}'.format('\n'.join([str(p) for p in saved_products]))
+                )
+            run_hook('multiple_data_products_post_save', total_saved_products)
+
+        preference = _get_bhtom2_upload_preference(request.user)
+        fits_candidates = []
+        for dataproduct in total_saved_products:
+            if ensure_fits_dataproduct_type(dataproduct):
+                fits_candidates.append(dataproduct)
+
+        if fits_candidates and (
+            preference is None or not preference.token.strip() or not preference.oname.strip()
+        ):
+            messages.warning(
+                request,
+                'Saved FITS products locally, but BHTOM2 forwarding is skipped until your BHTOM2 token and ONAME are set.'
+            )
+            return redirect(reverse('tom_observations:detail', kwargs={'pk': observation_record.id}))
+
+        uploaded_names = []
+        skipped_names = []
+        failed_uploads = []
+        for dataproduct in fits_candidates:
+            if has_successful_bhtom2_upload(dataproduct):
+                skipped_names.append(dataproduct.get_file_name())
+                continue
+            try:
+                _upload_dataproduct_to_bhtom2(
+                    dataproduct,
+                    user=request.user,
+                    token=preference.token,
+                    oname=preference.oname,
+                    calibration_filter=preference.calibration_filter or 'GaiaSP/any',
+                    comment=_build_bhtom2_comment(
+                        request.user,
+                        f'Uploaded from BHTOM3 observation {observation_record.observation_id}',
+                    ),
+                )
+                uploaded_names.append(dataproduct.get_file_name())
+            except Exception as exc:
+                logger.warning('BHTOM2 forwarding failed for dataproduct %s: %s', dataproduct.pk, exc)
+                failed_uploads.append(f'{dataproduct.get_file_name()}: {exc}')
+
+        if uploaded_names:
+            messages.success(request, 'Forwarded FITS products to BHTOM2: {0}'.format(', '.join(uploaded_names)))
+        if skipped_names:
+            messages.info(request, 'Already forwarded to BHTOM2: {0}'.format(', '.join(skipped_names)))
+        for failure in failed_uploads:
+            messages.warning(request, f'FITS product saved locally but BHTOM2 forwarding failed: {failure}')
+
+        return redirect(reverse('tom_observations:detail', kwargs={'pk': observation_record.id}))
 
 
 class UserUpdateWithTokenView(TomCommonUserUpdateView):

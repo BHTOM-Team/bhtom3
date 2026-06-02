@@ -1,0 +1,247 @@
+import gzip
+import io
+import json
+import logging
+import shutil
+import subprocess
+import tempfile
+from datetime import datetime, timezone
+
+import requests
+from astropy.io import fits
+from django.conf import settings
+from django.core.files.uploadedfile import SimpleUploadedFile
+
+
+logger = logging.getLogger(__name__)
+
+
+PUBLIC_UPLOAD_FILTER_CHOICES = [
+    ('no', 'Auto'),
+    ('2MASS/J', '2MASS/J'),
+    ('2MASS/H', '2MASS/H'),
+    ('2MASS/K', '2MASS/K'),
+    ('2MASS/any', '2MASS/any'),
+    ('GaiaSP/u', 'GaiaSP/u'),
+    ('GaiaSP/g', 'GaiaSP/g'),
+    ('GaiaSP/r', 'GaiaSP/r'),
+    ('GaiaSP/i', 'GaiaSP/i'),
+    ('GaiaSP/z', 'GaiaSP/z'),
+    ('GaiaSP/U', 'GaiaSP/U'),
+    ('GaiaSP/B', 'GaiaSP/B'),
+    ('GaiaSP/V', 'GaiaSP/V'),
+    ('GaiaSP/R', 'GaiaSP/R'),
+    ('GaiaSP/I', 'GaiaSP/I'),
+    ('GaiaSP/any', 'GaiaSP/any'),
+    ('GaiaSP/ugriz', 'GaiaSP/ugriz'),
+    ('GaiaSP/UBVRI', 'GaiaSP/UBVRI'),
+    ('GaiaDR3/any', 'GaiaDR3/any'),
+    ('GaiaDR3/G', 'GaiaDR3/G'),
+    ('GaiaDR3/GBP', 'GaiaDR3/GBP'),
+    ('GaiaDR3/GRP', 'GaiaDR3/GRP'),
+]
+
+SIMPLE_FITS_SUFFIXES = ('.fits', '.fit', '.fts', '.ftt', '.ftsc')
+COMPRESSED_FITS_SUFFIXES = (
+    '.fits.gz', '.fts.gz', '.ftt.gz', '.ftsc.gz', '.fit.gz',
+    '.fits.fz', '.fts.fz', '.ftt.fz', '.ftsc.fz', '.fit.fz',
+)
+BHTOM2_UPLOAD_STATE_KEY = 'bhtom2_fits_upload'
+
+
+class Bhtom2UploadError(Exception):
+    pass
+
+
+def is_supported_fits_filename(filename):
+    lower_name = str(filename or '').lower()
+    return lower_name.endswith(SIMPLE_FITS_SUFFIXES + COMPRESSED_FITS_SUFFIXES)
+
+
+def _detect_fits_upload_format(file_name):
+    lower_name = str(file_name or '').lower()
+    if lower_name.endswith('.fz'):
+        return 'fits.fz'
+    if lower_name.endswith('.gz'):
+        return 'fits.gz'
+    return 'plain fits'
+
+
+def _get_first_image_hdu(hdulist):
+    for hdu in hdulist:
+        if getattr(hdu, 'data', None) is not None:
+            return hdu
+    raise ValueError('FITS file does not contain an image HDU.')
+
+
+def _build_simple_fits_content(file_content):
+    with fits.open(io.BytesIO(file_content)) as hdulist:
+        image_hdu = _get_first_image_hdu(hdulist)
+        output = io.BytesIO()
+        fits.PrimaryHDU(data=image_hdu.data, header=image_hdu.header).writeto(output, overwrite=True)
+        return output.getvalue()
+
+
+def _decompress_fpack_content(file_content, file_name):
+    funpack_path = shutil.which('funpack')
+    if not funpack_path:
+        return None
+
+    with tempfile.NamedTemporaryFile(suffix='.fits.fz') as temp_input:
+        temp_input.write(file_content)
+        temp_input.flush()
+        result = subprocess.run(
+            [funpack_path, '-S', temp_input.name],
+            capture_output=True,
+            check=True,
+        )
+        logger.info('Decompressed FPACK file with funpack: %s', file_name)
+        return result.stdout
+
+
+def normalize_fits_upload(uploaded_file):
+    lower_name = str(uploaded_file.name or '').lower()
+    metadata = {
+        'recognized_format': _detect_fits_upload_format(uploaded_file.name),
+        'decompression_method': 'none',
+    }
+    if not lower_name.endswith(COMPRESSED_FITS_SUFFIXES):
+        uploaded_file.seek(0)
+        return uploaded_file, metadata
+
+    uploaded_file.seek(0)
+    file_content = uploaded_file.read()
+    uploaded_file.seek(0)
+
+    if lower_name.endswith('.gz'):
+        file_content = gzip.decompress(file_content)
+        metadata['decompression_method'] = 'gzip'
+    elif lower_name.endswith('.fz'):
+        try:
+            decompressed_content = _decompress_fpack_content(file_content, uploaded_file.name)
+            if decompressed_content is not None:
+                file_content = decompressed_content
+                metadata['decompression_method'] = 'funpack'
+            else:
+                logger.warning('funpack not available, falling back to astropy for %s', uploaded_file.name)
+                metadata['decompression_method'] = 'astropy'
+        except (subprocess.CalledProcessError, OSError) as exc:
+            logger.warning('funpack failed for %s, falling back to astropy', uploaded_file.name)
+            logger.exception(exc)
+            metadata['decompression_method'] = 'astropy'
+
+    normalized_name = uploaded_file.name[:-3]
+    normalized_content = _build_simple_fits_content(file_content)
+    return SimpleUploadedFile(
+        normalized_name,
+        normalized_content,
+        content_type='application/fits',
+    ), metadata
+
+
+def build_bhtom2_upload_payload(dataproduct, observatory, calibration_filter, comment=''):
+    return {
+        'target': dataproduct.target.name,
+        'data_product_type': 'fits_file',
+        'priority': 2,
+        'observatory': observatory,
+        'filter': calibration_filter,
+        'comment': comment,
+        'no_plot': False,
+    }
+
+
+def _upload_service_url():
+    return str(getattr(settings, 'BHTOM2_UPLOAD_SERVICE_URL', '') or '').strip()
+
+
+def _upload_timeout():
+    try:
+        return max(1, int(getattr(settings, 'BHTOM2_UPLOAD_TIMEOUT', getattr(settings, 'BHTOM2_API_TIMEOUT', 30))))
+    except (TypeError, ValueError):
+        return max(1, int(getattr(settings, 'BHTOM2_API_TIMEOUT', 30)))
+
+
+def load_extra_data_dict(dataproduct):
+    raw_value = getattr(dataproduct, 'extra_data', '') or ''
+    if isinstance(raw_value, dict):
+        return dict(raw_value)
+    if not raw_value:
+        return {}
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return {'legacy_text': str(raw_value)}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def save_extra_data_dict(dataproduct, payload):
+    dataproduct.extra_data = json.dumps(payload, sort_keys=True)
+    dataproduct.save(update_fields=['extra_data'])
+
+
+def get_bhtom2_upload_state(dataproduct):
+    return load_extra_data_dict(dataproduct).get(BHTOM2_UPLOAD_STATE_KEY) or {}
+
+
+def has_successful_bhtom2_upload(dataproduct):
+    return get_bhtom2_upload_state(dataproduct).get('status') == 'uploaded'
+
+
+def record_bhtom2_upload_state(dataproduct, *, status, observatory='', calibration_filter='', response_status=None,
+                               message='', upload_metadata=None, user_id=None):
+    payload = load_extra_data_dict(dataproduct)
+    payload[BHTOM2_UPLOAD_STATE_KEY] = {
+        'status': status,
+        'observatory': observatory,
+        'calibration_filter': calibration_filter,
+        'response_status': response_status,
+        'message': message,
+        'upload_metadata': upload_metadata or {},
+        'user_id': user_id,
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+    }
+    save_extra_data_dict(dataproduct, payload)
+
+
+def ensure_fits_dataproduct_type(dataproduct):
+    if getattr(dataproduct, 'data_product_type', '') == 'fits_file':
+        return True
+    filename = ''
+    try:
+        filename = dataproduct.get_file_name()
+    except Exception:
+        filename = getattr(getattr(dataproduct, 'data', None), 'name', '')
+    if not is_supported_fits_filename(filename):
+        return False
+    dataproduct.data_product_type = 'fits_file'
+    dataproduct.save(update_fields=['data_product_type'])
+    return True
+
+
+def upload_fits_dataproduct_to_bhtom2(dataproduct, *, token, observatory, calibration_filter, comment=''):
+    upload_url = _upload_service_url()
+    if not upload_url:
+        raise Bhtom2UploadError('BHTOM2 upload service URL is not configured.')
+    if not str(token or '').strip():
+        raise Bhtom2UploadError('BHTOM2 token is required.')
+    if not str(observatory or '').strip():
+        raise Bhtom2UploadError('BHTOM2 ONAME is required.')
+
+    with dataproduct.data.open('rb') as data_handle:
+        upload_file = SimpleUploadedFile(
+            dataproduct.get_file_name(),
+            data_handle.read(),
+            content_type='application/octet-stream',
+        )
+    normalized_file, upload_metadata = normalize_fits_upload(upload_file)
+    normalized_file.seek(0)
+
+    response = requests.post(
+        upload_url,
+        data=build_bhtom2_upload_payload(dataproduct, observatory, calibration_filter, comment=comment),
+        files={'file_0': (normalized_file.name, normalized_file, normalized_file.content_type or 'application/fits')},
+        headers={'Authorization': f'Token {str(token).strip()}'},
+        timeout=_upload_timeout(),
+    )
+    return response, upload_metadata

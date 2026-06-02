@@ -4,13 +4,21 @@
   For example CSVs, see the <a href="{% static 'tom_dataproducts/photometry_sample.csv' %}">photometry</a> and
   <a href="{% static 'tom_dataproducts/spectrum_sample.csv' %}">spectroscopy</a> sample files.
 </p>
-<form method="POST" action="{% url 'tom_dataproducts:upload' %}" enctype="multipart/form-data">
+<form method="POST" action="{% url 'dataproduct-upload' %}" enctype="multipart/form-data">
   {% csrf_token %}
   {% for hidden in data_product_form.hidden_fields %}
     {{ hidden }}
   {% endfor %}
   {% bootstrap_field data_product_form.files %}
   {% bootstrap_field data_product_form.data_product_type %}
+  <div id="fits-upload-options" style="display:none;">
+    {% bootstrap_field data_product_form.bhtom2_upload_token %}
+    {% bootstrap_field data_product_form.bhtom2_upload_oname %}
+    {% bootstrap_field data_product_form.bhtom2_upload_filter %}
+    <small class="form-text text-muted">
+      Default GaiaSP/any lets BHTOM2 choose the best matching standard filter during calibration.
+    </small>
+  </div>
 
   {% if data_product_form.groups %}
     {% bootstrap_field data_product_form.groups %}
@@ -20,3 +28,22 @@
   <input type="submit" class="btn btn-primary" value="Upload" name="upload_dataproduct_form">
   {% endbuttons %}
 </form>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var fitsOptions = document.getElementById('fits-upload-options');
+    if (!fitsOptions) {
+      return;
+    }
+
+    var typeInputs = document.querySelectorAll('input[name="{{ data_product_form.data_product_type.html_name }}"]');
+    function toggleFitsOptions() {
+      var selected = document.querySelector('input[name="{{ data_product_form.data_product_type.html_name }}"]:checked');
+      fitsOptions.style.display = selected && selected.value === 'fits_file' ? '' : 'none';
+    }
+
+    typeInputs.forEach(function(input) {
+      input.addEventListener('change', toggleFitsOptions);
+    });
+    toggleFitsOptions();
+  });
+</script>

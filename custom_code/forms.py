@@ -6,12 +6,16 @@ from django.contrib.auth import password_validation
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
 from django.forms import BaseInlineFormSet, inlineformset_factory
+from django.utils.translation import gettext_lazy as _
 from tom_catalogs.harvester import get_service_classes
+from tom_dataproducts.forms import DataProductUploadForm
 from tom_targets.forms import NonSiderealTargetCreateForm, SiderealTargetCreateForm
 from tom_targets.models import Target, TargetName
 from tom_targets.permissions import targets_for_user
 
+from custom_code.bhtom2_uploads import PUBLIC_UPLOAD_FILTER_CHOICES, is_supported_fits_filename
 from custom_code.models import TargetAliasInfo, TransitEphemeris
+from custom_code.models import UserBhtom2UploadPreference
 
 
 CREATE_FORM_HIDDEN_FIELDS = (
@@ -106,6 +110,23 @@ class BhtomUserCreationForm(BhtomUserBaseForm):
 
 
 class BhtomUserUpdateForm(BhtomUserBaseForm):
+    bhtom2_upload_token = forms.CharField(
+        label='BHTOM2 upload token',
+        required=False,
+        widget=forms.PasswordInput(render_value=True),
+        help_text='Used for FITS uploads sent from BHTOM3 to the BHTOM2 upload service.',
+    )
+    bhtom2_upload_oname = forms.CharField(
+        label='BHTOM2 ONAME',
+        required=False,
+        help_text='Observatory ONAME used when BHTOM3 forwards FITS files to BHTOM2.',
+    )
+    bhtom2_upload_filter = forms.ChoiceField(
+        label='Default FITS standardisation filter',
+        choices=PUBLIC_UPLOAD_FILTER_CHOICES,
+        initial='GaiaSP/any',
+        required=False,
+    )
     password1 = forms.CharField(
         label='Password',
         strip=False,
@@ -125,6 +146,8 @@ class BhtomUserUpdateForm(BhtomUserBaseForm):
         cleaned_data = super().clean()
         password1 = cleaned_data.get('password1')
         password2 = cleaned_data.get('password2')
+        upload_token = (cleaned_data.get('bhtom2_upload_token') or '').strip()
+        upload_oname = (cleaned_data.get('bhtom2_upload_oname') or '').strip()
         if password1 or password2:
             if password1 != password2:
                 self.add_error('password2', 'The two password fields did not match.')
@@ -133,7 +156,19 @@ class BhtomUserUpdateForm(BhtomUserBaseForm):
                     password_validation.validate_password(password2, self.instance)
                 except ValidationError as error:
                     self.add_error('password2', error)
+        if upload_token and not upload_oname:
+            self.add_error('bhtom2_upload_oname', 'Enter the BHTOM2 ONAME for FITS forwarding.')
+        if upload_oname and not upload_token:
+            self.add_error('bhtom2_upload_token', 'Enter the BHTOM2 upload token for FITS forwarding.')
         return cleaned_data
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        preference = getattr(self.instance, 'bhtom2_upload_preference', None)
+        if preference is not None:
+            self.fields['bhtom2_upload_token'].initial = preference.token
+            self.fields['bhtom2_upload_oname'].initial = preference.oname
+            self.fields['bhtom2_upload_filter'].initial = preference.calibration_filter or 'GaiaSP/any'
 
     def save(self, commit=True):
         user = super().save(commit=False)
@@ -142,7 +177,62 @@ class BhtomUserUpdateForm(BhtomUserBaseForm):
         if commit:
             user.save()
             self.save_m2m()
+            preference, _ = UserBhtom2UploadPreference.objects.get_or_create(user=user)
+            preference.token = (self.cleaned_data.get('bhtom2_upload_token') or '').strip()
+            preference.oname = (self.cleaned_data.get('bhtom2_upload_oname') or '').strip()
+            preference.calibration_filter = self.cleaned_data.get('bhtom2_upload_filter') or 'GaiaSP/any'
+            preference.save()
         return user
+
+
+class BhtomDataProductUploadForm(DataProductUploadForm):
+    bhtom2_upload_token = forms.CharField(
+        label=_('BHTOM2 token'),
+        required=False,
+        widget=forms.PasswordInput(render_value=True),
+    )
+    bhtom2_upload_oname = forms.CharField(
+        label=_('BHTOM2 ONAME'),
+        required=False,
+    )
+    bhtom2_upload_filter = forms.ChoiceField(
+        label=_('Standardisation filter'),
+        choices=PUBLIC_UPLOAD_FILTER_CHOICES,
+        initial='GaiaSP/any',
+        required=False,
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        self.user = user
+        super().__init__(*args, **kwargs)
+        self.fields['files'].widget.attrs['accept'] = '.fits,.fit,.fts,.ftt,.ftsc,.fz,.gz'
+        preference = getattr(user, 'bhtom2_upload_preference', None) if user is not None else None
+        if preference is not None:
+            self.fields['bhtom2_upload_token'].initial = preference.token
+            self.fields['bhtom2_upload_oname'].initial = preference.oname
+            self.fields['bhtom2_upload_filter'].initial = preference.calibration_filter or 'GaiaSP/any'
+
+    def clean(self):
+        cleaned_data = super().clean()
+        dp_type = cleaned_data.get('data_product_type')
+        if dp_type != 'fits_file':
+            return cleaned_data
+
+        token = str(cleaned_data.get('bhtom2_upload_token') or '').strip()
+        oname = str(cleaned_data.get('bhtom2_upload_oname') or '').strip()
+        if not token:
+            self.add_error('bhtom2_upload_token', _('Enter your BHTOM2 token.'))
+        if not oname:
+            self.add_error('bhtom2_upload_oname', _('Enter your BHTOM2 ONAME.'))
+
+        files = self.files.getlist('files') if hasattr(self.files, 'getlist') else []
+        if not files and self.files.get('files'):
+            files = [self.files['files']]
+        for uploaded_file in files:
+            if not is_supported_fits_filename(uploaded_file.name):
+                self.add_error('files', _('Upload a FITS file with extension .fits, .fit, .fts, .fz, or .gz.'))
+                break
+        return cleaned_data
 
 
 class TargetAliasForm(forms.ModelForm):
