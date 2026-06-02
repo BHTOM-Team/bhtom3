@@ -9,6 +9,7 @@ from django.utils.module_loading import import_string
 from django_tasks import task
 
 from tom_dataproducts.models import ReducedDatum
+from tom_observations import facility
 from tom_targets.models import Target, TargetName
 from custom_code.last_photometry import refresh_target_last_photometry
 from custom_code.models import TargetAliasInfo, TransitEphemeris
@@ -210,6 +211,34 @@ def _get_data_service_classes():
 
 def enqueue_target_dataservices_update(target_id, include_create_only=True, force_all_services=False):
     update_target_dataservices_for_target.enqueue(target_id, include_create_only, force_all_services)
+
+
+def enqueue_observation_status_update():
+    update_observation_statuses.enqueue()
+
+
+def run_observation_status_update():
+    close_old_connections()
+    failed_records = {}
+    for facility_name in facility.get_service_classes():
+        instance = facility.get_service_class(facility_name)()
+        instance.set_user(None)
+        failed_records[facility_name] = instance.update_all_observation_statuses()
+    failed_records_with_errors = {
+        facility_name: errors
+        for facility_name, errors in failed_records.items()
+        if errors
+    }
+    if failed_records_with_errors:
+        logger.warning('Observation status update completed with errors: %s', failed_records_with_errors)
+    else:
+        logger.info('Observation status update completed successfully.')
+    return failed_records
+
+
+@task
+def update_observation_statuses():
+    return run_observation_status_update()
 
 
 def run_target_dataservices_for_target(target_id, include_create_only=True, force_all_services=False):

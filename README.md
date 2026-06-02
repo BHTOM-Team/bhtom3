@@ -34,10 +34,18 @@ Each has to have env setup and run on python3.11 ("type -a python" to check)
 
 `./manage.py runserver`
 
+`./manage.py bhtom_db_worker`
+
+The BHTOM worker runs background DataServices jobs and enqueues observation
+status updates every 10 minutes.
+
+If you need the original worker without automatic observation status updates:
+
 `./manage.py db_worker`
 
-DB_Worker will run the dataservices queries in the background
-test
+For one-shot enqueueing, for example from cron or launchd:
+
+`./manage.py observation_status_scheduler --run-once`
 
 After March 26: LW added a cron-like job for updating data services and Sun distance.
 

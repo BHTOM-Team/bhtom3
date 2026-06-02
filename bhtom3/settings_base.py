@@ -406,6 +406,8 @@ TASKS = {
     }
 }
 
+OBSERVATION_STATUS_UPDATE_INTERVAL_SECONDS = 600
+
 PLOTLY_THEME = 'plotly_white'
 
 try:
