@@ -3106,6 +3106,39 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertEqual(submitted_payload['proposal'], '26')
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    @patch('bhtom3.bhtom_observations.facilities.lco.make_request')
+    def test_lco_cadence_expansion_uses_selected_proposal_account(self, mock_make_request, mock_get_instruments):
+        mock_get_instruments.return_value = _minimal_lco_instruments()
+        self.proposal.external_id = '26'
+        self.proposal.save()
+        mock_make_request.return_value.json.return_value = {'requests': [{'id': 'expanded'}]}
+        form = BhtomLCOImagingObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+        form.cleaned_data = {
+            'proposal': str(self.proposal.pk),
+            'start': '2026-06-02T12:00:00+00:00',
+            'end': '2026-06-03T12:00:00+00:00',
+            'period': 24.0,
+            'jitter': 1.0,
+        }
+
+        result = form._expand_cadence_request({
+            'name': 'BHTOM Gaia26abc 20260602',
+            'proposal': str(self.proposal.pk),
+            'requests': [{'windows': [{'start': 'x', 'end': 'y'}]}],
+        })
+
+        self.assertEqual(result, {'requests': [{'id': 'expanded'}]})
+        call_kwargs = mock_make_request.call_args.kwargs
+        self.assertEqual(call_kwargs['json']['proposal'], '26')
+        self.assertEqual(call_kwargs['headers']['Authorization'], 'Token account-api-key')
+        self.assertEqual(call_kwargs['json']['requests'][0]['windows'], [])
+        self.assertEqual(call_kwargs['json']['requests'][0]['cadence']['period'], 24.0)
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_form_uses_local_proposal_choices(self, mock_get_instruments):
         mock_get_instruments.return_value = _minimal_lco_instruments()
 

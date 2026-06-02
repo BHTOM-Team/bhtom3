@@ -14,6 +14,7 @@ from tom_observations.facilities.lco import (
     LCOSpectroscopyObservationForm,
     LCOSpectroscopicSequenceForm,
 )
+from tom_observations.facilities.ocs import make_request
 from tom_observations.models import ObservationRecord
 
 from custom_code.facility_proposals import get_proposal_by_pk, get_proposal_choices_for_user
@@ -39,6 +40,30 @@ class AccountLCOSettings(LCOSettings):
 
 
 class BhtomLCOFormMixin:
+    def _proposal_for_payload(self, payload):
+        proposal_value = payload.get('proposal') or self.cleaned_data.get('proposal')
+        return get_proposal_by_pk(proposal_value, facility_code='LCO')
+
+    def _proposal_external_identifier(self, proposal):
+        external_id = str(proposal.external_id or '').strip()
+        if external_id:
+            return external_id
+        raise ValidationError(f'LCO proposal "{proposal}" has no remote LCO proposal id. Re-sync LCO proposals and try again.')
+
+    def _facility_settings_for_payload(self, payload, proposal=None):
+        proposal = proposal or self._proposal_for_payload(payload)
+        if proposal:
+            return AccountLCOSettings(account=proposal.account)
+        return self.facility_settings
+
+    def _payload_with_external_proposal(self, payload, proposal=None):
+        proposal = proposal or self._proposal_for_payload(payload)
+        if not proposal:
+            return payload
+        payload = dict(payload)
+        payload['proposal'] = self._proposal_external_identifier(proposal)
+        return payload
+
     def proposal_choices(self):
         user_id = self.initial.get('request_user_id') or self.data.get('request_user_id')
         choices = get_proposal_choices_for_user(user_id, 'LCO', include_account_label=True)
@@ -66,6 +91,26 @@ class BhtomLCOFormMixin:
 
         cache.set(cache_key, cached_instruments, cache_seconds)
         return cached_instruments
+
+    def _expand_cadence_request(self, payload):
+        proposal = self._proposal_for_payload(payload)
+        facility_settings = self._facility_settings_for_payload(payload, proposal=proposal)
+        payload = self._payload_with_external_proposal(payload, proposal=proposal)
+        payload['requests'][0]['cadence'] = {
+            'start': self.cleaned_data['start'],
+            'end': self.cleaned_data['end'],
+            'period': self.cleaned_data['period'],
+            'jitter': self.cleaned_data['jitter'],
+        }
+        payload['requests'][0]['windows'] = []
+
+        response = make_request(
+            'POST',
+            urljoin(facility_settings.get_setting('portal_url'), '/api/requestgroups/cadence/'),
+            json=payload,
+            headers={'Authorization': f'Token {facility_settings.get_setting("api_key")}'},
+        )
+        return response.json()
 
 
 class BhtomLCOImagingObservationForm(BhtomLCOFormMixin, LCOImagingObservationForm):
