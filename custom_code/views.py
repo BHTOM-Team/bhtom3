@@ -3008,6 +3008,13 @@ class ProposalAwareObservationCreateView(TomObservationCreateView):
     def get_initial(self):
         initial = super().get_initial()
         initial['request_user_id'] = self.request.user.pk
+        if self.get_facility() == 'LCO':
+            target = self.get_target()
+            start = datetime.now(timezone.utc).replace(microsecond=0)
+            end = start + timedelta(hours=24)
+            initial.setdefault('name', f'BHTOM {target.name} {start:%Y%m%d}')
+            initial.setdefault('start', start)
+            initial.setdefault('end', end)
         return initial
 
     def _get_lco_facility_settings(self):

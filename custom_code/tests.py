@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
 from astropy.time import Time
@@ -92,6 +92,7 @@ from custom_code.views import (
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
     EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
+    ProposalAwareObservationCreateView,
 )
 
 
@@ -2995,3 +2996,36 @@ class LCOFacilityAccountRoutingTests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.status, 'COMPLETED')
         self.assertEqual(mock_get_observation_status.call_count, 1)
+
+
+class LCOObservationCreateInitialTests(TestCase):
+    def test_lco_initial_prefills_name_and_utc_window(self):
+        user = get_user_model().objects.create_user(username='lco-initial-user', password='secret')
+        target = Target.objects.create(
+            name='Gaia26abc',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+        )
+        fixed_now = datetime(2026, 6, 2, 7, 15, 30, tzinfo=timezone.utc)
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is None:
+                    return fixed_now.replace(tzinfo=None)
+                return fixed_now.astimezone(tz)
+
+        request = RequestFactory().get(f'/observations/LCO/create/?target_id={target.pk}')
+        request.user = user
+        view = ProposalAwareObservationCreateView()
+        view.request = request
+        view.kwargs = {'facility': 'LCO'}
+
+        with patch('custom_code.views.datetime', FixedDateTime):
+            initial = view.get_initial()
+
+        self.assertEqual(initial['name'], 'BHTOM Gaia26abc 20260602')
+        self.assertEqual(initial['start'], fixed_now)
+        self.assertEqual(initial['end'], fixed_now + timedelta(hours=24))
