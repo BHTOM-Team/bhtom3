@@ -17,10 +17,7 @@ from tom_observations.facilities.lco import (
 )
 from tom_observations.facilities.ocs import make_request
 from tom_observations.models import ObservationRecord
-from tom_dataproducts.data_processor import run_data_processor
-from tom_dataproducts.exceptions import InvalidFileFormatException
 from tom_dataproducts.models import DataProduct
-from tom_common.hooks import run_hook
 
 from custom_code.bhtom2_uploads import (
     forward_dataproduct_to_bhtom2,
@@ -280,6 +277,19 @@ class LCOFacility(BaseLCOFacility):
             return f'{basename}{extension}'
         return basename or f'lco-frame-{frame.get("id")}.fits'
 
+    def _normalized_frame_filename(self, frame):
+        filename = self._frame_filename(frame)
+        lower_name = filename.lower()
+        if lower_name.endswith('.fits.fz') or lower_name.endswith('.fits.gz'):
+            return filename[:-3]
+        if lower_name.endswith('.fz') or lower_name.endswith('.gz'):
+            return f'{filename[:-3]}.fits'
+        if lower_name.endswith('.fit') or lower_name.endswith('.fts') or lower_name.endswith('.ftt') or lower_name.endswith('.ftsc'):
+            return filename
+        if lower_name.endswith('.fits'):
+            return filename
+        return f'{filename}.fits'
+
     def _create_lco_dataproduct(self, record, frame, api_key):
         frame_id = str(frame.get('id') or '').strip()
         if not frame_id:
@@ -305,15 +315,17 @@ class LCOFacility(BaseLCOFacility):
             content_type='application/fits',
         )
         normalized_file, normalization_metadata = normalize_fits_upload(uploaded_file)
+        normalized_file.name = self._normalized_frame_filename(frame)
         normalized_file.seek(0)
 
-        dataproduct = DataProduct.objects.create(
+        dataproduct = DataProduct(
             target=record.target,
             observation_record=record,
             product_id=frame_id,
-            data=normalized_file,
             data_product_type='fits_file',
         )
+        dataproduct.data.save(normalized_file.name, normalized_file, save=False)
+        dataproduct.save()
 
         metadata = load_extra_data_dict(dataproduct)
         metadata['lco_archive_frame'] = {
@@ -326,16 +338,6 @@ class LCOFacility(BaseLCOFacility):
             'normalization': normalization_metadata,
         }
         save_extra_data_dict(dataproduct, metadata)
-
-        try:
-            run_hook('data_product_post_upload', dataproduct)
-            run_data_processor(dataproduct)
-        except InvalidFileFormatException:
-            dataproduct.delete()
-            raise
-        except Exception:
-            dataproduct.delete()
-            raise
 
         return dataproduct, True
 
