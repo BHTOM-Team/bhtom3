@@ -3370,6 +3370,46 @@ class Bhtom2FitsUploadTests(TestCase):
         with fits.open(normalized_file) as hdul:
             self.assertEqual(hdul[0].data.shape, (4, 4))
 
+    def test_fz_style_header_normalization_creates_single_clean_primary_hdu(self):
+        header = fits.Header()
+        header['XTENSION'] = 'IMAGE'
+        header['BITPIX'] = 16
+        header['NAXIS'] = 2
+        header['NAXIS1'] = 4
+        header['NAXIS2'] = 4
+        header['PCOUNT'] = 0
+        header['GCOUNT'] = 1
+        header['ZIMAGE'] = True
+        header['ZCMPTYPE'] = 'RICE_1'
+        header['ZNAXIS'] = 2
+        header['ZNAXIS1'] = 4
+        header['ZNAXIS2'] = 4
+        header['EXTNAME'] = 'SCI'
+        header['FILTER'] = 'rp'
+        header['DATE-OBS'] = '2026-06-03T01:02:03'
+
+        payload = io.BytesIO()
+        fits.HDUList([
+            fits.PrimaryHDU(),
+            fits.ImageHDU(data=np.ones((4, 4), dtype=np.int16), header=header),
+        ]).writeto(payload)
+
+        normalized_file, metadata = normalize_fits_upload(
+            SimpleUploadedFile('image.fits.fz', payload.getvalue(), content_type='application/fits')
+        )
+
+        self.assertEqual(normalized_file.name, 'image.fits')
+        self.assertEqual(metadata['recognized_format'], 'fits.fz')
+        with fits.open(normalized_file) as hdul:
+            self.assertEqual(len(hdul), 1)
+            self.assertEqual(hdul[0].header['FILTER'], 'rp')
+            self.assertEqual(hdul[0].header['DATE-OBS'], '2026-06-03T01:02:03')
+            self.assertNotIn('XTENSION', hdul[0].header)
+            self.assertNotIn('PCOUNT', hdul[0].header)
+            self.assertNotIn('GCOUNT', hdul[0].header)
+            self.assertNotIn('ZIMAGE', hdul[0].header)
+            self.assertNotIn('ZNAXIS', hdul[0].header)
+
     @patch('custom_code.bhtom2_uploads.requests.post')
     @patch('custom_code.views.run_data_processor', return_value=ReducedDatum.objects.none())
     @patch('custom_code.views.run_hook')

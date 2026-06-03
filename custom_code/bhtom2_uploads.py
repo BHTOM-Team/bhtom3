@@ -87,11 +87,54 @@ def _get_first_image_hdu(hdulist):
     raise ValueError('FITS file does not contain an image HDU.')
 
 
+def _build_primary_header_from_image_hdu(header):
+    skip_exact = {
+        'SIMPLE',
+        'BITPIX',
+        'NAXIS',
+        'EXTEND',
+        'XTENSION',
+        'PCOUNT',
+        'GCOUNT',
+        'CHECKSUM',
+        'DATASUM',
+    }
+    skip_prefixes = (
+        'NAXIS',
+        'ZNAXIS',
+        'ZTILE',
+        'ZNAME',
+        'ZVAL',
+    )
+    skip_exact.update({
+        'ZIMAGE',
+        'ZCMPTYPE',
+        'ZBITPIX',
+        'ZBLANK',
+        'ZDATASUM',
+        'ZHECKSUM',
+    })
+
+    clean_header = fits.Header()
+    for card in header.cards:
+        keyword = str(card.keyword or '').strip()
+        if keyword == '' or keyword == 'COMMENT' or keyword == 'HISTORY':
+            clean_header.append(card)
+            continue
+        if keyword in skip_exact:
+            continue
+        if any(keyword.startswith(prefix) for prefix in skip_prefixes):
+            continue
+        clean_header.append(card)
+    return clean_header
+
+
 def _build_simple_fits_content(file_content):
     with fits.open(io.BytesIO(file_content)) as hdulist:
         image_hdu = _get_first_image_hdu(hdulist)
         output = io.BytesIO()
-        fits.PrimaryHDU(data=image_hdu.data, header=image_hdu.header).writeto(output, overwrite=True)
+        header = _build_primary_header_from_image_hdu(image_hdu.header)
+        fits.PrimaryHDU(data=image_hdu.data, header=header).writeto(output, overwrite=True)
         return output.getvalue()
 
 
