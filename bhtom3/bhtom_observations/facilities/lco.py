@@ -213,13 +213,29 @@ class LCOFacility(BaseLCOFacility):
             record.save()
             if record.status == 'COMPLETED':
                 try:
-                    self._sync_completed_lco_dataproducts(record, facility.facility_settings)
+                    result = self._sync_completed_lco_dataproducts(record, facility.facility_settings)
+                    logger.info(
+                        'Automatic LCO processing finished for observation %s: %s',
+                        record.observation_id,
+                        result,
+                    )
                 except Exception as exc:
                     logger.warning(
                         'Automatic LCO data sync failed for observation %s: %s',
                         record.observation_id,
                         exc,
                     )
+
+    def process_completed_observation(self, record):
+        if record.facility != self.name:
+            raise ValueError(f'Observation {record.pk} is not an {self.name} observation.')
+        if str(record.status or '').strip() != 'COMPLETED':
+            raise ValueError(f'Observation {record.observation_id} is not completed yet.')
+
+        _, facility = self._record_account_facility(record)
+        result = self._sync_completed_lco_dataproducts(record, facility.facility_settings)
+        logger.info('Manual LCO processing finished for observation %s: %s', record.observation_id, result)
+        return result
 
     def _archive_api_url(self, path):
         root_url = str(getattr(settings, 'LCO_ARCHIVE_API_URL', LCO_ARCHIVE_API_URL) or LCO_ARCHIVE_API_URL).rstrip('/')
@@ -328,16 +344,27 @@ class LCOFacility(BaseLCOFacility):
         archive_api_key = str(facility_settings.get_setting('api_key') or '').strip()
         if not archive_api_key:
             logger.warning('Skipping LCO archive sync for observation %s because no LCO API key is configured.', record.observation_id)
-            return
+            return {'frames_seen': 0, 'created': 0, 'forwarded': 0, 'already_forwarded': 0}
 
         bhtom2_token = str(getattr(settings, 'BHTOM2_API_TOKEN', '') or '').strip()
         if not bhtom2_token:
             logger.warning('Skipping automatic BHTOM2 forwarding for observation %s because BHTOM2_API_TOKEN is empty.', record.observation_id)
-            return
+            return {'frames_seen': 0, 'created': 0, 'forwarded': 0, 'already_forwarded': 0}
 
+        logger.info('Starting LCO archive sync for observation %s.', record.observation_id)
+        result = {
+            'frames_seen': 0,
+            'created': 0,
+            'forwarded': 0,
+            'already_forwarded': 0,
+        }
         for frame in self._iter_completed_archive_frames(record.observation_id, archive_api_key):
+            result['frames_seen'] += 1
             dataproduct, created = self._create_lco_dataproduct(record, frame, archive_api_key)
+            if created:
+                result['created'] += 1
             if not created and has_successful_bhtom2_upload(dataproduct):
+                result['already_forwarded'] += 1
                 continue
             forward_dataproduct_to_bhtom2(
                 dataproduct,
@@ -347,3 +374,6 @@ class LCOFacility(BaseLCOFacility):
                 comment=f'Uploaded automatically from BHTOM3 LCO observation {record.observation_id}',
                 user_id=record.user_id,
             )
+            result['forwarded'] += 1
+        logger.info('Finished LCO archive sync for observation %s: %s', record.observation_id, result)
+        return result

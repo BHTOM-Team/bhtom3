@@ -1,5 +1,5 @@
 {% extends 'tom_common/base.html' %}
-{% load bootstrap4 static observation_extras dataproduct_extras %}
+{% load bootstrap4 static observation_extras dataproduct_extras custom_dataproduct_extras %}
 {% block title %} Observation record: {{ object.id }} {% endblock %}
 {% block additional_css %}
 <link rel="stylesheet" href="{% static 'tom_observations/css/main.css' %}">
@@ -18,7 +18,15 @@
       {% endif %}
       <p class="my-auto"><strong>Observation ID:</strong> {{ object.observation_id }}</p>
       <p class="my-auto"><strong>Created:</strong> {{ object.created }} <strong>Modified:</strong> {{ object.modified }}</p>
-      <p class="my-auto"><strong>Status:</strong> {{ object.status }}</p>
+      <p class="my-auto">
+        <strong>Status:</strong> {{ object.status }}
+        {% if object.facility == 'LCO' and object.status == 'COMPLETED' %}
+        <form method="POST" action="{% url 'observation-process-lco' object.id %}" style="display:inline;">
+          {% csrf_token %}
+          <input type="submit" value="Force process" class="btn btn-secondary btn-sm">
+        </form>
+        {% endif %}
+      </p>
     </div>
     <p></p>
     {% upload_dataproduct object %}

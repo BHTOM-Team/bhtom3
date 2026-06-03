@@ -3151,6 +3151,38 @@ class BhtomObservationRecordDetailView(TomObservationRecordDetailView):
         context['group_form'] = context.get('form') or AddProductToGroupForm()
         return context
 
+
+class BhtomObservationProcessView(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        observation_record = get_object_or_404(ObservationRecord, pk=kwargs['pk'])
+        if observation_record.facility != 'LCO':
+            messages.warning(request, 'Force process is only available for LCO observations.')
+            return redirect(reverse('tom_observations:detail', kwargs={'pk': observation_record.id}))
+        if str(observation_record.status or '').strip() != 'COMPLETED':
+            messages.warning(request, 'Observation processing is available after the LCO request is completed.')
+            return redirect(reverse('tom_observations:detail', kwargs={'pk': observation_record.id}))
+
+        facility = get_service_class(observation_record.facility)()
+        facility.set_user(request.user)
+        try:
+            result = facility.process_completed_observation(observation_record)
+        except Exception as exc:
+            logger.warning('Forced LCO processing failed for observation %s: %s', observation_record.observation_id, exc)
+            messages.warning(request, f'Force process failed: {exc}')
+            return redirect(reverse('tom_observations:detail', kwargs={'pk': observation_record.id}))
+
+        messages.success(
+            request,
+            'Force process finished for observation {0}: frames={1}, created={2}, forwarded={3}, already_forwarded={4}.'.format(
+                observation_record.observation_id,
+                result.get('frames_seen', 0),
+                result.get('created', 0),
+                result.get('forwarded', 0),
+                result.get('already_forwarded', 0),
+            ),
+        )
+        return redirect(reverse('tom_observations:detail', kwargs={'pk': observation_record.id}))
+
 class UserProfileRedirectView(View):
     def get(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
