@@ -295,7 +295,6 @@ class LCOFacility(BaseLCOFacility):
 
         download_response = requests.get(
             download_url,
-            headers=self._archive_headers(api_key),
             timeout=self._archive_timeout(),
         )
         download_response.raise_for_status()

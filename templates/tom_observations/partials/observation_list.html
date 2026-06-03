@@ -8,7 +8,7 @@
       <th>Status</th>
       <th>Scheduled</th>
       <th>Saved data</th>
-      <th>View</th>
+      <th>Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -21,7 +21,15 @@
       <td>{{ observation.status }}</td>
       <td>{{ observation.scheduled_start }}</td>
       <td>{{ observation.dataproduct_set.count }}</td>
-      <td><a href="{% url 'tom_observations:detail' observation.id %}">View</a></td>
+      <td>
+        <a href="{% url 'tom_observations:detail' observation.id %}">View</a>
+        {% if observation.facility == 'LCO' and observation.status == 'COMPLETED' %}
+        <form method="POST" action="{% url 'observation-process-lco' observation.id %}" style="display:inline-block; margin-left: 8px;">
+          {% csrf_token %}
+          <input type="submit" value="Force process" class="btn btn-secondary btn-sm">
+        </form>
+        {% endif %}
+      </td>
     </tr>
   {% empty %}
     <tr>
