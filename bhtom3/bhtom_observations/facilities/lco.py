@@ -308,6 +308,13 @@ class LCOFacility(BaseLCOFacility):
             timeout=self._archive_timeout(),
         )
         download_response.raise_for_status()
+        logger.info(
+            'Downloaded LCO frame frame_id=%s observation_id=%s source_name=%s bytes=%s',
+            frame_id,
+            record.observation_id,
+            self._frame_filename(frame),
+            len(download_response.content),
+        )
 
         uploaded_file = SimpleUploadedFile(
             self._frame_filename(frame),
@@ -317,6 +324,13 @@ class LCOFacility(BaseLCOFacility):
         normalized_file, normalization_metadata = normalize_fits_upload(uploaded_file)
         normalized_file.name = self._normalized_frame_filename(frame)
         normalized_file.seek(0)
+        logger.info(
+            'Normalized LCO frame frame_id=%s observation_id=%s normalized_name=%s metadata=%s',
+            frame_id,
+            record.observation_id,
+            normalized_file.name,
+            normalization_metadata,
+        )
 
         dataproduct = DataProduct(
             target=record.target,
@@ -326,6 +340,13 @@ class LCOFacility(BaseLCOFacility):
         )
         dataproduct.data.save(normalized_file.name, normalized_file, save=False)
         dataproduct.save()
+        logger.info(
+            'Saved LCO dataproduct frame_id=%s observation_id=%s dataproduct_id=%s stored_name=%s',
+            frame_id,
+            record.observation_id,
+            dataproduct.pk,
+            dataproduct.get_file_name(),
+        )
 
         metadata = load_extra_data_dict(dataproduct)
         metadata['lco_archive_frame'] = {
@@ -361,11 +382,24 @@ class LCOFacility(BaseLCOFacility):
         }
         for frame in self._iter_completed_archive_frames(record.observation_id, archive_api_key):
             result['frames_seen'] += 1
+            logger.info(
+                'Processing LCO frame frame_id=%s observation_id=%s filename=%s reduction_level=%s',
+                frame.get('id'),
+                record.observation_id,
+                self._frame_filename(frame),
+                frame.get('reduction_level'),
+            )
             dataproduct, created = self._create_lco_dataproduct(record, frame, archive_api_key)
             if created:
                 result['created'] += 1
             if not created and has_successful_bhtom2_upload(dataproduct):
                 result['already_forwarded'] += 1
+                logger.info(
+                    'Skipping already-forwarded LCO dataproduct frame_id=%s observation_id=%s dataproduct_id=%s',
+                    frame.get('id'),
+                    record.observation_id,
+                    dataproduct.pk,
+                )
                 continue
             forward_dataproduct_to_bhtom2(
                 dataproduct,
@@ -376,5 +410,12 @@ class LCOFacility(BaseLCOFacility):
                 user_id=record.user_id,
             )
             result['forwarded'] += 1
+            logger.info(
+                'Forwarded LCO dataproduct frame_id=%s observation_id=%s dataproduct_id=%s upload_name=%s',
+                frame.get('id'),
+                record.observation_id,
+                dataproduct.pk,
+                dataproduct.get_file_name(),
+            )
         logger.info('Finished LCO archive sync for observation %s: %s', record.observation_id, result)
         return result

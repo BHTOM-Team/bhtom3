@@ -68,6 +68,18 @@ def _detect_fits_upload_format(file_name):
     return 'plain fits'
 
 
+def _coerce_simple_fits_name(file_name):
+    name = str(file_name or '').strip()
+    lower_name = name.lower()
+    if lower_name.endswith(SIMPLE_FITS_SUFFIXES):
+        return name
+    if lower_name.endswith('.fits.fz') or lower_name.endswith('.fits.gz'):
+        return name[:-3]
+    if lower_name.endswith('.fz') or lower_name.endswith('.gz'):
+        return f'{name[:-3]}.fits'
+    return f'{name}.fits'
+
+
 def _get_first_image_hdu(hdulist):
     for hdu in hdulist:
         if getattr(hdu, 'data', None) is not None:
@@ -108,6 +120,7 @@ def normalize_fits_upload(uploaded_file):
     }
     if not lower_name.endswith(COMPRESSED_FITS_SUFFIXES):
         uploaded_file.seek(0)
+        uploaded_file.name = _coerce_simple_fits_name(uploaded_file.name)
         return uploaded_file, metadata
 
     uploaded_file.seek(0)
@@ -131,7 +144,7 @@ def normalize_fits_upload(uploaded_file):
             logger.exception(exc)
             metadata['decompression_method'] = 'astropy'
 
-    normalized_name = uploaded_file.name[:-3]
+    normalized_name = _coerce_simple_fits_name(uploaded_file.name)
     normalized_content = _build_simple_fits_content(file_content)
     return SimpleUploadedFile(
         normalized_name,
@@ -235,8 +248,21 @@ def upload_fits_dataproduct_to_bhtom2(dataproduct, *, token, observatory, calibr
             data_handle.read(),
             content_type='application/octet-stream',
         )
+    logger.info(
+        'Preparing BHTOM2 upload for dataproduct=%s original_name=%s observatory=%s',
+        getattr(dataproduct, 'pk', None),
+        upload_file.name,
+        observatory,
+    )
     normalized_file, upload_metadata = normalize_fits_upload(upload_file)
     normalized_file.seek(0)
+    normalized_file.name = _coerce_simple_fits_name(normalized_file.name)
+    logger.info(
+        'Normalized BHTOM2 upload for dataproduct=%s normalized_name=%s metadata=%s',
+        getattr(dataproduct, 'pk', None),
+        normalized_file.name,
+        upload_metadata,
+    )
 
     response = requests.post(
         upload_url,
@@ -244,6 +270,12 @@ def upload_fits_dataproduct_to_bhtom2(dataproduct, *, token, observatory, calibr
         files={'file_0': (normalized_file.name, normalized_file, normalized_file.content_type or 'application/fits')},
         headers={'Authorization': f'Token {str(token).strip()}'},
         timeout=_upload_timeout(),
+    )
+    logger.info(
+        'BHTOM2 upload response for dataproduct=%s status=%s body=%s',
+        getattr(dataproduct, 'pk', None),
+        response.status_code,
+        response.text[:500],
     )
     return response, upload_metadata
 
