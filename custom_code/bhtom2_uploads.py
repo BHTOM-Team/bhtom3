@@ -250,8 +250,19 @@ def normalize_fits_upload(uploaded_file, *, preserve_extensions=True):
     }
     if not lower_name.endswith(COMPRESSED_FITS_SUFFIXES):
         uploaded_file.seek(0)
-        uploaded_file.name = _coerce_simple_fits_name(uploaded_file.name)
-        return uploaded_file, metadata
+        if preserve_extensions:
+            uploaded_file.name = _coerce_simple_fits_name(uploaded_file.name)
+            return uploaded_file, metadata
+
+        file_content = uploaded_file.read()
+        uploaded_file.seek(0)
+        normalized_name = _coerce_simple_fits_name(uploaded_file.name)
+        normalized_content = _build_simple_fits_content(file_content)
+        return SimpleUploadedFile(
+            normalized_name,
+            normalized_content,
+            content_type='application/fits',
+        ), metadata
 
     uploaded_file.seek(0)
     file_content = uploaded_file.read()

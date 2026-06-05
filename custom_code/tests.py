@@ -3517,6 +3517,37 @@ class Bhtom2FitsUploadTests(TestCase):
             self.assertNotIn('XTENSION', hdul[0].header)
             self.assertNotIn('EXTNAME', hdul[0].header)
 
+    def test_plain_multi_extension_fits_for_bhtom2_upload_flattens_to_primary_image(self):
+        payload = BytesIO()
+        fits.HDUList([
+            fits.PrimaryHDU(),
+            fits.ImageHDU(
+                data=np.ones((4, 4), dtype=np.float32),
+                header=fits.Header({'EXTNAME': 'SCI', 'FILTER': 'V', 'DATE-OBS': '2026-06-05T02:03:04'}),
+            ),
+            fits.BinTableHDU.from_columns([
+                fits.Column(name='X', format='E', array=np.array([1.0], dtype=np.float32)),
+            ], name='CAT'),
+            fits.ImageHDU(data=np.zeros((4, 4), dtype=np.int16), name='BPM'),
+            fits.ImageHDU(data=np.full((4, 4), 3, dtype=np.int16), name='ERR'),
+        ]).writeto(payload, checksum=True)
+
+        normalized_file, metadata = normalize_fits_upload(
+            SimpleUploadedFile('image.fits', payload.getvalue(), content_type='application/fits'),
+            preserve_extensions=False,
+        )
+
+        self.assertEqual(metadata['recognized_format'], 'plain fits')
+        self.assertEqual(metadata['decompression_method'], 'none')
+        self.assertFalse(metadata['preserve_extensions'])
+        with fits.open(normalized_file) as hdul:
+            self.assertEqual(len(hdul), 1)
+            self.assertEqual(hdul[0].data.shape, (4, 4))
+            self.assertEqual(hdul[0].header['FILTER'], 'V')
+            self.assertEqual(hdul[0].header['DATE-OBS'], '2026-06-05T02:03:04')
+            self.assertNotIn('XTENSION', hdul[0].header)
+            self.assertNotIn('EXTNAME', hdul[0].header)
+
     @patch('custom_code.bhtom2_uploads.requests.post')
     @patch('custom_code.views.run_data_processor', return_value=ReducedDatum.objects.none())
     @patch('custom_code.views.run_hook')
