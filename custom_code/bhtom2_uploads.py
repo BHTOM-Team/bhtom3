@@ -145,6 +145,68 @@ def _build_simple_fits_content(file_content):
         return output.getvalue()
 
 
+def _sanitize_extension_header(header, *, keep_extname=True):
+    skip_exact = {
+        'SIMPLE',
+        'ZIMAGE',
+        'ZCMPTYPE',
+        'ZBITPIX',
+        'ZBLANK',
+        'ZDATASUM',
+        'ZHECKSUM',
+        'CHECKSUM',
+        'DATASUM',
+    }
+    skip_prefixes = (
+        'ZNAXIS',
+        'ZTILE',
+        'ZNAME',
+        'ZVAL',
+        'ZDITHER',
+    )
+    clean_header = fits.Header()
+    for card in header.cards:
+        keyword = str(card.keyword or '').strip()
+        if keyword == '' or keyword == 'COMMENT' or keyword == 'HISTORY':
+            clean_header.append(card)
+            continue
+        if keyword in skip_exact:
+            continue
+        if keyword == 'EXTNAME' and not keep_extname:
+            continue
+        if any(keyword.startswith(prefix) for prefix in skip_prefixes):
+            continue
+        clean_header[keyword] = (card.value, card.comment)
+    return clean_header
+
+
+def _build_funpack_like_fits_content(file_content):
+    with fits.open(io.BytesIO(file_content)) as hdulist:
+        output_hdus = []
+        for hdu in hdulist:
+            data = getattr(hdu, 'data', None)
+            name = str(getattr(hdu, 'name', '') or '').strip().upper()
+            if data is None:
+                continue
+            if not output_hdus:
+                primary_header = _sanitize_extension_header(hdu.header, keep_extname=True)
+                output_hdus.append(fits.PrimaryHDU(data=data, header=primary_header))
+                continue
+            if isinstance(hdu, (fits.BinTableHDU, fits.TableHDU)):
+                table_header = _sanitize_extension_header(hdu.header, keep_extname=True)
+                output_hdus.append(fits.BinTableHDU(data=data, header=table_header, name=name or None))
+            else:
+                image_header = _sanitize_extension_header(hdu.header, keep_extname=True)
+                output_hdus.append(fits.ImageHDU(data=data, header=image_header, name=name or None))
+
+        if not output_hdus:
+            raise ValueError('FITS file does not contain any HDUs with data.')
+
+        output = io.BytesIO()
+        fits.HDUList(output_hdus).writeto(output, overwrite=True, checksum=True)
+        return output.getvalue()
+
+
 def _decompress_fpack_content(file_content, file_name):
     funpack_path = shutil.which('funpack')
     if not funpack_path:
@@ -195,7 +257,13 @@ def normalize_fits_upload(uploaded_file):
             metadata['decompression_method'] = 'astropy'
 
     normalized_name = _coerce_simple_fits_name(uploaded_file.name)
-    normalized_content = _build_simple_fits_content(file_content)
+    if lower_name.endswith('.fz'):
+        if metadata['decompression_method'] == 'funpack':
+            normalized_content = file_content
+        else:
+            normalized_content = _build_funpack_like_fits_content(file_content)
+    else:
+        normalized_content = _build_simple_fits_content(file_content)
     return SimpleUploadedFile(
         normalized_name,
         normalized_content,

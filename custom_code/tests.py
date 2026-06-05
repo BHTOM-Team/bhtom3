@@ -3391,7 +3391,7 @@ class Bhtom2FitsUploadTests(TestCase):
         with fits.open(normalized_file) as hdul:
             self.assertEqual(hdul[0].data.shape, (4, 4))
 
-    def test_fz_style_header_normalization_creates_single_clean_primary_hdu(self):
+    def test_fz_style_header_normalization_preserves_funpack_like_structure(self):
         primary = fits.Header()
         primary['ORIGIN'] = 'LCO'
         primary['TELESCOP'] = '1m0-04'
@@ -3417,6 +3417,11 @@ class Bhtom2FitsUploadTests(TestCase):
         fits.HDUList([
             fits.PrimaryHDU(header=primary),
             fits.ImageHDU(data=np.ones((4, 4), dtype=np.int16), header=header),
+            fits.BinTableHDU.from_columns([
+                fits.Column(name='X', format='E', array=np.array([1.0, 2.0], dtype=np.float32)),
+            ], name='CAT'),
+            fits.ImageHDU(data=np.zeros((4, 4), dtype=np.int16), name='BPM'),
+            fits.ImageHDU(data=np.full((4, 4), 3, dtype=np.int16), name='ERR'),
         ]).writeto(payload)
 
         normalized_file, metadata = normalize_fits_upload(
@@ -3426,18 +3431,19 @@ class Bhtom2FitsUploadTests(TestCase):
         self.assertEqual(normalized_file.name, 'image.fits')
         self.assertEqual(metadata['recognized_format'], 'fits.fz')
         with fits.open(normalized_file) as hdul:
-            self.assertEqual(len(hdul), 1)
+            self.assertEqual(len(hdul), 4)
+            self.assertEqual(hdul[0].name, 'SCI')
+            self.assertEqual(hdul[1].name, 'CAT')
+            self.assertEqual(hdul[2].name, 'BPM')
+            self.assertEqual(hdul[3].name, 'ERR')
             self.assertEqual(hdul[0].header['ORIGIN'], 'LCO')
             self.assertEqual(hdul[0].header['TELESCOP'], '1m0-04')
             self.assertEqual(hdul[0].header['FILTER'], 'rp')
             self.assertEqual(hdul[0].header['DATE-OBS'], '2026-06-03T01:02:03')
-            self.assertNotIn('EXTNAME', hdul[0].header)
-            self.assertNotIn('EXTVER', hdul[0].header)
             self.assertNotIn('XTENSION', hdul[0].header)
-            self.assertNotIn('PCOUNT', hdul[0].header)
-            self.assertNotIn('GCOUNT', hdul[0].header)
             self.assertNotIn('ZIMAGE', hdul[0].header)
             self.assertNotIn('ZNAXIS', hdul[0].header)
+            self.assertNotIn('ZDITHER0', hdul[0].header)
 
     @patch('custom_code.bhtom2_uploads.requests.post')
     @patch('custom_code.views.run_data_processor', return_value=ReducedDatum.objects.none())
