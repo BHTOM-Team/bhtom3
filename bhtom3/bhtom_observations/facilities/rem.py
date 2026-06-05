@@ -164,7 +164,11 @@ class REM(BaseRoboticObservationFacility):
         return self.observation_forms['PHOTOMETRIC_SEQUENCE']
 
     def get_observation_status(self, observation_id):
-        return ['IN_PROGRESS']
+        return {
+            'state': 'IN_PROGRESS',
+            'scheduled_start': None,
+            'scheduled_end': None,
+        }
 
     def get_observation_url(self, observation_id):
         return ''

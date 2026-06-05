@@ -3070,6 +3070,27 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertEqual(record.status, 'COMPLETED')
         self.assertEqual(mock_get_observation_status.call_count, 1)
 
+    @patch('bhtom3.bhtom_observations.facilities.lco.BaseLCOFacility.get_observation_status', autospec=True)
+    def test_update_status_marks_missing_remote_lco_request_canceled(self, mock_get_observation_status):
+        response = Mock(status_code=404)
+        http_error = requests.HTTPError('404 Client Error', response=response)
+        mock_get_observation_status.side_effect = http_error
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            parameters={'proposal': str(self.proposal.pk)},
+            observation_id='4200393',
+            status='PENDING',
+        )
+
+        LCOFacility().update_observation_status('4200393')
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'CANCELED')
+        self.assertIsNone(record.scheduled_start)
+        self.assertIsNone(record.scheduled_end)
+
     @patch('custom_code.bhtom2_uploads.requests.post')
     @patch('bhtom3.bhtom_observations.facilities.lco.run_data_processor', return_value=ReducedDatum.objects.none())
     @patch('bhtom3.bhtom_observations.facilities.lco.run_hook')

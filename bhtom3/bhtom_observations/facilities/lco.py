@@ -154,6 +154,13 @@ class LCOFacility(BaseLCOFacility):
         'SPECTROSCOPIC_SEQUENCE': BhtomLCOSpectroscopicSequenceForm,
     }
 
+    def _missing_remote_status_payload(self):
+        return {
+            'state': 'CANCELED',
+            'scheduled_start': None,
+            'scheduled_end': None,
+        }
+
     def _proposal_external_identifier(self, proposal):
         external_id = str(proposal.external_id or '').strip()
         if external_id:
@@ -203,7 +210,18 @@ class LCOFacility(BaseLCOFacility):
 
         for record in records:
             _, facility = self._record_account_facility(record)
-            status = facility.get_observation_status(observation_id)
+            try:
+                status = facility.get_observation_status(observation_id)
+            except requests.HTTPError as exc:
+                response = getattr(exc, 'response', None)
+                if getattr(response, 'status_code', None) == 404:
+                    logger.warning(
+                        'LCO observation %s was not found in the remote portal; marking local record as canceled.',
+                        observation_id,
+                    )
+                    status = self._missing_remote_status_payload()
+                else:
+                    raise
             record.status = status['state']
             record.scheduled_start = status['scheduled_start']
             record.scheduled_end = status['scheduled_end']
