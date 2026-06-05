@@ -129,6 +129,13 @@ PHOTOMETRY_COLOR_MAP = {
     'LSST(y)': ['#DAA520', 'pentagon-open', 5],
     'HST(ACS_F814W)': ['#b5a300', 'hexagram', 5],
     'HST(ACS_F606W)': ['#5c0011', 'hexagram', 5],
+    'JVAR(J0395)': ['#6a00ff', 'pentagon', 4],
+    'JVAR(GSDSS)': ['#0088ff', 'pentagon', 4],
+    'JVAR(J0515)': ['#00c853', 'pentagon', 4],
+    'JVAR(RSDSS)': ['#ffb300', 'pentagon', 4],
+    'JVAR(J0660)': ['#ff6d00', 'pentagon', 4],
+    'JVAR(ISDSS)': ['#c62828', 'pentagon', 4],
+    'JVAR(J0861)': ['#7b1fa2', 'pentagon', 4],
 }
 
 # Color map for limits (non-detections).
