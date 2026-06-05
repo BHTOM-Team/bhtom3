@@ -248,7 +248,7 @@ class LCOFacility(BaseLCOFacility):
             raise ValueError(f'Observation {record.observation_id} is not completed yet.')
 
         _, facility = self._record_account_facility(record)
-        result = self._sync_completed_lco_dataproducts(record, facility.facility_settings)
+        result = self._sync_completed_lco_dataproducts(record, facility.facility_settings, force=True)
         logger.info('Manual LCO processing finished for observation %s: %s', record.observation_id, result)
         return result
 
@@ -308,13 +308,14 @@ class LCOFacility(BaseLCOFacility):
             return filename
         return f'{filename}.fits'
 
-    def _create_lco_dataproduct(self, record, frame, api_key):
+    def _create_lco_dataproduct(self, record, frame, api_key, *, force=False):
         frame_id = str(frame.get('id') or '').strip()
         if not frame_id:
             raise ValueError(f'Missing LCO archive frame id for observation {record.observation_id}.')
 
         existing = DataProduct.objects.filter(observation_record=record, product_id=frame_id).order_by('-created').first()
-        if existing is not None:
+        created_new = existing is None
+        if existing is not None and not force:
             return existing, False
 
         download_url = str(frame.get('url') or '').strip()
@@ -350,12 +351,16 @@ class LCOFacility(BaseLCOFacility):
             normalization_metadata,
         )
 
-        dataproduct = DataProduct(
+        dataproduct = existing or DataProduct(
             target=record.target,
             observation_record=record,
             product_id=frame_id,
             data_product_type='fits_file',
         )
+        dataproduct.target = record.target
+        dataproduct.observation_record = record
+        dataproduct.product_id = frame_id
+        dataproduct.data_product_type = 'fits_file'
         dataproduct.data.save(normalized_file.name, normalized_file, save=False)
         dataproduct.save()
         logger.info(
@@ -378,9 +383,9 @@ class LCOFacility(BaseLCOFacility):
         }
         save_extra_data_dict(dataproduct, metadata)
 
-        return dataproduct, True
+        return dataproduct, created_new
 
-    def _sync_completed_lco_dataproducts(self, record, facility_settings):
+    def _sync_completed_lco_dataproducts(self, record, facility_settings, *, force=False):
         archive_api_key = str(facility_settings.get_setting('api_key') or '').strip()
         if not archive_api_key:
             logger.warning('Skipping LCO archive sync for observation %s because no LCO API key is configured.', record.observation_id)
@@ -397,6 +402,7 @@ class LCOFacility(BaseLCOFacility):
             'created': 0,
             'forwarded': 0,
             'already_forwarded': 0,
+            'refreshed': 0,
         }
         for frame in self._iter_completed_archive_frames(record.observation_id, archive_api_key):
             result['frames_seen'] += 1
@@ -407,10 +413,12 @@ class LCOFacility(BaseLCOFacility):
                 self._frame_filename(frame),
                 frame.get('reduction_level'),
             )
-            dataproduct, created = self._create_lco_dataproduct(record, frame, archive_api_key)
-            if created:
+            dataproduct, created_new = self._create_lco_dataproduct(record, frame, archive_api_key, force=force)
+            if created_new:
                 result['created'] += 1
-            if not created and has_successful_bhtom2_upload(dataproduct):
+            elif force:
+                result['refreshed'] += 1
+            if not force and not created_new and has_successful_bhtom2_upload(dataproduct):
                 result['already_forwarded'] += 1
                 logger.info(
                     'Skipping already-forwarded LCO dataproduct frame_id=%s observation_id=%s dataproduct_id=%s',
