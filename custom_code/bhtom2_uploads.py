@@ -93,6 +93,8 @@ def _build_primary_header_from_hdu_headers(*headers):
         'BITPIX',
         'NAXIS',
         'EXTEND',
+        'EXTNAME',
+        'EXTVER',
         'XTENSION',
         'PCOUNT',
         'GCOUNT',
@@ -105,6 +107,7 @@ def _build_primary_header_from_hdu_headers(*headers):
         'ZTILE',
         'ZNAME',
         'ZVAL',
+        'ZDITHER',
     )
     skip_exact.update({
         'ZIMAGE',

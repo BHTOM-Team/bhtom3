@@ -3431,6 +3431,8 @@ class Bhtom2FitsUploadTests(TestCase):
             self.assertEqual(hdul[0].header['TELESCOP'], '1m0-04')
             self.assertEqual(hdul[0].header['FILTER'], 'rp')
             self.assertEqual(hdul[0].header['DATE-OBS'], '2026-06-03T01:02:03')
+            self.assertNotIn('EXTNAME', hdul[0].header)
+            self.assertNotIn('EXTVER', hdul[0].header)
             self.assertNotIn('XTENSION', hdul[0].header)
             self.assertNotIn('PCOUNT', hdul[0].header)
             self.assertNotIn('GCOUNT', hdul[0].header)
