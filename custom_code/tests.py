@@ -3371,6 +3371,10 @@ class Bhtom2FitsUploadTests(TestCase):
             self.assertEqual(hdul[0].data.shape, (4, 4))
 
     def test_fz_style_header_normalization_creates_single_clean_primary_hdu(self):
+        primary = fits.Header()
+        primary['ORIGIN'] = 'LCO'
+        primary['TELESCOP'] = '1m0-04'
+
         header = fits.Header()
         header['XTENSION'] = 'IMAGE'
         header['BITPIX'] = 16
@@ -3390,7 +3394,7 @@ class Bhtom2FitsUploadTests(TestCase):
 
         payload = io.BytesIO()
         fits.HDUList([
-            fits.PrimaryHDU(),
+            fits.PrimaryHDU(header=primary),
             fits.ImageHDU(data=np.ones((4, 4), dtype=np.int16), header=header),
         ]).writeto(payload)
 
@@ -3402,6 +3406,8 @@ class Bhtom2FitsUploadTests(TestCase):
         self.assertEqual(metadata['recognized_format'], 'fits.fz')
         with fits.open(normalized_file) as hdul:
             self.assertEqual(len(hdul), 1)
+            self.assertEqual(hdul[0].header['ORIGIN'], 'LCO')
+            self.assertEqual(hdul[0].header['TELESCOP'], '1m0-04')
             self.assertEqual(hdul[0].header['FILTER'], 'rp')
             self.assertEqual(hdul[0].header['DATE-OBS'], '2026-06-03T01:02:03')
             self.assertNotIn('XTENSION', hdul[0].header)
