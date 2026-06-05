@@ -241,11 +241,12 @@ def _decompress_fpack_content(file_content, file_name):
         return decompressed_content
 
 
-def normalize_fits_upload(uploaded_file):
+def normalize_fits_upload(uploaded_file, *, preserve_extensions=True):
     lower_name = str(uploaded_file.name or '').lower()
     metadata = {
         'recognized_format': _detect_fits_upload_format(uploaded_file.name),
         'decompression_method': 'none',
+        'preserve_extensions': preserve_extensions,
     }
     if not lower_name.endswith(COMPRESSED_FITS_SUFFIXES):
         uploaded_file.seek(0)
@@ -275,10 +276,12 @@ def normalize_fits_upload(uploaded_file):
 
     normalized_name = _coerce_simple_fits_name(uploaded_file.name)
     if lower_name.endswith('.fz'):
-        if metadata['decompression_method'] == 'funpack':
+        if preserve_extensions and metadata['decompression_method'] == 'funpack':
             normalized_content = file_content
-        else:
+        elif preserve_extensions:
             normalized_content = _build_funpack_like_fits_content(file_content)
+        else:
+            normalized_content = _build_simple_fits_content(file_content)
     else:
         normalized_content = _build_simple_fits_content(file_content)
     return SimpleUploadedFile(
@@ -389,7 +392,7 @@ def upload_fits_dataproduct_to_bhtom2(dataproduct, *, token, observatory, calibr
         upload_file.name,
         observatory,
     )
-    normalized_file, upload_metadata = normalize_fits_upload(upload_file)
+    normalized_file, upload_metadata = normalize_fits_upload(upload_file, preserve_extensions=False)
     normalized_file.seek(0)
     normalized_file.name = _coerce_simple_fits_name(normalized_file.name)
     logger.info(
