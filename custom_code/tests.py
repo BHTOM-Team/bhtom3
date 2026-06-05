@@ -3445,6 +3445,39 @@ class Bhtom2FitsUploadTests(TestCase):
             self.assertNotIn('ZNAXIS', hdul[0].header)
             self.assertNotIn('ZDITHER0', hdul[0].header)
 
+    @patch('custom_code.bhtom2_uploads.shutil.which', return_value='/opt/homebrew/bin/funpack')
+    @patch('custom_code.bhtom2_uploads.subprocess.run')
+    def test_fz_normalization_reads_funpack_output_file(self, mock_run, _mock_which):
+        output_payload = BytesIO()
+        fits.HDUList([
+            fits.PrimaryHDU(data=np.ones((4, 4), dtype=np.float32), header=fits.Header({'EXTNAME': 'SCI'})),
+            fits.BinTableHDU.from_columns([
+                fits.Column(name='X', format='E', array=np.array([1.0], dtype=np.float32)),
+            ], name='CAT'),
+            fits.ImageHDU(data=np.zeros((4, 4), dtype=np.int16), name='BPM'),
+            fits.ImageHDU(data=np.full((4, 4), 3, dtype=np.int16), name='ERR'),
+        ]).writeto(output_payload, checksum=True)
+
+        def _mock_funpack(cmd, capture_output, check):
+            self.assertEqual(cmd[1], '-O')
+            with open(cmd[2], 'wb') as output_handle:
+                output_handle.write(output_payload.getvalue())
+            return Mock(stdout=b'', stderr=b'')
+
+        mock_run.side_effect = _mock_funpack
+
+        normalized_file, metadata = normalize_fits_upload(
+            SimpleUploadedFile('image.fits.fz', b'fake-compressed-payload', content_type='application/fits')
+        )
+
+        self.assertEqual(metadata['decompression_method'], 'funpack')
+        with fits.open(normalized_file) as hdul:
+            self.assertEqual(len(hdul), 4)
+            self.assertEqual(hdul[0].name, 'SCI')
+            self.assertEqual(hdul[1].name, 'CAT')
+            self.assertEqual(hdul[2].name, 'BPM')
+            self.assertEqual(hdul[3].name, 'ERR')
+
     @patch('custom_code.bhtom2_uploads.requests.post')
     @patch('custom_code.views.run_data_processor', return_value=ReducedDatum.objects.none())
     @patch('custom_code.views.run_hook')

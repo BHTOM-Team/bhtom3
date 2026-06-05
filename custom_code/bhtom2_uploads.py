@@ -2,6 +2,7 @@ import gzip
 import io
 import json
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -212,16 +213,32 @@ def _decompress_fpack_content(file_content, file_name):
     if not funpack_path:
         return None
 
-    with tempfile.NamedTemporaryFile(suffix='.fits.fz') as temp_input:
-        temp_input.write(file_content)
-        temp_input.flush()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_input_name = os.path.join(temp_dir, 'input.fits.fz')
+        temp_output_name = os.path.join(temp_dir, 'output.fits')
+
+        with open(temp_input_name, 'wb') as temp_input:
+            temp_input.write(file_content)
+
         result = subprocess.run(
-            [funpack_path, '-S', temp_input.name],
+            [funpack_path, '-O', temp_output_name, temp_input_name],
             capture_output=True,
             check=True,
         )
-        logger.info('Decompressed FPACK file with funpack: %s', file_name)
-        return result.stdout
+        if not os.path.exists(temp_output_name):
+            raise OSError(f'funpack did not create output file for {file_name}')
+
+        with open(temp_output_name, 'rb') as decompressed_handle:
+            decompressed_content = decompressed_handle.read()
+
+        logger.info(
+            'Decompressed FPACK file with funpack: %s stdout=%d stderr=%d output_bytes=%d',
+            file_name,
+            len(result.stdout or b''),
+            len(result.stderr or b''),
+            len(decompressed_content),
+        )
+        return decompressed_content
 
 
 def normalize_fits_upload(uploaded_file):
