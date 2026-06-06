@@ -23,8 +23,12 @@ from tom_dataproducts.models import DataProduct, ReducedDatum
 from tom_observations.models import ObservationRecord
 from tom_targets.models import Target, TargetName
 
-from bhtom3.bhtom_observations.facilities.lco import AccountLCOSettings, LCOFacility
-from bhtom3.bhtom_observations.facilities.lco import BhtomLCOImagingObservationForm
+from bhtom3.bhtom_observations.facilities.lco import (
+    AccountLCOSettings,
+    BhtomLCOImagingObservationForm,
+    LCOFacility,
+    calculate_lco_etc_exposure_time,
+)
 from custom_code.data_services.ogle_ews_dataservice import (
     OGLEEWSDataService,
     _dec_to_decimal,
@@ -3305,6 +3309,47 @@ class LCOFacilityAccountRoutingTests(TestCase):
 
         proposal_values = [value for value, label in form.fields['proposal'].choices]
         self.assertIn(str(self.proposal.pk), proposal_values)
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    def test_lco_form_builds_etc_context_from_recent_filter_photometry(self, mock_get_instruments):
+        mock_get_instruments.return_value = _minimal_lco_instruments()
+        self.target.mag_last = 18.7
+        self.target.save(update_fields=['mag_last'])
+        ReducedDatum.objects.create(
+            target=self.target,
+            data_type='photometry',
+            timestamp=datetime(2026, 6, 1, 1, 0, tzinfo=timezone.utc),
+            value={'magnitude': 19.4, 'filter': 'ZTF(g)'},
+        )
+        ReducedDatum.objects.create(
+            target=self.target,
+            data_type='photometry',
+            timestamp=datetime(2026, 6, 1, 2, 0, tzinfo=timezone.utc),
+            value={'magnitude': 18.9, 'filter': 'LCO(r)'},
+        )
+
+        form = BhtomLCOImagingObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+
+        gp_row = next(row for row in form.lco_etc_context['rows_by_class']['0m4'] if row['filter_code'] == 'gp')
+        self.assertEqual(gp_row['magnitude'], 19.4)
+        self.assertEqual(gp_row['source'], 'recent')
+        self.assertGreater(gp_row['exposure_time'], 0)
+        self.assertIn('lco-etc-widget', str(form.helper.layout))
+
+    def test_lco_etc_calculator_scales_with_telescope_aperture(self):
+        exposure_0m4 = calculate_lco_etc_exposure_time('0m4', 'gp', 19.4, signal_to_noise=100.0)
+        exposure_1m0 = calculate_lco_etc_exposure_time('1m0', 'gp', 19.4, signal_to_noise=100.0)
+        exposure_2m0 = calculate_lco_etc_exposure_time('2m0', 'gp', 19.4, signal_to_noise=100.0)
+
+        self.assertIsNotNone(exposure_0m4)
+        self.assertIsNotNone(exposure_1m0)
+        self.assertIsNotNone(exposure_2m0)
+        self.assertGreater(exposure_0m4, exposure_1m0)
+        self.assertGreater(exposure_1m0, exposure_2m0)
 
     @patch('bhtom3.bhtom_observations.facilities.lco.requests.get')
     def test_lco_instrument_loading_uses_timeout_and_fallback(self, mock_get):
