@@ -2,7 +2,7 @@ import json
 import logging
 import math
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from django.conf import settings
@@ -36,7 +36,10 @@ from custom_code.facility_proposals import get_proposal_by_pk, get_proposal_choi
 
 logger = logging.getLogger(__name__)
 LCO_ARCHIVE_API_URL = 'https://archive-api.lco.global'
-LCO_BHTOM2_AUTOMATED_OBSERVATORY = 'LCOGT-Teide-40cm_QHY600M'
+LCO_BHTOM2_API_BASE_URL = 'https://bh-tom2.astrouw.edu.pl'
+LCO_BHTOM2_OBSERVATORY_LIST_PATH = '/observatory/getObservatoryList/'
+LCO_BHTOM2_ONAMES_CACHE_KEY = 'lco_bhtom2_onames_v1'
+LCO_BHTOM2_ONAMES_CACHE_SECONDS = 86400
 LCO_BHTOM2_AUTOMATED_FILTER = 'GaiaSP/any'
 LCO_ETC_TELESCOPE_CLASS_CHOICES = [('0m4', '0.4 m'), ('1m0', '1 m'), ('2m0', '2 m')]
 LCO_ETC_FILTER_ORDER = ['U', 'B', 'V', 'R', 'I', 'up', 'gp', 'rp', 'ip', 'zs', 'Y']
@@ -88,6 +91,19 @@ LCO_ETC_FILTER_ALIASES = {
     'ip': ('ip', 'sdssi', 'psi', 'ztfi', 'skymapperi', 'iprime'),
     'zs': ('zs', 'psz', 'panstarrsz', 'skymapperz', 'zprime', 'z'),
     'Y': ('panstarrsy', 'psy', 'y'),
+}
+LCO_CAMERA_CODE_TO_INSTRUMENT_KIND = {
+    'sq': 'qhy600m',
+    'kb': 'sbig6303',
+    'fs': 'spectral',
+    'ep': 'muscat',
+}
+LCO_PREFIX_SUFFIX_TO_INSTRUMENT_KIND = {
+    'qhy600m': 'qhy600m',
+    'sbig6303': 'sbig6303',
+    '4k': 'sinistro_4k',
+    'spectral': 'spectral',
+    'muscat': 'muscat',
 }
 
 
@@ -186,6 +202,153 @@ def calculate_lco_etc_exposure_time(telescope_class, filter_code, magnitude, sig
         exposure_time += 1.0
 
     return None
+
+
+def _bhtom2_api_base_url():
+    configured = str(getattr(settings, 'BHTOM2_API_BASE_URL', '') or '').strip()
+    if configured:
+        return configured.rstrip('/')
+
+    upload_service_url = str(getattr(settings, 'BHTOM2_UPLOAD_SERVICE_URL', '') or '').strip()
+    if upload_service_url:
+        parsed = urlparse(upload_service_url)
+        if parsed.scheme and parsed.netloc:
+            host = parsed.netloc
+            if host.startswith('uploadsvc2.'):
+                return f'{parsed.scheme}://{host[len("uploadsvc2.") :]}'
+    return LCO_BHTOM2_API_BASE_URL
+
+
+def _bhtom2_api_timeout():
+    try:
+        return max(1, int(getattr(settings, 'BHTOM2_API_TIMEOUT', 30)))
+    except (TypeError, ValueError):
+        return 30
+
+
+def _normalize_lco_instrument_kind(prefix):
+    suffix = str(prefix or '').strip().rsplit('_', 1)[-1].lower()
+    return LCO_PREFIX_SUFFIX_TO_INSTRUMENT_KIND.get(suffix, '')
+
+
+def _extract_site_code_from_observatory_name(name):
+    match = re.search(r'\(file code:\s*([a-z0-9]+)\)', str(name or '').lower())
+    return match.group(1) if match else ''
+
+
+def _extract_telescope_class_from_observatory_name(name):
+    lower_name = str(name or '').lower()
+    if '40-cm' in lower_name or '40cm' in lower_name:
+        return '0m4'
+    if '1-m' in lower_name or '1m' in lower_name:
+        return '1m0'
+    if '2-m' in lower_name or '2m' in lower_name:
+        return '2m0'
+    return ''
+
+
+def _build_lco_bhtom2_oname_entries(observatories):
+    entries = []
+    seen = set()
+    for observatory in observatories or []:
+        observatory_name = str(observatory.get('name') or '').strip()
+        if 'LCOGT' not in observatory_name:
+            continue
+        site_code = _extract_site_code_from_observatory_name(observatory_name)
+        telescope_class = _extract_telescope_class_from_observatory_name(observatory_name)
+        if not site_code or not telescope_class:
+            continue
+        for camera in observatory.get('cameras') or []:
+            oname = str(camera.get('prefix') or '').strip()
+            instrument_kind = _normalize_lco_instrument_kind(oname)
+            if not oname or not instrument_kind:
+                continue
+            key = (site_code, telescope_class, instrument_kind)
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append({
+                'site_code': site_code,
+                'telescope_class': telescope_class,
+                'instrument_kind': instrument_kind,
+                'oname': oname,
+            })
+    return entries
+
+
+def _fetch_lco_bhtom2_oname_entries(token):
+    cached_entries = cache.get(LCO_BHTOM2_ONAMES_CACHE_KEY)
+    if cached_entries:
+        return cached_entries
+
+    response = requests.post(
+        urljoin(f'{_bhtom2_api_base_url()}/', LCO_BHTOM2_OBSERVATORY_LIST_PATH.lstrip('/')),
+        json={},
+        headers={
+            'Accept': 'application/json',
+            'Authorization': f'Token {token}',
+        },
+        timeout=_bhtom2_api_timeout(),
+    )
+    response.raise_for_status()
+    payload = response.json() if response.content else {}
+    entries = _build_lco_bhtom2_oname_entries(payload.get('data') or [])
+    cache.set(LCO_BHTOM2_ONAMES_CACHE_KEY, entries, LCO_BHTOM2_ONAMES_CACHE_SECONDS)
+    return entries
+
+
+def _normalize_frame_identity_text(value):
+    return re.sub(r'[^a-z0-9]+', ' ', str(value or '').strip().lower())
+
+
+def _infer_lco_instrument_kind(frame, telescope_class, camera_code, basename):
+    if camera_code:
+        instrument_kind = LCO_CAMERA_CODE_TO_INSTRUMENT_KIND.get(camera_code.lower())
+        if instrument_kind:
+            return instrument_kind
+
+    if telescope_class == '1m0':
+        return 'sinistro_4k'
+
+    candidates = [basename]
+    for _key, value in (frame or {}).items():
+        if isinstance(value, str):
+            candidates.append(value)
+    normalized = ' '.join(_normalize_frame_identity_text(candidate) for candidate in candidates)
+    for needle, instrument_kind in (
+        ('muscat', 'muscat'),
+        ('spectral', 'spectral'),
+        ('qhy600m', 'qhy600m'),
+        ('sbig6303', 'sbig6303'),
+        ('sinistro', 'sinistro_4k'),
+    ):
+        if needle in normalized:
+            return instrument_kind
+    return ''
+
+
+def resolve_lco_bhtom2_observatory_oname(frame, token):
+    basename = str(frame.get('basename') or '').strip()
+    fallback_filename = str(frame.get('filename') or '').strip()
+    frame_identity = basename or fallback_filename
+    normalized_identity = frame_identity.lower().replace('_', '-')
+    match = re.match(r'^(?P<site>[a-z]{3})(?P<telescope>0m4|1m0|2m0)\d+(?:-(?P<camera>[a-z]{2})\d+)?', normalized_identity)
+    if not match:
+        raise ValueError(f'Could not parse LCO frame identity from "{frame_identity}".')
+
+    site_code = match.group('site')
+    telescope_class = match.group('telescope')
+    instrument_kind = _infer_lco_instrument_kind(frame, telescope_class, match.group('camera') or '', frame_identity)
+    if not instrument_kind:
+        raise ValueError(f'Could not infer LCO instrument kind from "{frame_identity}".')
+
+    entries = _fetch_lco_bhtom2_oname_entries(token)
+    key = (site_code, telescope_class, instrument_kind)
+    for entry in entries:
+        if (entry['site_code'], entry['telescope_class'], entry['instrument_kind']) == key:
+            return entry['oname']
+
+    raise ValueError(f'No BHTOM2 LCO ONAME matches site={site_code} telescope={telescope_class} instrument={instrument_kind}.')
 
 
 class AccountLCOSettings(LCOSettings):
@@ -859,21 +1022,23 @@ class LCOFacility(BaseLCOFacility):
                     dataproduct.pk,
                 )
                 continue
+            observatory_oname = resolve_lco_bhtom2_observatory_oname(frame, bhtom2_token)
             forward_dataproduct_to_bhtom2(
                 dataproduct,
                 token=bhtom2_token,
-                observatory=LCO_BHTOM2_AUTOMATED_OBSERVATORY,
+                observatory=observatory_oname,
                 calibration_filter=LCO_BHTOM2_AUTOMATED_FILTER,
                 comment=f'Uploaded automatically from BHTOM3 LCO observation {record.observation_id}',
                 user_id=record.user_id,
             )
             result['forwarded'] += 1
             logger.info(
-                'Forwarded LCO dataproduct frame_id=%s observation_id=%s dataproduct_id=%s upload_name=%s',
+                'Forwarded LCO dataproduct frame_id=%s observation_id=%s dataproduct_id=%s upload_name=%s observatory=%s',
                 frame.get('id'),
                 record.observation_id,
                 dataproduct.pk,
                 dataproduct.get_file_name(),
+                observatory_oname,
             )
         logger.info('Finished LCO archive sync for observation %s: %s', record.observation_id, result)
         return result

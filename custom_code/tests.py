@@ -1,5 +1,6 @@
 import gzip
 import json
+import requests
 from io import BytesIO
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
@@ -28,6 +29,7 @@ from bhtom3.bhtom_observations.facilities.lco import (
     BhtomLCOImagingObservationForm,
     LCOFacility,
     calculate_lco_etc_exposure_time,
+    resolve_lco_bhtom2_observatory_oname,
 )
 from custom_code.data_services.ogle_ews_dataservice import (
     OGLEEWSDataService,
@@ -145,6 +147,40 @@ def _minimal_lco_instruments():
             },
             'default_configuration_type': 'EXPOSE',
         },
+    }
+
+
+def _bhtom2_lco_observatory_payload():
+    return {
+        'data': [
+            {
+                'name': 'LCOGT Teide Obs. 40-cm (file code: tfn)',
+                'cameras': [
+                    {'prefix': 'LCOGT-Teide-40cm_SBIG6303'},
+                    {'prefix': 'LCOGT-Teide-40cm_QHY600M'},
+                ],
+            },
+            {
+                'name': 'LCOGT Teide Obs. 1-m (file code: tfn)',
+                'cameras': [
+                    {'prefix': 'LCOGT-Teide-1m_4K'},
+                ],
+            },
+            {
+                'name': 'LCOGT Siding Spring 2-m (file code: coj)',
+                'cameras': [
+                    {'prefix': 'LCOGT-SS-2m_Spectral'},
+                    {'prefix': 'LCOGT-SS-2m_Muscat'},
+                ],
+            },
+            {
+                'name': 'LCOGT CTIO 40-cm (file code: lsc)',
+                'cameras': [
+                    {'prefix': 'LCOGT-CTIO-40cm_QHY600M'},
+                    {'prefix': 'LCOGT-CTIO-40cm_SBIG6303'},
+                ],
+            },
+        ],
     }
 
 
@@ -3095,6 +3131,34 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertIsNone(record.scheduled_start)
         self.assertIsNone(record.scheduled_end)
 
+    @patch('bhtom3.bhtom_observations.facilities.lco.requests.post')
+    def test_resolve_lco_bhtom2_observatory_oname_uses_bhtom2_prefixes(self, mock_post):
+        cache.delete('lco_bhtom2_onames_v1')
+        mock_post.return_value = Mock(
+            raise_for_status=Mock(),
+            content=b'{}',
+            json=Mock(return_value=_bhtom2_lco_observatory_payload()),
+        )
+
+        qhy_oname = resolve_lco_bhtom2_observatory_oname(
+            {'basename': 'tfn0m410-sq01-20260601-0001-e91'},
+            'auto-token',
+        )
+        spectral_oname = resolve_lco_bhtom2_observatory_oname(
+            {'basename': 'coj2m002-fs01-20260601-0001-e91'},
+            'auto-token',
+        )
+        sbig_oname = resolve_lco_bhtom2_observatory_oname(
+            {'basename': 'lsc0m409-kb98-20260601-0001-e91'},
+            'auto-token',
+        )
+
+        self.assertEqual(qhy_oname, 'LCOGT-Teide-40cm_QHY600M')
+        self.assertEqual(spectral_oname, 'LCOGT-SS-2m_Spectral')
+        self.assertEqual(sbig_oname, 'LCOGT-CTIO-40cm_SBIG6303')
+        mock_post.assert_called_once()
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.requests.post')
     @patch('custom_code.bhtom2_uploads.requests.post')
     @patch('bhtom3.bhtom_observations.facilities.lco.run_data_processor', return_value=ReducedDatum.objects.none())
     @patch('bhtom3.bhtom_observations.facilities.lco.run_hook')
@@ -3106,8 +3170,10 @@ class LCOFacilityAccountRoutingTests(TestCase):
         mock_requests_get,
         mock_run_hook,
         mock_run_data_processor,
-        mock_post,
+        mock_upload_post,
+        mock_bhtom2_observatory_post,
     ):
+        cache.delete('lco_bhtom2_onames_v1')
         mock_get_observation_status.return_value = {
             'state': 'COMPLETED',
             'scheduled_start': datetime(2026, 6, 1, 1, 0, tzinfo=timezone.utc),
@@ -3134,7 +3200,12 @@ class LCOFacilityAccountRoutingTests(TestCase):
                 content=_build_test_fits_bytes(),
             ),
         ]
-        mock_post.return_value = Mock(status_code=201, json=Mock(return_value={'ok': True}), text='created')
+        mock_bhtom2_observatory_post.return_value = Mock(
+            raise_for_status=Mock(),
+            content=b'{}',
+            json=Mock(return_value=_bhtom2_lco_observatory_payload()),
+        )
+        mock_upload_post.return_value = Mock(status_code=201, json=Mock(return_value={'ok': True}), text='created')
         record = ObservationRecord.objects.create(
             target=self.target,
             user=self.user,
@@ -3153,15 +3224,16 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertEqual(dataproduct.data_product_type, 'fits_file')
         self.assertTrue(has_successful_bhtom2_upload(dataproduct))
         self.assertEqual(dataproduct.get_file_name(), 'tfn0m410-sq01-20260601-0001-e91.fits')
-        self.assertEqual(mock_post.call_args.kwargs['headers']['Authorization'], 'Token auto-token')
+        self.assertEqual(mock_upload_post.call_args.kwargs['headers']['Authorization'], 'Token auto-token')
         self.assertEqual(
-            mock_post.call_args.kwargs['data']['observatory'],
+            mock_upload_post.call_args.kwargs['data']['observatory'],
             'LCOGT-Teide-40cm_QHY600M',
         )
         self.assertEqual(mock_requests_get.call_args_list[0].kwargs['headers']['Authorization'], 'Token account-api-key')
         self.assertEqual(mock_requests_get.call_args_list[0].kwargs['params']['request_id'], '4205507')
         self.assertEqual(mock_requests_get.call_args_list[0].kwargs['params']['reduction_level'], 91)
         self.assertEqual(mock_requests_get.call_args_list[0].kwargs['params']['public'], 'false')
+        self.assertEqual(mock_bhtom2_observatory_post.call_count, 1)
         mock_run_hook.assert_called()
         mock_run_data_processor.assert_called_once()
 
