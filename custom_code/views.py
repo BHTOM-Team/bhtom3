@@ -776,7 +776,7 @@ class BhtomPallasBaseMixin:
 
 class BhtomPallasView(BhtomPallasBaseMixin, TemplateView):
     template_name = 'tom_common/bhtom_pallas_overview.html'
-    bhtom_pallas_active_tab = 'overview'
+    bhtom_pallas_active_tab = 'landing'
 
 
 class BhtomPallasVisibleView(BhtomPallasBaseMixin, TemplateView):

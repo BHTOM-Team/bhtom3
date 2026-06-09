@@ -23,43 +23,59 @@
   </div>
   <div class="row mx-0">
     <div class="col-12 px-4" style="max-width: 100%; margin: 0 auto;">
-      <ul class="nav nav-tabs border-0 mb-4">
-        <li class="nav-item">
-          <a class="nav-link {% if bhtom_pallas_active_tab == 'overview' %}active{% endif %}" href="{% url 'bhtom-pallas' %}" style="background-color: {% if bhtom_pallas_active_tab == 'overview' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Overview</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if bhtom_pallas_active_tab == 'visible' %}active{% endif %}" href="{% url 'bhtom-pallas-visible' %}" style="background-color: {% if bhtom_pallas_active_tab == 'visible' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Visible to me</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if bhtom_pallas_active_tab == 'ephemeris' %}active{% endif %}" href="{% url 'bhtom-pallas-ephemeris' %}" style="background-color: {% if bhtom_pallas_active_tab == 'ephemeris' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Ephemeris</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if bhtom_pallas_active_tab == 'a' %}active{% endif %}" href="{% url 'bhtom-pallas-a' %}" style="background-color: {% if bhtom_pallas_active_tab == 'a' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Observation planning</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if bhtom_pallas_active_tab == 'photometry' %}active{% endif %}" href="{% url 'bhtom-pallas-photometry' %}" style="background-color: {% if bhtom_pallas_active_tab == 'photometry' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Photometry</a>
-        </li>
-      </ul>
-      <div class="pb-4" style="width: 100%; max-width: none; margin: 0 auto;">
-        <p class="mb-4">BHTOM-PALLAS provides tools for planning and supporting observations of comets and asteroids.</p>
-        <a href="{% url 'bhtom-pallas-ephemeris' %}" class="d-block mb-4" style="color: inherit; text-decoration: none;">
-          <div style="background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 0.35rem; padding: 1rem; transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;" onmouseover="this.style.backgroundColor='rgba(255,255,255,0.1)';this.style.borderColor='rgba(255,255,255,0.24)';this.style.boxShadow='0 0 0 1px rgba(255,255,255,0.06)';" onmouseout="this.style.backgroundColor='rgba(255,255,255,0.06)';this.style.borderColor='rgba(255,255,255,0.14)';this.style.boxShadow='none';">
-            <h2 class="h5 mb-2" style="color: #fff;">Ephemeris</h2>
-            <p class="mb-0">This tab queries NASA JPL Horizons via astroquery, allows an MPC observatory code, lets the user define a custom time span and step size, select returned quantities, and generate ephemerides for comet and asteroid targets.</p>
+      <div class="pb-5" style="width: 100%; max-width: none; margin: 0 auto;">
+        <div class="mb-4" style="max-width: 60rem;">
+          <p class="mb-2" style="font-size: 0.82rem; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.58);">BHTOM-PALLAS workflows</p>
+          <p class="mb-0" style="font-size: 1.55rem; line-height: 1.42; color: rgba(255,255,255,0.97);">Choose a workflow to start working with BHTOM-PALLAS tools for small-body observing and analysis.</p>
+        </div>
+        <div class="row">
+          <div class="col-lg-6 mb-4">
+            <a href="{% url 'bhtom-pallas-visible' %}" class="d-block h-100" style="color: inherit; text-decoration: none;">
+              <div style="height: 100%; background-color: rgba(255,255,255,0.07); border: 2px solid dodgerblue; border-radius: 0.65rem; padding: 1.95rem 2rem 1.85rem; transition: transform 0.18s ease, background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;" onmouseover="this.style.transform='translateY(-4px)';this.style.backgroundColor='rgba(255,255,255,0.12)';this.style.borderColor='dodgerblue';this.style.boxShadow='0 0.8rem 1.8rem rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.08)';" onmouseout="this.style.transform='translateY(0)';this.style.backgroundColor='rgba(255,255,255,0.07)';this.style.borderColor='dodgerblue';this.style.boxShadow='none';">
+                <div class="mb-3" style="display: inline-flex; align-items: center; justify-content: space-between; min-width: 11.1rem; padding: 0.63rem 0.87rem 0.63rem 1.05rem; border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; background-color: rgba(255,255,255,0.04); color: rgba(255,255,255,0.9);">
+                  <span style="display: inline-flex; align-items: center; gap: 0.68rem;">
+                    <span aria-hidden="true" style="display: inline-flex; align-items: center; color: rgba(255,255,255,0.82);">
+                      <svg width="22" height="22" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block;">
+                        <path d="M3 12.2H11.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                        <path d="M7.3 8L5.6 12.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                        <path d="M7.6 8.1L9.6 12.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                        <path d="M3.5 5.4L9.6 3.2L10.8 5.9L4.8 8.1L3.5 5.4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                      </svg>
+                    </span>
+                    <span style="font-size: 1.23rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.68);">Observe</span>
+                  </span>
+                  <span style="font-size: 1.5rem; font-weight: 700; line-height: 1;">→</span>
+                </div>
+                <h2 class="mb-3" style="color: #fff; font-size: 1.6rem; line-height: 1.2;">For observers</h2>
+                <p class="mb-0" style="font-size: 1rem; line-height: 1.6;">Contains tools for choosing targets, checking visibility, generating ephemerides, and planning observations.</p>
+              </div>
+            </a>
           </div>
-        </a>
-        <a href="{% url 'bhtom-pallas-a' %}" class="d-block mb-4" style="color: inherit; text-decoration: none;">
-          <div style="background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 0.35rem; padding: 1rem; transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;" onmouseover="this.style.backgroundColor='rgba(255,255,255,0.1)';this.style.borderColor='rgba(255,255,255,0.24)';this.style.boxShadow='0 0 0 1px rgba(255,255,255,0.06)';" onmouseout="this.style.backgroundColor='rgba(255,255,255,0.06)';this.style.borderColor='rgba(255,255,255,0.14)';this.style.boxShadow='none';">
-            <h2 class="h5 mb-2" style="color: #fff;">Observation planning</h2>
-            <p class="mb-0">This tab calculates sky motion and maximum exposure time from JPL Horizons sky-plane motion components and an allowed trailing value.</p>
+          <div class="col-lg-6 mb-4">
+            <a href="{% url 'bhtom-pallas-photometry' %}" class="d-block h-100" style="color: inherit; text-decoration: none;">
+              <div style="height: 100%; background-color: rgba(255,255,255,0.07); border: 2px solid dodgerblue; border-radius: 0.65rem; padding: 1.95rem 2rem 1.85rem; transition: transform 0.18s ease, background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;" onmouseover="this.style.transform='translateY(-4px)';this.style.backgroundColor='rgba(255,255,255,0.12)';this.style.borderColor='dodgerblue';this.style.boxShadow='0 0.8rem 1.8rem rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.08)';" onmouseout="this.style.transform='translateY(0)';this.style.backgroundColor='rgba(255,255,255,0.07)';this.style.borderColor='dodgerblue';this.style.boxShadow='none';">
+                <div class="mb-3" style="display: inline-flex; align-items: center; justify-content: space-between; min-width: 11.1rem; padding: 0.63rem 0.87rem 0.63rem 1.05rem; border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; background-color: rgba(255,255,255,0.04); color: rgba(255,255,255,0.9);">
+                  <span style="display: inline-flex; align-items: center; gap: 0.68rem;">
+                    <span aria-hidden="true" style="display: inline-flex; align-items: center; color: rgba(255,255,255,0.82);">
+                      <svg width="22" height="22" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block;">
+                        <path d="M2.25 12.25H12.75" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                        <path d="M2.75 12.25V3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                        <path d="M3.5 9.5L6 6.7L8 8.1L11.2 4.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <circle cx="6" cy="6.7" r="0.75" fill="currentColor"/>
+                        <circle cx="8" cy="8.1" r="0.75" fill="currentColor"/>
+                        <circle cx="11.2" cy="4.3" r="0.75" fill="currentColor"/>
+                      </svg>
+                    </span>
+                    <span style="font-size: 1.23rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.68);">Process</span>
+                  </span>
+                  <span style="font-size: 1.5rem; font-weight: 700; line-height: 1;">→</span>
+                </div>
+                <h2 class="mb-3" style="color: #fff; font-size: 1.6rem; line-height: 1.2;">For data processing</h2>
+                <p class="mb-0" style="font-size: 1rem; line-height: 1.6;">Contains tools for working with returned observations and extracting measurements from the data.</p>
+              </div>
+            </a>
           </div>
-        </a>
-        <a href="{% url 'bhtom-pallas-photometry' %}" class="d-block" style="color: inherit; text-decoration: none;">
-          <div style="background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 0.35rem; padding: 1rem; transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;" onmouseover="this.style.backgroundColor='rgba(255,255,255,0.1)';this.style.borderColor='rgba(255,255,255,0.24)';this.style.boxShadow='0 0 0 1px rgba(255,255,255,0.06)';" onmouseout="this.style.backgroundColor='rgba(255,255,255,0.06)';this.style.borderColor='rgba(255,255,255,0.14)';this.style.boxShadow='none';">
-            <h2 class="h5 mb-2" style="color: #fff;">Photometry</h2>
-            <p class="mb-0">Photometry tools will be added here.</p>
-          </div>
-        </a>
+        </div>
       </div>
     </div>
   </div>
