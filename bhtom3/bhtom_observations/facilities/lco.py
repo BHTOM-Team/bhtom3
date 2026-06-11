@@ -2,14 +2,16 @@ import json
 import logging
 import math
 import re
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin, urlparse
 
 import requests
+from crispy_forms.layout import Div, HTML, Layout
+from django import forms
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from crispy_forms.layout import HTML
 from tom_observations.facilities.lco import (
     LCOFacility as BaseLCOFacility,
     LCOSettings,
@@ -724,6 +726,326 @@ class BhtomLCOImagingObservationForm(BhtomLCOFormMixin, LCOImagingObservationFor
         self.helper.layout.insert(insert_index, HTML(html))
 
 
+class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
+    monitoring_filter_codes = LCO_ETC_FILTER_ORDER
+
+    def __init__(self, *args, **kwargs):
+        if not kwargs.get('data'):
+            initial = dict(kwargs.get('initial') or {})
+            start = initial.get('start') or datetime.now(timezone.utc).replace(microsecond=0)
+            if isinstance(start, str):
+                try:
+                    start = datetime.fromisoformat(start)
+                except ValueError:
+                    start = datetime.now(timezone.utc).replace(microsecond=0)
+            initial['start'] = start
+            initial['end'] = start + timedelta(days=7)
+            target = self._target_from_initial(initial)
+            if target and getattr(target, 'cadence', None) is not None:
+                initial.setdefault('period', target.cadence)
+            else:
+                initial.setdefault('period', 1)
+            initial.setdefault('jitter', 0)
+            initial.setdefault('observation_mode', 'NORMAL')
+            initial.setdefault('optimization_type', 'TIME')
+            initial.setdefault('configuration_repeats', 1)
+            kwargs['initial'] = initial
+        super().__init__(*args, **kwargs)
+        self._configure_monitoring_fields()
+        self._add_monitoring_filter_fields()
+        self.helper.layout = self._monitoring_layout()
+
+    def _target_from_initial(self, initial):
+        target_id = initial.get('target_id') or self.data.get('target_id')
+        if not target_id:
+            return None
+        try:
+            return Target.objects.get(pk=target_id)
+        except Target.DoesNotExist:
+            return None
+
+    def _configure_monitoring_fields(self):
+        for field_name in ('start', 'end'):
+            self.fields[field_name].widget = forms.DateTimeInput(attrs={'type': 'datetime-local'})
+            self.fields[field_name].required = True
+        self.fields['period'].label = 'Cadence'
+        self.fields['period'].help_text = 'days'
+        self.fields['period'].required = True
+        self.fields['period'].min_value = 0.01
+        self.fields['jitter'].widget = forms.HiddenInput()
+        self.fields['jitter'].required = False
+        self.fields['optimization_type'].widget = forms.HiddenInput()
+        self.fields['optimization_type'].required = False
+        self.fields['configuration_repeats'].widget = forms.HiddenInput()
+        self.fields['configuration_repeats'].required = False
+        self.fields['c_1_configuration_type'].initial = 'EXPOSE'
+        self.fields['c_1_configuration_type'].widget = forms.HiddenInput()
+        self.fields['c_1_configuration_type'].required = False
+        self.fields['c_1_max_airmass'].required = True
+        self.fields['c_1_min_lunar_distance'].required = False
+        self.fields['c_1_max_lunar_phase'].widget = forms.HiddenInput()
+        self.fields['dither_pattern'].label = 'Dither'
+        self.fields['dither_pattern'].choices = (('', 'None'), ('line', 'Line'), ('spiral', 'Spiral'))
+        self.fields['dither_num_points'].initial = 3
+        self.fields['dither_point_spacing'].initial = 10
+        self.fields['dither_center'].initial = True
+        for field_name in (
+            'dither_num_points', 'dither_point_spacing', 'dither_line_spacing', 'dither_orientation',
+            'dither_num_rows', 'dither_num_columns', 'dither_center', 'mosaic_pattern', 'mosaic_num_points',
+            'mosaic_point_overlap', 'mosaic_line_overlap', 'mosaic_orientation', 'mosaic_num_rows',
+            'mosaic_num_columns', 'mosaic_center',
+        ):
+            if field_name in self.fields:
+                self.fields[field_name].required = False
+
+    def _add_monitoring_filter_fields(self):
+        rows = self.lco_etc_context.get('rows_by_class', {}).get('0m4', [])
+        exposures = {row['filter_code']: row.get('exposure_time') for row in rows}
+        magnitudes = {row['filter_code']: row.get('magnitude') for row in rows}
+        for filter_code in self.monitoring_filter_codes:
+            filter_label = LCO_ETC_FILTER_LABELS.get(filter_code, filter_code)
+            self.fields[f'monitoring_mag_{filter_code}'] = forms.FloatField(
+                label='',
+                initial=magnitudes.get(filter_code, 18.0),
+                required=False,
+                widget=forms.NumberInput(attrs={
+                    'step': '0.01',
+                    'class': 'form-control form-control-sm monitoring-mag',
+                    'aria-label': f'{filter_label} magnitude',
+                }),
+            )
+            self.fields[f'monitoring_exp_{filter_code}'] = forms.FloatField(
+                label='',
+                initial=exposures.get(filter_code) or '',
+                min_value=0.1,
+                required=False,
+                widget=forms.NumberInput(attrs={
+                    'step': '0.1',
+                    'class': 'form-control form-control-sm monitoring-exp',
+                    'aria-label': f'{filter_label} exposure time',
+                }),
+            )
+            self.fields[f'monitoring_frames_{filter_code}'] = forms.IntegerField(
+                label='',
+                initial=0,
+                min_value=0,
+                required=False,
+                widget=forms.NumberInput(attrs={
+                    'step': '1',
+                    'class': 'form-control form-control-sm monitoring-frames',
+                    'aria-label': f'{filter_label} number of frames',
+                }),
+            )
+
+    def _monitoring_filter_table_html(self):
+        rows = []
+        for filter_code in self.monitoring_filter_codes:
+            label = LCO_ETC_FILTER_LABELS.get(filter_code, filter_code)
+            rows.append(f"""
+              <tr data-filter-code="{filter_code}">
+                <td>{label}</td>
+                <td>{{{{ form.monitoring_mag_{filter_code}|as_crispy_field }}}}</td>
+                <td>{{{{ form.monitoring_exp_{filter_code}|as_crispy_field }}}}</td>
+                <td>{{{{ form.monitoring_frames_{filter_code}|as_crispy_field }}}}</td>
+              </tr>
+            """)
+        return f"""
+        {{% load crispy_forms_tags %}}
+        <div class="table-responsive mt-3">
+          <table class="table table-sm table-striped lco-monitoring-table">
+            <thead>
+              <tr>
+                <th>Filter</th>
+                <th>Magnitude</th>
+                <th>Exposure Time [s]</th>
+                <th>Number of Frames</th>
+              </tr>
+            </thead>
+            <tbody>{''.join(rows)}</tbody>
+          </table>
+        </div>
+        """
+
+    def _monitoring_etc_script(self):
+        context_json = json.dumps(self.lco_etc_context)
+        return f"""
+<script>
+(function() {{
+  const context = {context_json};
+  const FILTER_INDEX = {json.dumps(LCO_ETC_FILTER_INDEX)};
+  const TELESCOPE_INDEX = {json.dumps(LCO_ETC_TELESCOPE_INDEX)};
+  const PIXEL_SCALE = {json.dumps(LCO_ETC_PIXEL_SCALE)};
+  const RON = {json.dumps(LCO_ETC_RON)};
+  const DARK = {json.dumps(LCO_ETC_DARK)};
+  const ZEROPOINT = {json.dumps(LCO_ETC_ZEROPOINT)};
+  const SKY = {json.dumps(LCO_ETC_SKY_BRIGHTNESS)};
+  const EXT = {json.dumps(LCO_ETC_EXTINCTION)};
+  const telescopeSelect = document.getElementById('lco-monitoring-telescope-class');
+  const snrInput = document.getElementById('lco-monitoring-snr');
+  const instrumentField = document.getElementById('id_c_1_instrument_type');
+  const recomputeButton = document.getElementById('lco-monitoring-recompute');
+
+  function calculateExposureTime(telescopeClass, filterCode, magnitude, signalToNoise) {{
+    const telescopeIndex = TELESCOPE_INDEX[telescopeClass];
+    const filterIndex = FILTER_INDEX[filterCode];
+    if (telescopeIndex === undefined || filterIndex === undefined) return null;
+    const zeropoint = ZEROPOINT[telescopeIndex][filterIndex];
+    if (!zeropoint || !Number.isFinite(zeropoint)) return null;
+    const mag = Number(magnitude);
+    const snr = Number(signalToNoise);
+    if (!Number.isFinite(mag) || !Number.isFinite(snr) || snr <= 0) return null;
+    const apertureArea = Math.PI * 3.0 * 3.0 / 4.0;
+    const pixelScale = PIXEL_SCALE[telescopeIndex];
+    const pixelCount = apertureArea / (pixelScale * pixelScale);
+    const skyMag = SKY[1][filterIndex];
+    const airmassCorrection = (1.3 - 1.0) * EXT[filterIndex];
+    for (let exposureTime = 1; exposureTime < 200000; exposureTime += 1) {{
+      const objectRate = Math.pow(10, -0.4 * ((mag + airmassCorrection) - zeropoint));
+      const backgroundRate = Math.pow(10, -0.4 * (skyMag - zeropoint)) * apertureArea;
+      const readNoise = pixelCount * RON[telescopeIndex] * RON[telescopeIndex];
+      const objectElectrons = objectRate * exposureTime;
+      const noise = Math.sqrt(objectElectrons + backgroundRate * exposureTime + pixelCount * DARK[telescopeIndex] * exposureTime + readNoise);
+      if (objectElectrons / noise >= snr) return Math.round(exposureTime);
+    }}
+    return null;
+  }}
+
+  function syncInstrumentToTelescopeClass() {{
+    if (!instrumentField || !telescopeSelect) return;
+    const instrumentCodes = context.instruments_by_class[telescopeSelect.value] || [];
+    const currentClass = context.instrument_to_class[instrumentField.value || ''];
+    if (instrumentCodes.length && currentClass !== telescopeSelect.value) instrumentField.value = instrumentCodes[0];
+  }}
+
+  function syncTelescopeFromInstrument() {{
+    if (!instrumentField || !instrumentField.value || !telescopeSelect) return;
+    const classCode = context.instrument_to_class[instrumentField.value];
+    if (classCode) telescopeSelect.value = classCode;
+  }}
+
+  function recompute() {{
+    document.querySelectorAll('.lco-monitoring-table tbody tr').forEach((row) => {{
+      const filterCode = row.dataset.filterCode;
+      const magInput = row.querySelector('.monitoring-mag');
+      const expInput = row.querySelector('.monitoring-exp');
+      const exposure = calculateExposureTime(telescopeSelect.value, filterCode, magInput.value, snrInput.value);
+      if (expInput && exposure !== null) expInput.value = exposure;
+    }});
+  }}
+
+  syncTelescopeFromInstrument();
+  syncInstrumentToTelescopeClass();
+  if (recomputeButton) recomputeButton.addEventListener('click', recompute);
+  if (telescopeSelect) telescopeSelect.addEventListener('change', () => {{ syncInstrumentToTelescopeClass(); recompute(); }});
+  if (instrumentField) instrumentField.addEventListener('change', syncTelescopeFromInstrument);
+}})();
+</script>
+"""
+
+    def _monitoring_layout(self):
+        telescope_options = ''.join(
+            f'<option value="{choice["value"]}">{choice["label"]}</option>'
+            for choice in self.lco_etc_context.get('telescope_choices', [])
+        )
+        calculator_html = f"""
+        <div class="card mt-3">
+          <div class="card-body">
+            <h5 class="card-title">LCO Exposure Time Suggestions</h5>
+            <p class="text-muted small mb-3">
+              Based on the public LCO exposure time calculator logic for imaging, with initial values from the most recent target photometry.
+              Default guess: 0.4 m, S/N = 100, airmass = 1.3, half moon.
+            </p>
+            <div class="form-row align-items-end mb-3">
+              <div class="col-md-3">
+                <label for="lco-monitoring-telescope-class">Telescope</label>
+                <select id="lco-monitoring-telescope-class" class="form-control">{telescope_options}</select>
+              </div>
+              <div class="col-md-3">
+                <label for="lco-monitoring-snr">S/N</label>
+                <input id="lco-monitoring-snr" class="form-control" type="number" min="1" step="1" value="100">
+              </div>
+              <div class="col-md-3">
+                <button id="lco-monitoring-recompute" type="button" class="btn btn-outline-primary">Recompute</button>
+              </div>
+            </div>
+            {self._monitoring_filter_table_html()}
+          </div>
+        </div>
+        {self._monitoring_etc_script()}
+        """
+        return Layout(
+            self.common_layout,
+            Div(
+                Div('name', css_class='col'),
+                Div('proposal', css_class='col'),
+                css_class='form-row',
+            ),
+            Div(
+                Div('observation_mode', css_class='col'),
+                Div('ipp_value', css_class='col'),
+                css_class='form-row',
+            ),
+            Div('optimization_type', 'configuration_repeats', 'jitter', 'c_1_configuration_type', 'c_1_max_lunar_phase'),
+            Div(
+                Div('c_1_max_airmass', css_class='col'),
+                Div('c_1_min_lunar_distance', css_class='col'),
+                css_class='form-row',
+            ),
+            Div(
+                Div('start', css_class='col'),
+                Div('end', css_class='col'),
+                css_class='form-row',
+            ),
+            Div(
+                Div('period', css_class='col'),
+                Div('dither_pattern', css_class='col'),
+                css_class='form-row',
+            ),
+            Div(
+                Div('dither_num_points', css_class='col'),
+                Div('dither_point_spacing', css_class='col'),
+                Div('dither_orientation', css_class='col'),
+                css_class='form-row',
+            ),
+            Div(
+                Div('c_1_instrument_type', css_class='col'),
+                css_class='form-row',
+            ),
+            HTML(calculator_html),
+            self.button_layout(),
+        )
+
+    def clean_period(self):
+        cadence_days = self.cleaned_data['period']
+        return cadence_days * 24.0
+
+    def clean(self):
+        cleaned_data = super().clean()
+        has_selected_filter = any(
+            (cleaned_data.get(f'monitoring_frames_{filter_code}') or 0) > 0
+            for filter_code in self.monitoring_filter_codes
+        )
+        if not has_selected_filter:
+            raise ValidationError('Select at least one filter by setting Number of Frames greater than 0.')
+        return cleaned_data
+
+    def _build_instrument_configs(self, instrument_type, configuration_id):
+        instrument_configs = []
+        for filter_code in self.monitoring_filter_codes:
+            exposure_count = self.cleaned_data.get(f'monitoring_frames_{filter_code}') or 0
+            exposure_time = self.cleaned_data.get(f'monitoring_exp_{filter_code}')
+            if exposure_count <= 0:
+                continue
+            if not exposure_time:
+                raise ValidationError(f'Exposure time is required for {LCO_ETC_FILTER_LABELS.get(filter_code, filter_code)}.')
+            instrument_configs.append({
+                'exposure_count': exposure_count,
+                'exposure_time': exposure_time,
+                'optical_elements': {'filter': filter_code},
+            })
+        return instrument_configs
+
+
 class BhtomLCOMuscatImagingObservationForm(BhtomLCOFormMixin, LCOMuscatImagingObservationForm):
     pass
 
@@ -743,6 +1065,7 @@ class BhtomLCOSpectroscopicSequenceForm(BhtomLCOFormMixin, LCOSpectroscopicSeque
 class LCOFacility(BaseLCOFacility):
     observation_forms = {
         'IMAGING': BhtomLCOImagingObservationForm,
+        'MONITORING': BhtomLCOMonitoringObservationForm,
         'MUSCAT_IMAGING': BhtomLCOMuscatImagingObservationForm,
         'SPECTRA': BhtomLCOSpectroscopyObservationForm,
         'PHOTOMETRIC_SEQUENCE': BhtomLCOPhotometricSequenceForm,

@@ -27,6 +27,7 @@ from tom_targets.models import Target, TargetName
 from bhtom3.bhtom_observations.facilities.lco import (
     AccountLCOSettings,
     BhtomLCOImagingObservationForm,
+    BhtomLCOMonitoringObservationForm,
     LCOFacility,
     calculate_lco_etc_exposure_time,
     resolve_lco_bhtom2_observatory_oname,
@@ -3436,6 +3437,81 @@ class LCOFacilityAccountRoutingTests(TestCase):
 
         self.assertIn('No Instrument Found', instruments)
         self.assertEqual(mock_get.call_args.kwargs['timeout'], 8)
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    def test_lco_monitoring_form_prefills_week_window_and_target_cadence(self, mock_get_instruments):
+        mock_get_instruments.return_value = _minimal_lco_instruments()
+        self.target.cadence = 2.5
+        self.target.save(update_fields=['cadence'])
+        fixed_start = datetime(2026, 6, 2, 7, 15, 30, tzinfo=timezone.utc)
+
+        form = BhtomLCOMonitoringObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+            'start': fixed_start,
+        })
+
+        self.assertEqual(form.initial['end'], fixed_start + timedelta(days=7))
+        self.assertEqual(form.initial['period'], 2.5)
+        self.assertEqual(form.fields['period'].help_text, 'days')
+        self.assertIn('monitoring_frames_gp', form.fields)
+        self.assertIn('MONITORING', LCOFacility.observation_forms)
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    @patch('bhtom3.bhtom_observations.facilities.lco.make_request')
+    def test_lco_monitoring_payload_uses_selected_filter_frames_as_single_cadenced_request(
+        self, mock_make_request, mock_get_instruments
+    ):
+        mock_get_instruments.return_value = _minimal_lco_instruments()
+        mock_make_request.return_value.json.return_value = {'requests': [{'id': 'expanded'}]}
+        form = BhtomLCOMonitoringObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+        form.cleaned_data = {
+            'name': 'BHTOM LCO Target 20260602',
+            'proposal': str(self.proposal.pk),
+            'ipp_value': 1.05,
+            'observation_mode': 'NORMAL',
+            'optimization_type': 'TIME',
+            'configuration_repeats': 1,
+            'target_id': self.target.pk,
+            'start': '2026-06-02T12:00:00+00:00',
+            'end': '2026-06-09T12:00:00+00:00',
+            'period': 48.0,
+            'jitter': 0.0,
+            'c_1_instrument_type': '0M4-SCICAM-SBIG',
+            'c_1_configuration_type': 'EXPOSE',
+            'c_1_max_airmass': 1.6,
+            'c_1_min_lunar_distance': 30,
+            'c_1_max_lunar_phase': None,
+            'dither_pattern': '',
+            'dither_point_spacing': None,
+            'monitoring_frames_gp': 2,
+            'monitoring_exp_gp': 86.0,
+        }
+        for filter_code in BhtomLCOMonitoringObservationForm.monitoring_filter_codes:
+            form.cleaned_data.setdefault(f'monitoring_frames_{filter_code}', 0)
+            form.cleaned_data.setdefault(f'monitoring_exp_{filter_code}', None)
+
+        result = form.observation_payload()
+
+        self.assertEqual(result, {'requests': [{'id': 'expanded'}]})
+        submitted_payload = mock_make_request.call_args.kwargs['json']
+        request = submitted_payload['requests'][0]
+        self.assertEqual(request['cadence']['period'], 48.0)
+        self.assertEqual(request['windows'], [])
+        self.assertEqual(len(request['configurations']), 1)
+        configuration = request['configurations'][0]
+        self.assertEqual(configuration['constraints']['max_airmass'], 1.6)
+        self.assertEqual(configuration['constraints']['min_lunar_distance'], 30)
+        self.assertEqual(configuration['instrument_configs'], [{
+            'exposure_count': 2,
+            'exposure_time': 86.0,
+            'optical_elements': {'filter': 'gp'},
+        }])
 
 
 class LCOObservationCreateInitialTests(TestCase):
