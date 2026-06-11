@@ -1113,6 +1113,31 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             center += cadence_delta
         return requests
 
+    def _monitoring_schedule_summary(self):
+        requests = self._build_monitoring_requests(self._build_configuration(1))
+        cadence_days = float(self.cleaned_data['period'])
+        dither_hours = float(self.cleaned_data['monitoring_dither_hours'])
+        windows = []
+        for request in requests[:5]:
+            window = request['windows'][0]
+            start = self._monitoring_datetime(window['start'])
+            end = self._monitoring_datetime(window['end'])
+            windows.append(f'{start:%Y-%m-%d %H:%M}-{end:%H:%M} UTC')
+        suffix = '; ...' if len(requests) > len(windows) else ''
+        return (
+            f'Schedule: {len(requests)} window(s), cadence {cadence_days:g} day(s), '
+            f'dither +/- {dither_hours:g} hour(s). Windows: {"; ".join(windows)}{suffix}'
+        )
+
+    def get_validation_message(self):
+        message = str(getattr(self, 'validation_message', '') or 'This observation is valid.')
+        try:
+            schedule_summary = self._monitoring_schedule_summary()
+        except Exception as exc:
+            logger.warning('Could not build LCO Monitoring schedule summary: %s', exc)
+            return message
+        return f'{message} {schedule_summary}'
+
     def observation_payload(self):
         configuration = self._build_configuration(1)
         if not configuration:
