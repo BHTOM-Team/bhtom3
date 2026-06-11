@@ -7,6 +7,7 @@ from html import escape
 from urllib.parse import urljoin, urlparse
 
 import requests
+from dateutil.parser import parse
 from crispy_forms.layout import Div, HTML, Layout
 from django import forms
 from django.conf import settings
@@ -766,6 +767,13 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             return None
 
     def _configure_monitoring_fields(self):
+        self.fields['monitoring_dither_hours'] = forms.FloatField(
+            label='Dither',
+            help_text='hours',
+            initial=1,
+            min_value=0,
+            required=True,
+        )
         for field_name in ('start', 'end'):
             self.fields[field_name].widget = forms.DateTimeInput(attrs={'type': 'datetime-local'})
             self.fields[field_name].required = True
@@ -785,18 +793,15 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
         self.fields['c_1_max_airmass'].required = True
         self.fields['c_1_min_lunar_distance'].required = False
         self.fields['c_1_max_lunar_phase'].widget = forms.HiddenInput()
-        self.fields['dither_pattern'].label = 'Dither'
-        self.fields['dither_pattern'].choices = (('', 'None'), ('line', 'Line'), ('spiral', 'Spiral'))
-        self.fields['dither_num_points'].initial = 3
-        self.fields['dither_point_spacing'].initial = 10
-        self.fields['dither_center'].initial = True
         for field_name in (
-            'dither_num_points', 'dither_point_spacing', 'dither_line_spacing', 'dither_orientation',
-            'dither_num_rows', 'dither_num_columns', 'dither_center', 'mosaic_pattern', 'mosaic_num_points',
+            'dither_pattern', 'dither_num_points', 'dither_point_spacing', 'dither_line_spacing',
+            'dither_orientation', 'dither_num_rows', 'dither_num_columns', 'dither_center',
+            'mosaic_pattern', 'mosaic_num_points',
             'mosaic_point_overlap', 'mosaic_line_overlap', 'mosaic_orientation', 'mosaic_num_rows',
             'mosaic_num_columns', 'mosaic_center',
         ):
             if field_name in self.fields:
+                self.fields[field_name].widget = forms.HiddenInput()
                 self.fields[field_name].required = False
 
     def _add_monitoring_filter_fields(self):
@@ -1016,13 +1021,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             ),
             Div(
                 Div('period', css_class='col'),
-                Div('dither_pattern', css_class='col'),
-                css_class='form-row',
-            ),
-            Div(
-                Div('dither_num_points', css_class='col'),
-                Div('dither_point_spacing', css_class='col'),
-                Div('dither_orientation', css_class='col'),
+                Div('monitoring_dither_hours', css_class='col'),
                 css_class='form-row',
             ),
             Div(
@@ -1034,8 +1033,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
         )
 
     def clean_period(self):
-        cadence_days = self.cleaned_data['period']
-        return cadence_days * 24.0
+        return self.cleaned_data['period']
 
     def clean(self):
         cleaned_data = super().clean()
@@ -1062,6 +1060,46 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
                 'optical_elements': {'filter': filter_code},
             })
         return instrument_configs
+
+    def _monitoring_datetime(self, value):
+        parsed = parse(value) if isinstance(value, str) else value
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def _build_monitoring_requests(self, configuration):
+        start = self._monitoring_datetime(self.cleaned_data['start'])
+        end = self._monitoring_datetime(self.cleaned_data['end'])
+        cadence_delta = timedelta(days=float(self.cleaned_data['period']))
+        dither_delta = timedelta(hours=float(self.cleaned_data['monitoring_dither_hours']))
+        requests = []
+        center = start
+        while center <= end:
+            requests.append({
+                'optimization_type': self.cleaned_data['optimization_type'],
+                'configuration_repeats': self.cleaned_data['configuration_repeats'],
+                'configurations': [configuration],
+                'windows': [{
+                    'start': (center - dither_delta).isoformat(),
+                    'end': (center + dither_delta).isoformat(),
+                }],
+                'location': self._build_location(),
+            })
+            center += cadence_delta
+        return requests
+
+    def observation_payload(self):
+        configuration = self._build_configuration(1)
+        if not configuration:
+            raise ValidationError('Select at least one filter by setting Number of Frames greater than 0.')
+        return {
+            'name': self.cleaned_data['name'],
+            'proposal': self.cleaned_data['proposal'],
+            'ipp_value': self.cleaned_data['ipp_value'],
+            'operator': 'SINGLE',
+            'observation_type': self.cleaned_data['observation_mode'],
+            'requests': self._build_monitoring_requests(configuration),
+        }
 
 
 class BhtomLCOMuscatImagingObservationForm(BhtomLCOFormMixin, LCOMuscatImagingObservationForm):

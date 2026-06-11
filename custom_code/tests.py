@@ -3455,16 +3455,13 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertEqual(form.initial['end'], fixed_start + timedelta(days=7))
         self.assertEqual(form.initial['period'], 2.5)
         self.assertEqual(form.fields['period'].help_text, 'days')
+        self.assertEqual(form.fields['monitoring_dither_hours'].help_text, 'hours')
         self.assertIn('monitoring_frames_gp', form.fields)
         self.assertIn('MONITORING', LCOFacility.observation_forms)
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
-    @patch('bhtom3.bhtom_observations.facilities.lco.make_request')
-    def test_lco_monitoring_payload_uses_selected_filter_frames_as_single_cadenced_request(
-        self, mock_make_request, mock_get_instruments
-    ):
+    def test_lco_monitoring_payload_uses_selected_filter_frames_as_repeated_windows(self, mock_get_instruments):
         mock_get_instruments.return_value = _minimal_lco_instruments()
-        mock_make_request.return_value.json.return_value = {'requests': [{'id': 'expanded'}]}
         form = BhtomLCOMonitoringObservationForm(initial={
             'request_user_id': self.user.pk,
             'target_id': self.target.pk,
@@ -3480,7 +3477,8 @@ class LCOFacilityAccountRoutingTests(TestCase):
             'target_id': self.target.pk,
             'start': '2026-06-02T12:00:00+00:00',
             'end': '2026-06-09T12:00:00+00:00',
-            'period': 48.0,
+            'period': 2.0,
+            'monitoring_dither_hours': 1.5,
             'jitter': 0.0,
             'c_1_instrument_type': '0M4-SCICAM-SBIG',
             'c_1_configuration_type': 'EXPOSE',
@@ -3498,11 +3496,17 @@ class LCOFacilityAccountRoutingTests(TestCase):
 
         result = form.observation_payload()
 
-        self.assertEqual(result, {'requests': [{'id': 'expanded'}]})
-        submitted_payload = mock_make_request.call_args.kwargs['json']
-        request = submitted_payload['requests'][0]
-        self.assertEqual(request['cadence']['period'], 48.0)
-        self.assertEqual(request['windows'], [])
+        self.assertEqual(len(result['requests']), 4)
+        self.assertEqual(
+            [request['windows'][0] for request in result['requests']],
+            [
+                {'start': '2026-06-02T10:30:00+00:00', 'end': '2026-06-02T13:30:00+00:00'},
+                {'start': '2026-06-04T10:30:00+00:00', 'end': '2026-06-04T13:30:00+00:00'},
+                {'start': '2026-06-06T10:30:00+00:00', 'end': '2026-06-06T13:30:00+00:00'},
+                {'start': '2026-06-08T10:30:00+00:00', 'end': '2026-06-08T13:30:00+00:00'},
+            ],
+        )
+        request = result['requests'][0]
         self.assertEqual(len(request['configurations']), 1)
         configuration = request['configurations'][0]
         self.assertEqual(configuration['constraints']['max_airmass'], 1.6)
