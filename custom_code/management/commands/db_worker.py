@@ -9,7 +9,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import connections
+from django.db import connections, transaction
 from django.db.utils import OperationalError
 
 from custom_code.tasks import enqueue_observation_status_update
@@ -20,11 +20,45 @@ from django_tasks.backends.database.management.commands.db_worker import (
     valid_interval,
 )
 from django_tasks.backends.database.models import DBTaskResult
-from django_tasks.backends.database.utils import exclusive_transaction
 from django_tasks.task import DEFAULT_QUEUE_NAME
 
 
 logger = logging.getLogger("custom_code.bhtom_db_worker")
+
+
+class CompatibleExclusiveTransaction:
+    def __init__(self, using):
+        self.using = using
+        self.connection = None
+        self.cursor = None
+        self.manual = False
+        self.atomic = None
+
+    def __enter__(self):
+        self.connection = transaction.get_connection(self.using)
+        transaction_mode = getattr(self.connection, "transaction_mode", None)
+        self.manual = self.connection.vendor == "sqlite" and transaction_mode != "EXCLUSIVE"
+
+        if self.manual:
+            self.cursor = self.connection.cursor()
+            self.cursor.execute("BEGIN EXCLUSIVE")
+            return self
+
+        self.atomic = transaction.atomic(using=self.using)
+        return self.atomic.__enter__()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.manual:
+            try:
+                if exc_type is None:
+                    self.cursor.execute("COMMIT")
+                else:
+                    self.cursor.execute("ROLLBACK")
+            finally:
+                self.cursor.close()
+            return False
+
+        return self.atomic.__exit__(exc_type, exc_value, traceback)
 
 
 class ScheduledStatusWorker:
@@ -115,7 +149,7 @@ class ScheduledStatusWorker:
             try:
                 self.running_task = True
 
-                with exclusive_transaction(tasks.db):
+                with CompatibleExclusiveTransaction(tasks.db):
                     try:
                         task_result = tasks.get_locked()
                     except OperationalError as exc:
