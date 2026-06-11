@@ -3091,26 +3091,31 @@ class ProposalAwareObservationCreateView(TomObservationCreateView):
         context = super(TomObservationCreateView, self).get_context_data(**kwargs)
         observation_type_choices = []
         initial = self.get_initial()
+        bound_form = kwargs.get('form')
+        active_observation_type = self.request.POST.get('observation_type')
         for observation_type, observation_form_class in self.get_facility_class().observation_forms.items():
-            form_data = {**initial, **{'observation_type': observation_type}}
-            if observation_type == self.request.POST.get('observation_type'):
-                form_data.update(**self.request.POST.dict())
-            observation_form_class = type(
-                f'Composite{observation_type}Form',
-                (self.get_cadence_strategy_form(), observation_form_class),
-                {},
-            )
-            form_kwargs = {'initial': form_data}
-            if self.get_facility() == 'LCO':
-                form_kwargs['facility_settings'] = self._get_lco_facility_settings()
-            observation_form = observation_form_class(**form_kwargs)
+            if bound_form is not None and observation_type == active_observation_type:
+                observation_form = bound_form
+            else:
+                form_data = {**initial, **{'observation_type': observation_type}}
+                if observation_type == active_observation_type:
+                    form_data.update(**self.request.POST.dict())
+                observation_form_class = type(
+                    f'Composite{observation_type}Form',
+                    (self.get_cadence_strategy_form(), observation_form_class),
+                    {},
+                )
+                form_kwargs = {'initial': form_data}
+                if self.get_facility() == 'LCO':
+                    form_kwargs['facility_settings'] = self._get_lco_facility_settings()
+                observation_form = observation_form_class(**form_kwargs)
             if not settings.TARGET_PERMISSIONS_ONLY and 'groups' in observation_form.fields:
                 observation_form.fields['groups'].queryset = self.request.user.groups.all()
             observation_form.helper.form_action = reverse('tom_observations:create', kwargs=self.kwargs)
             self._configure_observation_form(observation_form)
             observation_type_choices.append((observation_type, observation_form))
         context['observation_type_choices'] = observation_type_choices
-        context['active'] = self.request.POST.get('observation_type')
+        context['active'] = active_observation_type
         context['target'] = Target.objects.get(pk=self.get_target_id())
         context.update(self.get_facility_class()().get_facility_context_data())
         return context
