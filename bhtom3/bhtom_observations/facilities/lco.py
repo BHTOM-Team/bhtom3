@@ -1121,7 +1121,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             'name': self.cleaned_data['name'],
             'proposal': self.cleaned_data['proposal'],
             'ipp_value': self.cleaned_data['ipp_value'],
-            'operator': 'SINGLE',
+            'operator': 'MANY',
             'observation_type': self.cleaned_data['observation_mode'],
             'requests': self._build_monitoring_requests(configuration),
         }

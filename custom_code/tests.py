@@ -3581,6 +3581,7 @@ class LCOFacilityAccountRoutingTests(TestCase):
 
         result = form.observation_payload()
 
+        self.assertEqual(result['operator'], 'MANY')
         self.assertEqual(len(result['requests']), 4)
         self.assertEqual(
             [request['windows'][0] for request in result['requests']],
