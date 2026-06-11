@@ -1070,11 +1070,25 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed
 
+    def validate_at_facility(self):
+        if self._errors:
+            return
+        required_fields = (
+            'name', 'proposal', 'ipp_value', 'observation_mode', 'target_id', 'start', 'end', 'period',
+            'monitoring_dither_hours', 'c_1_instrument_type', 'c_1_configuration_type', 'c_1_max_airmass',
+        )
+        if any(field_name not in self.cleaned_data for field_name in required_fields):
+            return
+        super().validate_at_facility()
+
     def _build_monitoring_requests(self, configuration):
-        start = self._monitoring_datetime(self.cleaned_data['start'])
-        end = self._monitoring_datetime(self.cleaned_data['end'])
-        cadence_delta = timedelta(days=float(self.cleaned_data['period']))
-        dither_delta = timedelta(hours=float(self.cleaned_data['monitoring_dither_hours']))
+        try:
+            start = self._monitoring_datetime(self.cleaned_data['start'])
+            end = self._monitoring_datetime(self.cleaned_data['end'])
+            cadence_delta = timedelta(days=float(self.cleaned_data['period']))
+            dither_delta = timedelta(hours=float(self.cleaned_data['monitoring_dither_hours']))
+        except KeyError as exc:
+            raise ValidationError(f'Missing required Monitoring field: {exc.args[0]}') from exc
         requests = []
         center = start
         while center <= end:

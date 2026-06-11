@@ -3483,6 +3483,35 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertIn('monitoring_dither_hours', form.fields)
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    def test_lco_monitoring_validate_skips_remote_validation_when_start_is_missing(self, mock_get_instruments):
+        mock_get_instruments.return_value = _minimal_lco_instruments()
+        form = BhtomLCOMonitoringObservationForm(data={
+            'request_user_id': str(self.user.pk),
+            'target_id': str(self.target.pk),
+            'facility': 'LCO',
+            'observation_type': 'MONITORING',
+            'name': 'BHTOM LCO Target 20260602',
+            'proposal': str(self.proposal.pk),
+            'ipp_value': '1.05',
+            'observation_mode': 'NORMAL',
+            'end': '2026-06-09T12:00:00+00:00',
+            'period': '2',
+            'monitoring_dither_hours': '1.5',
+            'c_1_instrument_type': '0M4-SCICAM-SBIG',
+            'c_1_configuration_type': 'EXPOSE',
+            'c_1_max_airmass': '1.6',
+            'monitoring_frames_gp': '1',
+            'monitoring_exp_gp': '86',
+        }, initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('start', form.errors)
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_monitoring_payload_uses_selected_filter_frames_as_repeated_windows(self, mock_get_instruments):
         mock_get_instruments.return_value = _minimal_lco_instruments()
         form = BhtomLCOMonitoringObservationForm(initial={
