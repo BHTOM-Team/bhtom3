@@ -18,6 +18,7 @@ from tom_targets.models import Target, TargetName
 
 from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 from custom_code.data_services.forms import DESIQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 
@@ -97,7 +98,12 @@ class DESIDataService(DataService):
                    'X-DL-TimeoutRequest': str(300),
                    'X-DL-AuthToken': ANON_TOKEN} 
             datalab_url = '%s/query?sql=%s&ofmt=%s&out=%s&async=%s&drop=%s&&profile=%s' % (svc_url, query, qfmt, out, async_, drop,profile)
-            datalab_response = requests.get(datalab_url, headers=datalab_headers, stream=True)
+            datalab_response = requests.get(
+                datalab_url,
+                headers=datalab_headers,
+                stream=True,
+                timeout=DATA_SERVICE_HTTP_TIMEOUT,
+            )
             datalab_table = pd.read_csv(StringIO(datalab_response.text))
 
             if len(datalab_table) == 0:
@@ -112,7 +118,11 @@ class DESIDataService(DataService):
                         "outfields": ["sparcl_id", "specid"], 
                         "search": [
                             ["specid"] + specids]}
-                find_response = requests.post(find_url, json=find_payload).json()
+                find_response = requests.post(
+                    find_url,
+                    json=find_payload,
+                    timeout=DATA_SERVICE_HTTP_TIMEOUT,
+                ).json()
                 sparcl_ids = [item['sparcl_id'] for item in find_response if item.get('_dr') == 'DESI-DR1']
                 retrieve_params = {
                     "include": "specid,flux,wavelength", 
@@ -122,7 +132,9 @@ class DESIDataService(DataService):
                 retrieve_response = requests.post(
                     retrieve_url, 
                     params=retrieve_params, 
-                    json=sparcl_ids).json()
+                    json=sparcl_ids,
+                    timeout=DATA_SERVICE_HTTP_TIMEOUT,
+                ).json()
                 spectra_data = retrieve_response[1]
 
         except Exception as e:

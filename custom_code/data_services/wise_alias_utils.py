@@ -3,6 +3,8 @@ from io import StringIO
 import pandas as pd
 import requests
 
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
+
 
 def build_allwise_source_query(ra, dec, radius_arcsec):
     return (
@@ -20,7 +22,10 @@ def format_allwise_alias(designation):
 
 
 def fetch_allwise_alias(ra, dec, radius_arcsec):
-    response = requests.get(build_allwise_source_query(ra, dec, radius_arcsec))
+    response = requests.get(
+        build_allwise_source_query(ra, dec, radius_arcsec),
+        timeout=DATA_SERVICE_HTTP_TIMEOUT,
+    )
     if not response.text.strip():
         return None
 

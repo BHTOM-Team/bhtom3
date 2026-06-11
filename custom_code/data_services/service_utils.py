@@ -7,6 +7,7 @@ from tom_targets.models import Target
 logger = logging.getLogger(__name__)
 
 TARGET_NAME_HELP_TEXT = 'Optional. Search the data service by the catalog name.'
+DATA_SERVICE_HTTP_TIMEOUT = (30, 300)
 
 
 def normalize_target_name(value):

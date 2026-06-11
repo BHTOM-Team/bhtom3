@@ -2,6 +2,7 @@ import logging
 import random
 import signal
 import sys
+import threading
 import time
 from types import FrameType
 from typing import Optional
@@ -36,6 +37,8 @@ class ScheduledStatusWorker:
         backend_name,
         startup_delay,
         status_interval,
+        configure_signal_handlers=True,
+        worker_name=None,
     ):
         self.queue_names = queue_names
         self.process_all_queues = "*" in queue_names
@@ -45,9 +48,14 @@ class ScheduledStatusWorker:
         self.startup_delay = startup_delay
         self.status_interval = status_interval
         self.next_status_enqueue_at = 0.0 if status_interval else None
+        self.configure_signal_handlers = configure_signal_handlers
+        self.worker_name = worker_name or "worker"
 
         self.running = True
         self.running_task = False
+
+    def stop(self) -> None:
+        self.running = False
 
     def shutdown(self, signum: int, frame: Optional[FrameType]) -> None:
         if not self.running:
@@ -85,8 +93,13 @@ class ScheduledStatusWorker:
         )
 
     def start(self) -> None:
-        self.configure_signals()
-        logger.info("Starting BHTOM worker for queues=%s", ",".join(self.queue_names))
+        if self.configure_signal_handlers:
+            self.configure_signals()
+        logger.info(
+            "Starting BHTOM %s for queues=%s",
+            self.worker_name,
+            ",".join(self.queue_names),
+        )
 
         if self.startup_delay and self.interval:
             time.sleep(random.random())
@@ -199,8 +212,14 @@ class Command(BaseCommand):
         parser.add_argument(
             "--status-interval",
             type=int,
-            default=getattr(settings, "OBSERVATION_STATUS_UPDATE_INTERVAL_SECONDS", 600),
-            help="Seconds between observation status refresh jobs. Use 0 to disable (default: 600).",
+            default=getattr(settings, "OBSERVATION_STATUS_UPDATE_INTERVAL_SECONDS", 180),
+            help="Seconds between observation status refresh jobs. Use 0 to disable (default: 180).",
+        )
+        parser.add_argument(
+            "--workers",
+            type=int,
+            default=getattr(settings, "DB_WORKER_THREADS", 4),
+            help="Number of worker threads to run in this process (default: 4).",
         )
 
     def configure_logging(self, verbosity: int) -> None:
@@ -232,19 +251,68 @@ class Command(BaseCommand):
         backend_name: str,
         startup_delay: bool,
         status_interval: int,
+        workers: int,
         **options,
     ) -> None:
         self.configure_logging(verbosity)
+        worker_count = max(1, int(workers))
+        status_interval = max(0, int(status_interval))
+        queue_names = queue_name.split(",")
 
-        worker = ScheduledStatusWorker(
-            queue_names=queue_name.split(","),
-            interval=interval,
-            batch=batch,
-            backend_name=backend_name,
-            startup_delay=startup_delay,
-            status_interval=max(0, int(status_interval)),
-        )
-        worker.start()
+        if worker_count == 1:
+            worker = ScheduledStatusWorker(
+                queue_names=queue_names,
+                interval=interval,
+                batch=batch,
+                backend_name=backend_name,
+                startup_delay=startup_delay,
+                status_interval=status_interval,
+            )
+            worker.start()
+
+            if batch:
+                logger.info("No more tasks to run - exiting gracefully.")
+            return
+
+        workers_list = [
+            ScheduledStatusWorker(
+                queue_names=queue_names,
+                interval=interval,
+                batch=batch,
+                backend_name=backend_name,
+                startup_delay=startup_delay,
+                status_interval=status_interval if index == 0 else 0,
+                configure_signal_handlers=False,
+                worker_name=f"worker-{index + 1}",
+            )
+            for index in range(worker_count)
+        ]
+
+        def shutdown(signum: int, frame: Optional[FrameType]) -> None:
+            logger.warning(
+                "Received %s - shutting down %s workers gracefully...",
+                signal.strsignal(signum),
+                worker_count,
+            )
+            for scheduled_worker in workers_list:
+                scheduled_worker.stop()
+
+        signal.signal(signal.SIGINT, shutdown)
+        signal.signal(signal.SIGTERM, shutdown)
+        if hasattr(signal, "SIGQUIT"):
+            signal.signal(signal.SIGQUIT, shutdown)
+
+        threads = [
+            threading.Thread(
+                target=scheduled_worker.start,
+                name=scheduled_worker.worker_name,
+            )
+            for scheduled_worker in workers_list
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
 
         if batch:
             logger.info("No more tasks to run - exiting gracefully.")

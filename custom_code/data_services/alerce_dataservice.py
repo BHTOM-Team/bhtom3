@@ -10,6 +10,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import ZTFQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 logger = logging.getLogger(__name__)
@@ -25,13 +26,13 @@ def _to_float(value):
 def _getAlerceObjcet(ra,dec,rad):
   url=f"https://api.alerce.online/ztf/v1/objects/?ra={ra}&dec={dec}&radius={rad}&page=1&page_size=20&count=true"
   headers = {"accept": "application/json"}
-  response = requests.get(url, headers=headers)
+  response = requests.get(url, headers=headers, timeout=DATA_SERVICE_HTTP_TIMEOUT)
   return response.json()
 
 def _getAlerceLightCurve(oid):
   url=f"https://api.alerce.online/ztf/v1/objects/{oid}/lightcurve"
   headers = {"accept": "application/json"}
-  response = requests.get(url, headers=headers)
+  response = requests.get(url, headers=headers, timeout=DATA_SERVICE_HTTP_TIMEOUT)
   return response.json()
 
 def _get_filter(value):

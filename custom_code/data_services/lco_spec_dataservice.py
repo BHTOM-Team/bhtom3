@@ -13,6 +13,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 from custom_code.data_services.forms import LCOSpectraQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 
@@ -69,7 +70,10 @@ class LCOSpectraDataService(DataService):
             reduction_level = 91
             now_utc = datetime.now(timezone.utc)
             today_str = now_utc.date().strftime("%Y-%m-%d")
-            lco_res = requests.get(f"https://archive-api.lco.global/frames/?start=2014-01-01&end={today_str}&covers=POINT({ra} {dec})&public=true&exclude_calibrations=true&limit={limit}&configuration_type=SPECTRUM&reduction_level={reduction_level}").json()
+            lco_res = requests.get(
+                f"https://archive-api.lco.global/frames/?start=2014-01-01&end={today_str}&covers=POINT({ra} {dec})&public=true&exclude_calibrations=true&limit={limit}&configuration_type=SPECTRUM&reduction_level={reduction_level}",
+                timeout=DATA_SERVICE_HTTP_TIMEOUT,
+            ).json()
             lco_filtered_res = [obj for obj in lco_res['results']if any(telescope.lower() in obj['site_id'].lower() for telescope in lco_telescopes)]
             if len(lco_filtered_res)>0:
                 spectra_data = lco_filtered_res
@@ -174,7 +178,10 @@ class LCOSpectraDataService(DataService):
                     'value': serialized,})
                 else:
                     spec_id = spec_info['id']
-                    resp_rel_frames = requests.get(f"https://archive-api.lco.global/frames/{spec_id}/related/").json()
+                    resp_rel_frames = requests.get(
+                        f"https://archive-api.lco.global/frames/{spec_id}/related/",
+                        timeout=DATA_SERVICE_HTTP_TIMEOUT,
+                    ).json()
                     for rel_frame in resp_rel_frames:
                         if "e91-1d" in rel_frame['basename']:
                             spec_hdul = fits.open(rel_frame['url'])

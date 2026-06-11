@@ -210,7 +210,19 @@ def _get_data_service_classes():
 
 
 def enqueue_target_dataservices_update(target_id, include_create_only=True, force_all_services=False):
-    update_target_dataservices_for_target.enqueue(target_id, include_create_only, force_all_services)
+    enqueued = 0
+    for service_name, _service_class in _iter_selected_data_service_classes(
+        include_create_only=include_create_only,
+        force_all_services=force_all_services,
+    ):
+        update_target_dataservice_for_target.enqueue(
+            target_id,
+            service_name,
+            include_create_only,
+            force_all_services,
+        )
+        enqueued += 1
+    logger.info('Enqueued %s DataService jobs for target %s.', enqueued, target_id)
 
 
 def enqueue_observation_status_update():
@@ -249,6 +261,42 @@ def run_target_dataservices_for_target(target_id, include_create_only=True, forc
         logger.warning('Target %s not found for data service update.', target_id)
         return
 
+    for service_name, clazz in _iter_selected_data_service_classes(
+        include_create_only=include_create_only,
+        force_all_services=force_all_services,
+    ):
+        _run_service_for_target(target, service_name, clazz, force_all_services=force_all_services)
+
+    _refresh_target_summary_fields(target.id, 'task end')
+
+
+def run_target_dataservice_for_target(target_id, service_name, include_create_only=True, force_all_services=False):
+    close_old_connections()
+    try:
+        target = Target.objects.get(pk=target_id)
+    except Target.DoesNotExist:
+        logger.warning('Target %s not found for data service "%s" update.', target_id, service_name)
+        return
+
+    service_classes = _get_data_service_classes()
+    clazz = service_classes.get(service_name)
+    if clazz is None:
+        logger.info('Data service "%s" not installed; skipping target %s.', service_name, target.name)
+        return
+    if not _service_enabled_for_run(clazz, include_create_only=include_create_only):
+        logger.info(
+            'Data service "%s" is configured for target-create only; '
+            'skipping target %s in recurring refresh mode.',
+            service_name,
+            target.name,
+        )
+        return
+
+    _run_service_for_target(target, service_name, clazz, force_all_services=force_all_services)
+    _refresh_target_summary_fields(target.id, f'service "{service_name}" task end')
+
+
+def _iter_selected_data_service_classes(include_create_only=True, force_all_services=False):
     service_classes = _get_data_service_classes()
     service_names = getattr(settings, 'AUTO_QUERY_DATA_SERVICE_NAMES', None)
     if service_names and not force_all_services:
@@ -268,32 +316,35 @@ def run_target_dataservices_for_target(target_id, include_create_only=True, forc
                 service_name,
             )
             continue
-        _run_service_for_target(target, service_name, clazz, force_all_services=force_all_services)
+        yield service_name, clazz
 
-    # Ensure summary fields are refreshed once after all DataServices finish,
-    # even when all inserted rows were duplicates (get_or_create(created=False)).
+
+def _refresh_target_summary_fields(target_id, context):
     try:
-        refresh_target_last_photometry(target.id)
+        refresh_target_last_photometry(target_id)
     except Exception as exc:
         logger.warning(
-            'Could not refresh last photometry fields for target %s at task end: %s',
-            target.name,
+            'Could not refresh last photometry fields for target %s after %s: %s',
+            target_id,
+            context,
             exc,
         )
     try:
-        refresh_target_priority(target.id)
+        refresh_target_priority(target_id)
     except Exception as exc:
         logger.warning(
-            'Could not refresh priority for target %s at task end: %s',
-            target.name,
+            'Could not refresh priority for target %s after %s: %s',
+            target_id,
+            context,
             exc,
         )
     try:
-        refresh_target_sun_separation(target.id)
+        refresh_target_sun_separation(target_id)
     except Exception as exc:
         logger.warning(
-            'Could not refresh sun separation for target %s at task end: %s',
-            target.name,
+            'Could not refresh sun separation for target %s after %s: %s',
+            target_id,
+            context,
             exc,
         )
 
@@ -302,6 +353,16 @@ def run_target_dataservices_for_target(target_id, include_create_only=True, forc
 def update_target_dataservices_for_target(target_id, include_create_only=True, force_all_services=False):
     run_target_dataservices_for_target(
         target_id,
+        include_create_only=include_create_only,
+        force_all_services=force_all_services,
+    )
+
+
+@task
+def update_target_dataservice_for_target(target_id, service_name, include_create_only=True, force_all_services=False):
+    run_target_dataservice_for_target(
+        target_id,
+        service_name,
         include_create_only=include_create_only,
         force_all_services=force_all_services,
     )
@@ -317,6 +378,7 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
     )
 
     try:
+        logger.info('Data service "%s" starting for target %s.', service_name, target.name)
         built_parameters = service.build_query_parameters(query_parameters)
         target_results = service.query_targets(built_parameters)
     except Exception as exc:

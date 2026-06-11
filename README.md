@@ -37,7 +37,7 @@ Each has to have env setup and run on python3.11 ("type -a python" to check)
 `./manage.py db_worker`
 
 DB_Worker runs background DataServices jobs and enqueues observation status
-updates every 10 minutes.
+updates every 3 minutes.
 
 For one-shot enqueueing, for example from cron or launchd:
 

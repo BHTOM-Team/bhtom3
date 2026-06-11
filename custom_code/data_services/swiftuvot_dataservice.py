@@ -9,6 +9,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import SwiftUVOTQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 logger = logging.getLogger(__name__)
@@ -60,8 +61,12 @@ class SwiftUVOTDataService(DataService):
 
         try:
             src_data = {"ra": ra, "dec": dec}
-            requests.post(SWIFTUVOT_START_URL, json=src_data)
-            swift_response = requests.get(SWIFTUVOT_RESULT_URL, params=src_data)
+            requests.post(SWIFTUVOT_START_URL, json=src_data, timeout=DATA_SERVICE_HTTP_TIMEOUT)
+            swift_response = requests.get(
+                SWIFTUVOT_RESULT_URL,
+                params=src_data,
+                timeout=DATA_SERVICE_HTTP_TIMEOUT,
+            )
             swiift_data = swift_response.json()
 
             if len(swiift_data) == 0:

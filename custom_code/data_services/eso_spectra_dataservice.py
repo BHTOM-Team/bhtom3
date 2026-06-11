@@ -18,6 +18,7 @@ from tom_targets.models import Target, TargetName
 
 from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 from custom_code.data_services.forms import ESOSpectraQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 
@@ -163,7 +164,10 @@ class ESOSpectraDataService(DataService):
         for tab in spec_table:
             try:
                 serializer = SpectrumSerializer()
-                spec_res = requests.get(f"https://dataportal.eso.org/dataPortal/file/{tab['dp_id']}")
+                spec_res = requests.get(
+                    f"https://dataportal.eso.org/dataPortal/file/{tab['dp_id']}",
+                    timeout=DATA_SERVICE_HTTP_TIMEOUT,
+                )
                 spec_hdul = fits.open(BytesIO(spec_res.content))
                 time_mjd = spec_hdul[0].header['MJD-OBS']
                 target_id = spec_hdul[0].header['HIERARCH ESO OBS ID']

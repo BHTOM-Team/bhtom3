@@ -12,6 +12,7 @@ from tom_dataservices.dataservices import DataService
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import WISEQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,7 @@ class TwoMASSDataService(DataService):
         designation = None
         source_location = _build_twomass_query(ra, dec, radius_arcsec)
         try:
-            response = requests.get(source_location)
+            response = requests.get(source_location, timeout=DATA_SERVICE_HTTP_TIMEOUT)
             if response.text.strip():
                 response_table = response.text.split('null|\n', 1)[1]
                 lc_data = pd.read_csv(

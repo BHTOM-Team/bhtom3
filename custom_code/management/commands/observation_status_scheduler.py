@@ -14,8 +14,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--interval",
             type=int,
-            default=getattr(settings, "OBSERVATION_STATUS_UPDATE_INTERVAL_SECONDS", 600),
-            help="Seconds between enqueued status updates (default: 600).",
+            default=getattr(settings, "OBSERVATION_STATUS_UPDATE_INTERVAL_SECONDS", 180),
+            help="Seconds between enqueued status updates (default: 180).",
         )
         parser.add_argument(
             "--run-once",

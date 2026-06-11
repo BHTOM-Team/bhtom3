@@ -12,6 +12,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import PanSTARRSQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,10 @@ class PanSTARRSDataService(DataService):
         lc_data = None
         source_location = None
         try:
-            ps1_response = requests.get(f"https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/detection.csv?ra={ra}&dec={dec}&radius={radius_arcsec/3600.0}")
+            ps1_response = requests.get(
+                f"https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/detection.csv?ra={ra}&dec={dec}&radius={radius_arcsec/3600.0}",
+                timeout=DATA_SERVICE_HTTP_TIMEOUT,
+            )
             if ps1_response.text.strip():
                 lc_data = pd.read_csv(StringIO(ps1_response.text))
                 ps1_id = lc_data['objID'][0]

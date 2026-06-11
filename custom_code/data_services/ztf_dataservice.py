@@ -12,6 +12,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import ZTFQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,10 @@ class ZTFDataService(DataService):
         lc_data = None
         source_location = None
         try:
-            ztf_res = requests.get(_build_ztf_api_url(ra,dec,radius_arcsec))
+            ztf_res = requests.get(
+                _build_ztf_api_url(ra,dec,radius_arcsec),
+                timeout=DATA_SERVICE_HTTP_TIMEOUT,
+            )
             ztf_df = pd.read_csv(StringIO(ztf_res.text))
             if len(ztf_df)>0:
                 lc_data = ztf_df

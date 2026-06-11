@@ -12,6 +12,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import WISEQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 from custom_code.data_services.wise_alias_utils import fetch_allwise_alias
 
 
@@ -80,7 +81,10 @@ class AllWISEDataService(DataService):
         alias = None
         source_location = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?submit=Select&projshort=WISE"
         try:
-            wise_response = requests.get(_build_wise_query(ra,dec,radius_arcsec))
+            wise_response = requests.get(
+                _build_wise_query(ra,dec,radius_arcsec),
+                timeout=DATA_SERVICE_HTTP_TIMEOUT,
+            )
             if wise_response.text.strip():
                 res_tab = wise_response.text.split("null|\n", 1)[1]
                 lc_data = pd.read_csv(
