@@ -732,6 +732,8 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
     monitoring_filter_codes = LCO_ETC_FILTER_ORDER
 
     def __init__(self, *args, **kwargs):
+        if kwargs.get('data') is not None and hasattr(kwargs['data'], 'copy'):
+            kwargs['data'] = kwargs['data'].copy()
         if not kwargs.get('data'):
             initial = dict(kwargs.get('initial') or {})
             start = initial.get('start') or datetime.now(timezone.utc).replace(microsecond=0)
@@ -792,6 +794,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
         self.fields['c_1_configuration_type'].required = False
         self.fields['c_1_max_airmass'].required = True
         self.fields['c_1_min_lunar_distance'].required = False
+        self.fields['c_1_min_lunar_distance'].initial = 30
         self.fields['c_1_max_lunar_phase'].widget = forms.HiddenInput()
         for field_name in (
             'dither_pattern', 'dither_num_points', 'dither_point_spacing', 'dither_line_spacing',

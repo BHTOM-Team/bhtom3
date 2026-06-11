@@ -13,6 +13,7 @@ from datetime import timezone
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
+from django.http import QueryDict
 from django.test.client import RequestFactory
 from django.test import TestCase
 from django.urls import reverse
@@ -3456,8 +3457,30 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertEqual(form.initial['period'], 2.5)
         self.assertEqual(form.fields['period'].help_text, 'days')
         self.assertEqual(form.fields['monitoring_dither_hours'].help_text, 'hours')
+        self.assertEqual(form.fields['c_1_min_lunar_distance'].initial, 30)
         self.assertIn('monitoring_frames_gp', form.fields)
         self.assertIn('MONITORING', LCOFacility.observation_forms)
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    def test_lco_monitoring_accepts_immutable_post_data(self, mock_get_instruments):
+        mock_get_instruments.return_value = _minimal_lco_instruments()
+        data = QueryDict('', mutable=True)
+        data.update({
+            'request_user_id': str(self.user.pk),
+            'target_id': str(self.target.pk),
+            'facility': 'LCO',
+            'observation_type': 'MONITORING',
+            'name': 'BHTOM LCO Target 20260602',
+        })
+        data._mutable = False
+
+        form = BhtomLCOMonitoringObservationForm(data=data, initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+
+        self.assertIn('monitoring_dither_hours', form.fields)
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_monitoring_payload_uses_selected_filter_frames_as_repeated_windows(self, mock_get_instruments):
