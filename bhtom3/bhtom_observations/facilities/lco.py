@@ -776,9 +776,17 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             min_value=0,
             required=True,
         )
+        datetime_input_formats = [
+            '%Y-%m-%dT%H:%M',
+            '%Y-%m-%dT%H:%M:%S',
+            '%Y-%m-%d %H:%M:%S',
+        ]
         for field_name in ('start', 'end'):
-            self.fields[field_name].widget = forms.DateTimeInput(attrs={'type': 'datetime-local'})
-            self.fields[field_name].required = True
+            self.fields[field_name] = forms.DateTimeField(
+                input_formats=datetime_input_formats,
+                widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}, format='%Y-%m-%dT%H:%M'),
+                required=True,
+            )
         self.fields['period'].label = 'Cadence'
         self.fields['period'].help_text = 'days'
         self.fields['period'].required = True
