@@ -3,6 +3,7 @@ import logging
 import math
 import re
 from datetime import datetime, timedelta, timezone
+from html import escape
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -838,19 +839,36 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             )
 
     def _monitoring_filter_table_html(self):
+        def field_value(field_name):
+            if self.is_bound:
+                values = self.data.getlist(field_name) if hasattr(self.data, 'getlist') else [self.data.get(field_name)]
+                return '' if not values else values[-1]
+            return self.fields[field_name].initial
+
+        def number_input(field_name, css_class, step, aria_label):
+            value = field_value(field_name)
+            value_attr = '' if value is None else f' value="{escape(str(value))}"'
+            return (
+                f'<input type="number" name="{escape(field_name)}" id="id_{escape(field_name)}"'
+                f' class="form-control form-control-sm {escape(css_class)}"'
+                f' step="{escape(str(step))}" aria-label="{escape(aria_label)}"{value_attr}>'
+            )
+
         rows = []
         for filter_code in self.monitoring_filter_codes:
             label = LCO_ETC_FILTER_LABELS.get(filter_code, filter_code)
+            mag_field = f'monitoring_mag_{filter_code}'
+            exp_field = f'monitoring_exp_{filter_code}'
+            frames_field = f'monitoring_frames_{filter_code}'
             rows.append(f"""
               <tr data-filter-code="{filter_code}">
-                <td>{label}</td>
-                <td>{{{{ form.monitoring_mag_{filter_code}|as_crispy_field }}}}</td>
-                <td>{{{{ form.monitoring_exp_{filter_code}|as_crispy_field }}}}</td>
-                <td>{{{{ form.monitoring_frames_{filter_code}|as_crispy_field }}}}</td>
+                <td>{escape(label)}</td>
+                <td>{number_input(mag_field, 'monitoring-mag', '0.01', f'{label} magnitude')}</td>
+                <td>{number_input(exp_field, 'monitoring-exp', '0.1', f'{label} exposure time')}</td>
+                <td>{number_input(frames_field, 'monitoring-frames', '1', f'{label} number of frames')}</td>
               </tr>
             """)
         return f"""
-        {{% load crispy_forms_tags %}}
         <div class="table-responsive mt-3">
           <table class="table table-sm table-striped lco-monitoring-table">
             <thead>
