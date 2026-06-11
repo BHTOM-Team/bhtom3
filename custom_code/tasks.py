@@ -1,10 +1,12 @@
 import logging
+import json
 import re
 
 from django.apps import apps
 from django.conf import settings
 from django.db import IntegrityError
 from django.db import close_old_connections
+from django.db import transaction
 from django.utils.module_loading import import_string
 from django_tasks import task
 
@@ -57,6 +59,70 @@ def _count_returned_reduced_datums(reduced_datums):
         except TypeError:
             continue
     return total
+
+
+def _reduced_datum_identity(timestamp, value):
+    return (
+        timestamp,
+        json.dumps(value, sort_keys=True, separators=(',', ':'), default=str),
+    )
+
+
+def _bulk_insert_reduced_datums(target, service_name, service, result, reduced_datums):
+    created_count = 0
+    source_location = _resolve_alias_url({}, result, service)
+
+    for data_type, data in (reduced_datums or {}).items():
+        if not data:
+            continue
+
+        candidates = []
+        candidate_keys = set()
+        timestamps = []
+        for datum in data:
+            timestamp = datum.get('timestamp')
+            value = datum.get('value')
+            if timestamp is None or value is None:
+                continue
+            key = _reduced_datum_identity(timestamp, value)
+            if key in candidate_keys:
+                continue
+            candidate_keys.add(key)
+            timestamps.append(timestamp)
+            candidates.append((timestamp, value))
+
+        if not candidates:
+            continue
+
+        existing_keys = {
+            _reduced_datum_identity(timestamp, value)
+            for timestamp, value in ReducedDatum.objects.filter(
+                target=target,
+                source_name=service_name,
+                data_type=data_type,
+                timestamp__in=timestamps,
+            ).values_list('timestamp', 'value')
+        }
+
+        new_rows = [
+            ReducedDatum(
+                target=target,
+                data_type=data_type,
+                source_name=service_name,
+                source_location=source_location,
+                timestamp=timestamp,
+                value=value,
+            )
+            for timestamp, value in candidates
+            if _reduced_datum_identity(timestamp, value) not in existing_keys
+        ]
+        if not new_rows:
+            continue
+
+        ReducedDatum.objects.bulk_create(new_rows, batch_size=500)
+        created_count += len(new_rows)
+
+    return created_count
 
 
 def _get_or_create_target_alias(target, alias_name):
@@ -380,7 +446,9 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
     try:
         logger.info('Data service "%s" starting for target %s.', service_name, target.name)
         built_parameters = service.build_query_parameters(query_parameters)
+        close_old_connections()
         target_results = service.query_targets(built_parameters)
+        close_old_connections()
     except Exception as exc:
         logger.warning('Data service "%s" failed for target %s: %s', service_name, target.name, exc)
         return
@@ -431,18 +499,13 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
         reduced_datums = result.get('reduced_datums')
         if reduced_datums:
             datapoints_returned += _count_returned_reduced_datums(reduced_datums)
-            before_count = ReducedDatum.objects.filter(target=target, source_name=service_name).count()
-            service.to_reduced_datums(target, reduced_datums)
-            after_count = ReducedDatum.objects.filter(target=target, source_name=service_name).count()
-            datapoints_added += max(0, after_count - before_count)
-            try:
-                refresh_target_last_photometry(target.id)
-            except Exception as exc:
-                logger.warning(
-                    'Could not refresh last photometry fields for target %s after service "%s": %s',
-                    target.name,
+            with transaction.atomic():
+                datapoints_added += _bulk_insert_reduced_datums(
+                    target,
                     service_name,
-                    exc,
+                    service,
+                    result,
+                    reduced_datums,
                 )
 
     logger.info(
