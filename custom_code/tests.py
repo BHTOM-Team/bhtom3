@@ -3457,7 +3457,7 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertEqual(form.initial['end'], fixed_start + timedelta(days=7))
         self.assertEqual(form.initial['period'], 2.5)
         self.assertEqual(form.fields['period'].help_text, 'days')
-        self.assertEqual(form.fields['monitoring_dither_hours'].help_text, 'hours')
+        self.assertIn('6 means a 12-hour request window', form.fields['monitoring_dither_hours'].help_text)
         self.assertEqual(form.fields['c_1_min_lunar_distance'].initial, 30)
         self.assertIsInstance(form.fields['start'], forms.DateTimeField)
         self.assertIn('monitoring_frames_gp', form.fields)
@@ -3604,6 +3604,44 @@ class LCOFacilityAccountRoutingTests(TestCase):
         }])
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    def test_lco_monitoring_dither_is_half_window_in_hours(self, mock_get_instruments):
+        mock_get_instruments.return_value = _minimal_lco_instruments()
+        form = BhtomLCOMonitoringObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+        form.cleaned_data = {
+            'name': 'BHTOM LCO Target 20260602',
+            'proposal': str(self.proposal.pk),
+            'ipp_value': 1.05,
+            'observation_mode': 'NORMAL',
+            'optimization_type': 'TIME',
+            'configuration_repeats': 1,
+            'target_id': self.target.pk,
+            'start': '2026-06-13T06:09:00+00:00',
+            'end': '2026-06-15T06:09:00+00:00',
+            'period': 2.0,
+            'monitoring_dither_hours': 6.0,
+            'c_1_instrument_type': '0M4-SCICAM-SBIG',
+            'c_1_configuration_type': 'EXPOSE',
+            'c_1_max_airmass': 1.6,
+            'c_1_min_lunar_distance': 30,
+            'monitoring_frames_gp': 1,
+            'monitoring_exp_gp': 86.0,
+        }
+        for filter_code in BhtomLCOMonitoringObservationForm.monitoring_filter_codes:
+            form.cleaned_data.setdefault(f'monitoring_frames_{filter_code}', 0)
+            form.cleaned_data.setdefault(f'monitoring_exp_{filter_code}', None)
+
+        request = form.observation_payload()['requests'][0]
+
+        self.assertEqual(request['windows'][0], {
+            'start': '2026-06-13T00:09:00+00:00',
+            'end': '2026-06-13T12:09:00+00:00',
+        })
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_monitoring_validation_message_includes_schedule_summary(self, mock_get_instruments):
         mock_get_instruments.return_value = _minimal_lco_instruments()
         form = BhtomLCOMonitoringObservationForm(initial={
@@ -3637,7 +3675,10 @@ class LCOFacilityAccountRoutingTests(TestCase):
 
         message = form.get_validation_message()
 
-        self.assertIn('Schedule: 4 window(s), cadence 2 day(s), dither +/- 1.5 hour(s).', message)
+        self.assertIn(
+            'Requested schedule: 4 window(s), cadence 2 day(s), dither +/- 1.5 hour(s), full window 3 hour(s).',
+            message,
+        )
         self.assertIn('2026-06-02 10:30-13:30 UTC', message)
         self.assertIn('2026-06-08 10:30-13:30 UTC', message)
 

@@ -770,8 +770,8 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
 
     def _configure_monitoring_fields(self):
         self.fields['monitoring_dither_hours'] = forms.FloatField(
-            label='Dither',
-            help_text='hours',
+            label='Dither (+/- hours)',
+            help_text='Hours before and after each cadence center. 6 means a 12-hour request window.',
             initial=1,
             min_value=0,
             required=True,
@@ -1125,8 +1125,9 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             windows.append(f'{start:%Y-%m-%d %H:%M}-{end:%H:%M} UTC')
         suffix = '; ...' if len(requests) > len(windows) else ''
         return (
-            f'Schedule: {len(requests)} window(s), cadence {cadence_days:g} day(s), '
-            f'dither +/- {dither_hours:g} hour(s). Windows: {"; ".join(windows)}{suffix}'
+            f'Requested schedule: {len(requests)} window(s), cadence {cadence_days:g} day(s), '
+            f'dither +/- {dither_hours:g} hour(s), full window {2 * dither_hours:g} hour(s). '
+            f'Windows: {"; ".join(windows)}{suffix}'
         )
 
     def get_validation_message(self):
