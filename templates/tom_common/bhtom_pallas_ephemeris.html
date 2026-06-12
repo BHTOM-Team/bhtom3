@@ -15,9 +15,21 @@
   linear-gradient(180deg, rgba(214,229,242,0.012), rgba(4,8,14,0.03)); color: #fff;">
   <div class="row mx-0" style="margin-top: 0.5rem;">
     <div class="col-12 px-0">
-      <div class="w-100 px-4 py-4">
-        <h1 class="h2 mb-1">BHTOM-PALLAS</h1>
-        <p class="lead mb-0" style="font-size: 1.1rem;"><span style="font-size: 1.5em; font-weight: 700;">P</span>hotometry for <span style="font-size: 1.5em; font-weight: 700;">A</span>steroids and comet <span style="font-size: 1.5em; font-weight: 700;">L</span>ightcurves with ca<span style="font-size: 1.5em; font-weight: 700;">L</span>ibration <span style="font-size: 1.5em; font-weight: 700;">A</span>nd <span style="font-size: 1.5em; font-weight: 700;">S</span>tandardisation</p>
+      <div class="w-100 px-4 py-4" style="text-align: center;">
+        <div style="display: flex; align-items: center; justify-content: center; position: relative; margin-bottom: 0.45rem;">
+          <button type="button" onclick="history.back();" class="btn btn-sm" style="position: absolute; left: 0; top: 50%; transform: translateY(-50%); background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.16); color: rgba(255,255,255,0.88); border-radius: 999px; padding: 0.28rem 0.8rem; font-size: 0.9rem;">
+            &#8249; Back
+          </button>
+          <div style="display: inline-flex; align-items: center; gap: 0.9rem;">
+          <span aria-hidden="true" style="position: relative; display: inline-flex; align-items: center; justify-content: center; width: 2.35rem; height: 2.35rem;">
+            <span style="position: absolute; width: 1.05rem; height: 1.05rem; border-radius: 50%; background: rgba(255,255,255,0.82); box-shadow: 0 0 0 0.22rem rgba(255,255,255,0.06);"></span>
+            <span style="position: absolute; width: 2.1rem; height: 0.5rem; border-radius: 999px; background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(160,216,255,0.18) 35%, rgba(160,216,255,0.42) 100%); transform: translateX(0.85rem) rotate(-18deg); transform-origin: left center;"></span>
+            <span style="position: absolute; width: 1.7rem; height: 0.32rem; border-radius: 999px; background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(160,216,255,0.12) 40%, rgba(160,216,255,0.28) 100%); transform: translateX(0.68rem) translateY(0.3rem) rotate(-4deg); transform-origin: left center;"></span>
+          </span>
+          <h1 class="mb-0" style="font-size: 2.35rem; line-height: 1.05; font-weight: 700; color: rgba(255,255,255,0.99); letter-spacing: -0.03em;">BHTOM-PALLAS</h1>
+          </div>
+        </div>
+        <p class="mb-0" style="font-size: 1.02rem; line-height: 1.55; color: rgba(255,255,255,0.76);"><span style="font-size: 1.35em; font-weight: 700; color: rgba(255,255,255,0.92);">P</span>hotometry for <span style="font-size: 1.35em; font-weight: 700; color: rgba(255,255,255,0.92);">A</span>steroids and comet <span style="font-size: 1.35em; font-weight: 700; color: rgba(255,255,255,0.92);">L</span>ightcurves with ca<span style="font-size: 1.35em; font-weight: 700; color: rgba(255,255,255,0.92);">L</span>ibration <span style="font-size: 1.35em; font-weight: 700; color: rgba(255,255,255,0.92);">A</span>nd <span style="font-size: 1.35em; font-weight: 700; color: rgba(255,255,255,0.92);">S</span>tandardisation</p>
       </div>
     </div>
   </div>
@@ -32,9 +44,6 @@
         </li>
         <li class="nav-item">
           <a class="nav-link {% if bhtom_pallas_active_tab == 'a' %}active{% endif %}" href="{% url 'bhtom-pallas-a' %}" style="background-color: {% if bhtom_pallas_active_tab == 'a' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Observation planning</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if bhtom_pallas_active_tab == 'photometry' %}active{% endif %}" href="{% url 'bhtom-pallas-photometry' %}" style="background-color: {% if bhtom_pallas_active_tab == 'photometry' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Photometry</a>
         </li>
       </ul>
       <form method="get" class="form-inline mb-3">
