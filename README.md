@@ -39,7 +39,7 @@ Each has to have env setup and run on python3.11 ("type -a python" to check)
 DB_Worker runs background DataServices jobs and refreshes observation statuses
 every 3 minutes.
 
-For one-shot enqueueing, for example from cron or launchd:
+For a one-shot status refresh, for example from cron or launchd:
 
 `./manage.py observation_status_scheduler --run-once`
 

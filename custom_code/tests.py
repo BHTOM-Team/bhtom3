@@ -465,6 +465,26 @@ class ObservationStatusTaskTests(TestCase):
         facility_instance.update_all_observation_statuses.assert_called_once_with(target=None)
         self.assertEqual(result, {'Swift': []})
 
+    def test_run_observation_status_update_continues_after_facility_error(self):
+        failing_facility = Mock()
+        failing_facility.update_all_observation_statuses.side_effect = RuntimeError('portal down')
+        working_facility = Mock()
+        working_facility.update_all_observation_statuses.return_value = []
+
+        def get_service_class(name):
+            return Mock(return_value=failing_facility if name == 'Broken' else working_facility)
+
+        with patch('custom_code.tasks.facility.get_service_classes', return_value=['Broken', 'LCO']), \
+             patch('custom_code.tasks.facility.get_service_class', side_effect=get_service_class):
+            result = run_observation_status_update()
+
+        failing_facility.set_user.assert_called_once_with(None)
+        working_facility.set_user.assert_called_once_with(None)
+        failing_facility.update_all_observation_statuses.assert_called_once_with(target=None)
+        working_facility.update_all_observation_statuses.assert_called_once_with(target=None)
+        self.assertEqual(result['Broken'], ['portal down'])
+        self.assertEqual(result['LCO'], [])
+
 
 class MOADataServiceTests(TestCase):
     def test_helpers_normalize_names_and_parse_calibration(self):

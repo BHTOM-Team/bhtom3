@@ -299,9 +299,20 @@ def run_observation_status_update():
     close_old_connections()
     failed_records = {}
     for facility_name in facility.get_service_classes():
-        instance = facility.get_service_class(facility_name)()
-        instance.set_user(None)
-        failed_records[facility_name] = instance.update_all_observation_statuses(target=None)
+        try:
+            logger.info('Starting observation status update for facility "%s".', facility_name)
+            instance = facility.get_service_class(facility_name)()
+            instance.set_user(None)
+            failed_records[facility_name] = instance.update_all_observation_statuses(target=None)
+        except Exception as exc:
+            logger.exception('Observation status update failed for facility "%s".', facility_name)
+            failed_records[facility_name] = [str(exc)]
+            continue
+        logger.info(
+            'Finished observation status update for facility "%s"; failed_records=%s.',
+            facility_name,
+            failed_records[facility_name],
+        )
     failed_records_with_errors = {
         facility_name: errors
         for facility_name, errors in failed_records.items()

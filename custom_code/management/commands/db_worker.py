@@ -273,7 +273,7 @@ class Command(BaseCommand):
             logger.setLevel(logging.CRITICAL)
         elif verbosity == 1:
             package_logger.setLevel(logging.WARNING)
-            logger.setLevel(logging.WARNING)
+            logger.setLevel(logging.INFO)
         elif verbosity == 2:
             package_logger.setLevel(logging.INFO)
             logger.setLevel(logging.INFO)
@@ -303,6 +303,14 @@ class Command(BaseCommand):
         worker_count = max(1, int(workers))
         status_interval = max(0, int(status_interval))
         queue_names = queue_name.split(",")
+        logger.info(
+            "Configured BHTOM db_worker workers=%s queues=%s status_interval=%s bhtom2_token_configured=%s bhtom2_upload_url_configured=%s",
+            worker_count,
+            ",".join(queue_names),
+            status_interval,
+            bool(str(getattr(settings, "BHTOM2_API_TOKEN", "") or "").strip()),
+            bool(str(getattr(settings, "BHTOM2_UPLOAD_SERVICE_URL", "") or "").strip()),
+        )
 
         if worker_count == 1:
             worker = ScheduledStatusWorker(
