@@ -1246,10 +1246,21 @@ class LCOFacility(BaseLCOFacility):
                     status = self._missing_remote_status_payload()
                 else:
                     raise
+            previous_status = record.status
             record.status = status['state']
             record.scheduled_start = status['scheduled_start']
             record.scheduled_end = status['scheduled_end']
             record.save()
+            logger.info(
+                'Updated LCO observation status observation_id=%s record_id=%s target_id=%s previous_status=%s new_status=%s scheduled_start=%s scheduled_end=%s',
+                record.observation_id,
+                record.pk,
+                record.target_id,
+                previous_status,
+                record.status,
+                record.scheduled_start,
+                record.scheduled_end,
+            )
             if record.status == 'COMPLETED':
                 try:
                     result = self._sync_completed_lco_dataproducts(record, facility.facility_settings)

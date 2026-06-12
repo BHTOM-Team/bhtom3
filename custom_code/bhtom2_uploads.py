@@ -365,6 +365,15 @@ def record_bhtom2_upload_state(dataproduct, *, status, observatory='', calibrati
         'updated_at': datetime.now(timezone.utc).isoformat(),
     }
     save_extra_data_dict(dataproduct, payload)
+    logger.info(
+        'Recorded BHTOM2 upload state dataproduct=%s status=%s observatory=%s calibration_filter=%s response_status=%s message=%s',
+        getattr(dataproduct, 'pk', None),
+        status,
+        observatory,
+        calibration_filter,
+        response_status,
+        message,
+    )
 
 
 def ensure_fits_dataproduct_type(dataproduct):

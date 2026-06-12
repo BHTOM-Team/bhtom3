@@ -12,7 +12,7 @@ from django.core.management.base import BaseCommand
 from django.db import connections, transaction
 from django.db.utils import OperationalError
 
-from custom_code.tasks import enqueue_observation_status_update
+from custom_code.tasks import run_observation_status_update
 from django_tasks import DEFAULT_TASK_BACKEND_ALIAS
 from django_tasks.backends.database.management.commands.db_worker import (
     package_logger,
@@ -113,17 +113,23 @@ class ScheduledStatusWorker:
         if hasattr(signal, "SIGQUIT"):
             signal.signal(signal.SIGQUIT, self.shutdown)
 
-    def enqueue_due_status_update(self) -> None:
+    def run_due_status_update(self) -> None:
         if self.next_status_enqueue_at is None:
             return
         now = time.monotonic()
         if now < self.next_status_enqueue_at:
             return
-        enqueue_observation_status_update()
         self.next_status_enqueue_at = now + self.status_interval
+        try:
+            logger.info("Starting scheduled observation status update.")
+            result = run_observation_status_update()
+        except Exception:
+            logger.exception("Scheduled observation status update failed.")
+            return
         logger.info(
-            "Enqueued observation status update; next enqueue in %s seconds.",
+            "Finished scheduled observation status update; next update in %s seconds: %s",
             self.status_interval,
+            result,
         )
 
     def start(self) -> None:
@@ -139,7 +145,7 @@ class ScheduledStatusWorker:
             time.sleep(random.random())
 
         while self.running:
-            self.enqueue_due_status_update()
+            self.run_due_status_update()
 
             tasks = DBTaskResult.objects.ready().filter(backend_name=self.backend_name)
             if not self.process_all_queues:
@@ -196,6 +202,11 @@ class ScheduledStatusWorker:
                 sender=type(task.get_backend()), task_result=db_task_result.task_result
             )
         except BaseException as exc:
+            logger.exception(
+                "Task id=%s path=%s failed",
+                db_task_result.id,
+                getattr(db_task_result, "task_path", None),
+            )
             db_task_result.set_failed(exc)
             try:
                 sender = type(db_task_result.task.get_backend())
@@ -207,7 +218,7 @@ class ScheduledStatusWorker:
 
 
 class Command(BaseCommand):
-    help = "Run the database worker and enqueue observation status updates periodically."
+    help = "Run the database worker and refresh observation statuses periodically."
 
     def add_arguments(self, parser):
         parser.add_argument(
