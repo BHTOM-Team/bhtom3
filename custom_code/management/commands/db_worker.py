@@ -1,4 +1,5 @@
 import logging
+import os
 import random
 import signal
 import sys
@@ -285,6 +286,21 @@ class Command(BaseCommand):
             package_logger.addHandler(logging.StreamHandler(self.stdout))
         if not logger.hasHandlers():
             logger.addHandler(logging.StreamHandler(self.stdout))
+
+        log_dir = os.path.join(settings.BASE_DIR, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "dbworker.out.log")
+        existing_file_paths = {
+            getattr(handler, "baseFilename", None)
+            for handler in logger.handlers
+        }
+        if log_path not in existing_file_paths:
+            file_handler = logging.FileHandler(log_path)
+            file_handler.setFormatter(
+                logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+            )
+            logger.addHandler(file_handler)
+            package_logger.addHandler(file_handler)
 
     def handle(
         self,
