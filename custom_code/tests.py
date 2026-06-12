@@ -2840,6 +2840,26 @@ class TargetListViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '2026-04-21 12:34:56')
 
+    def test_target_list_sorting_applies_to_filtered_queryset(self):
+        user = get_user_model().objects.create_user(username='tester5', password='pass')
+        self.client.force_login(user)
+        targets = [
+            Target.objects.create(name='SortedAlpha', type=Target.SIDEREAL, priority=1),
+            Target.objects.create(name='SortedBeta', type=Target.SIDEREAL, priority=2),
+            Target.objects.create(name='SortedGamma', type=Target.SIDEREAL, priority=3),
+            Target.objects.create(name='UnmatchedTarget', type=Target.SIDEREAL, priority=99),
+        ]
+        for target in targets:
+            assign_perm('tom_targets.view_target', user, target)
+
+        response = self.client.get('/targets/', {'name': 'Sorted', 'sort': 'name', 'direction': 'desc'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [target.name for target in response.context['object_list']],
+            ['SortedGamma', 'SortedBeta', 'SortedAlpha'],
+        )
+
 
 class GeoTomViewTests(TestCase):
     def setUp(self):

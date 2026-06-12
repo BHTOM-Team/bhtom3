@@ -5,17 +5,17 @@
   <thead>
     <tr>
       <th><label><input type="checkbox" id="selectPage" onClick="select_page(this, {{ targets|length }})" /></label></th>
-      <th>Name</th>
-      <th>RA</th>
-      <th>Dec</th>
-      <th>Nobs</th>
-      <th>Last Gmag</th>
-      <th>Last Filter</th>
-      <th>Importance</th>
-      <th>Created</th>
-      <th>Priority</th>
-      <th>Sun</th>
-      <th>Class</th>
+      <th><a class="target-sort-link{% if target_sort == 'name' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.name }}">Name</a></th>
+      <th><a class="target-sort-link{% if target_sort == 'ra' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.ra }}">RA</a></th>
+      <th><a class="target-sort-link{% if target_sort == 'dec' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.dec }}">Dec</a></th>
+      <th><a class="target-sort-link{% if target_sort == 'nobs' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.nobs }}">Nobs</a></th>
+      <th><a class="target-sort-link{% if target_sort == 'mag_last' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.mag_last }}">Last Gmag</a></th>
+      <th><a class="target-sort-link{% if target_sort == 'filter_last' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.filter_last }}">Last Filter</a></th>
+      <th><a class="target-sort-link{% if target_sort == 'importance' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.importance }}">Importance</a></th>
+      <th><a class="target-sort-link{% if target_sort == 'created' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.created }}">Created</a></th>
+      <th><a class="target-sort-link{% if target_sort == 'priority' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.priority }}">Priority</a></th>
+      <th><a class="target-sort-link{% if target_sort == 'sun' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.sun }}">Sun</a></th>
+      <th><a class="target-sort-link{% if target_sort == 'classification' %} sort-{{ target_sort_direction }}{% endif %}" href="?{{ target_sort_links.classification }}">Class</a></th>
     </tr>
   </thead>
   <tbody>

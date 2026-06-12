@@ -123,7 +123,7 @@
         <button type="submit" class="btn btn-outline-danger ml-1" name="remove">Remove</button>
       </div>
       <div class="targets-table-wrap">
-        {% target_table object_list %}
+        {% include 'tom_targets/partials/target_table.html' with targets=object_list %}
       </div>
     </form>
     <p class="mt-4 mb-0 text-center">
@@ -345,13 +345,48 @@
     color: #2b9ecb;
     font-size: 0.75rem;
   }
+
+  .target-sort-link {
+    color: inherit;
+    display: inline-block;
+    padding-right: 1.1rem;
+    position: relative;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .target-sort-link:hover,
+  .target-sort-link:focus {
+    color: inherit;
+    text-decoration: underline;
+  }
+
+  .target-sort-link::after {
+    content: '⇅';
+    position: absolute;
+    right: 0;
+    color: #9aa0a6;
+    font-size: 0.85rem;
+  }
+
+  .target-sort-link.sort-asc::after {
+    content: '▲';
+    color: #2b9ecb;
+    font-size: 0.75rem;
+  }
+
+  .target-sort-link.sort-desc::after {
+    content: '▼';
+    color: #2b9ecb;
+    font-size: 0.75rem;
+  }
 </style>
 <script src="https://code.jquery.com/jquery-3.6.1.min.js" integrity="sha256-o88AwQnZB+VDvE9tvIXrMQaPlFFSUTR+nldQm1LuPXQ=" crossorigin="anonymous"></script>
 <script type="text/javascript" src="//cdn.datatables.net/1.12.1/js/jquery.dataTables.min.js"></script>
 <script>
   $(document).ready(function() {
     var table = $('.table').DataTable({
-      order: [[9, 'desc']],
+      ordering: false,
       columnDefs: [{ targets: 0, orderable: false }]
     });
     $('#DataTables_Table_0_filter').hide();

@@ -38,7 +38,7 @@ from django.views import View
 from django.utils import timezone as django_timezone
 from django.utils.decorators import method_decorator
 from django.urls import reverse, reverse_lazy
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
 from django_comments.models import Comment
@@ -1916,6 +1916,19 @@ class Bhtom2TargetListView(TargetListView):
     paginate_by = 20
     ordering = ['-priority', '-created']
     filterset_class = BhtomTargetFilterSet
+    target_sort_fields = {
+        'name': 'name',
+        'ra': 'ra',
+        'dec': 'dec',
+        'nobs': 'nobs_count',
+        'mag_last': 'mag_last',
+        'filter_last': 'filter_last',
+        'importance': 'importance',
+        'created': 'created',
+        'priority': 'priority',
+        'sun': 'sun_separation',
+        'classification': 'classification',
+    }
 
     @staticmethod
     def _resolve_min_visible_altitude(request):
@@ -1940,6 +1953,40 @@ class Bhtom2TargetListView(TargetListView):
             except TypeError:
                 size = queryset.data.count() if hasattr(queryset, 'data') else 1
         return max(size, 1)
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        sort_key = self.request.GET.get('sort')
+        sort_direction = self.request.GET.get('direction')
+        sort_field = self.target_sort_fields.get(sort_key)
+        if not sort_field:
+            return queryset
+
+        if sort_key == 'nobs':
+            queryset = queryset.annotate(nobs_count=Count('reduceddatum', distinct=True))
+
+        direction_prefix = '-' if sort_direction == 'desc' else ''
+        return queryset.order_by(f'{direction_prefix}{sort_field}', 'pk')
+
+    def _build_sort_links(self):
+        links = {}
+        current_sort = self.request.GET.get('sort')
+        current_direction = (
+            self.request.GET.get('direction')
+            if self.request.GET.get('direction') in {'asc', 'desc'}
+            else 'asc'
+        )
+        for key in self.target_sort_fields:
+            params = self.request.GET.copy()
+            params.pop('page', None)
+            params['sort'] = key
+            params['direction'] = (
+                'desc'
+                if current_sort == key and current_direction != 'desc'
+                else 'asc'
+            )
+            links[key] = params.urlencode()
+        return links
 
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs)
@@ -2014,6 +2061,14 @@ class Bhtom2TargetListView(TargetListView):
             {'key': key, 'name': value['name']}
             for key, value in self.OBSERVER_PRESETS.items()
             ]
+        )
+        context['target_sort_links'] = self._build_sort_links()
+        target_sort = self.request.GET.get('sort')
+        context['target_sort'] = target_sort if target_sort in self.target_sort_fields else ''
+        context['target_sort_direction'] = (
+            self.request.GET.get('direction')
+            if self.request.GET.get('direction') in {'asc', 'desc'}
+            else 'asc'
         )
         return context
 
