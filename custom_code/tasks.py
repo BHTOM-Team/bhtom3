@@ -596,6 +596,9 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         query_parameters['radius_arcsec'] = max(float(query_parameters.get('radius_arcsec', 30.0)), 30.0)
         query_parameters['target_name'] = target.name
         query_parameters['target_names'] = list(dict.fromkeys(_iter_target_names(target)))
+    elif 'target_name' in form_fields and service_name == 'ASASSN':
+        query_parameters['target_name'] = target.name
+        query_parameters['target_names'] = list(dict.fromkeys(_iter_target_names(target)))
     elif service_name == 'ExoClock':
         query_parameters['radius_arcsec'] = max(float(query_parameters.get('radius_arcsec', 30.0)), 30.0)
         query_parameters['target_names'] = list(dict.fromkeys(_iter_target_names(target)))

@@ -55,7 +55,7 @@ from custom_code.data_services.moa_dataservice import (
 )
 from custom_code.astrometry import can_compute_current_coordinates, compute_current_coordinates
 from custom_code.data_services.allwise_dataservice import AllWISEDataService
-from custom_code.data_services.asassn_dataservice import ASASSNDataService
+from custom_code.data_services.asassn_dataservice import ASASSNDataService, _normalize_transient_name
 from custom_code.data_services.exoclock_dataservice import ExoClockDataService
 from custom_code.data_services.gaia_alerts_dataservice import GaiaAlertsDataService
 from custom_code.data_services.gaia_dr3_dataservice import GaiaDR3DataService
@@ -782,6 +782,17 @@ class DataServicePersistenceTests(TestCase):
         self.assertEqual(params['dec'], 29.672296)
         self.assertEqual(params['radius_arcsec'], 30.0)
 
+    def test_build_query_parameters_for_asassn_includes_target_names(self):
+        target = Target.objects.create(name='AT2025abc', type=Target.SIDEREAL, ra=97.63665, dec=29.672296, epoch=2000.0)
+        target.aliases.create(name='ASASSN-25ab')
+
+        params = _build_query_parameters_for_service(target, 'ASASSN', ASASSNDataService())
+
+        self.assertEqual(params['target_name'], 'AT2025abc')
+        self.assertEqual(params['target_names'], ['AT2025abc', 'ASASSN-25ab'])
+        self.assertEqual(params['ra'], 97.63665)
+        self.assertEqual(params['dec'], 29.672296)
+
     def test_transit_ephemeris_computes_next_transit_from_bjd_tdb(self):
         target = Target.objects.create(name='TestTransit', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
         now = Time('2026-04-10T12:00:00', scale='utc')
@@ -1044,6 +1055,14 @@ class GaiaAlertsDataServiceTests(TestCase):
 
 
 class ASASSNDataServiceTests(TestCase):
+    def test_normalize_transient_name_accepts_common_asassn_variants(self):
+        expected = '25ab'
+        self.assertEqual(_normalize_transient_name('ASASSN-25ab'), expected)
+        self.assertEqual(_normalize_transient_name('ASAS-SN 25ab'), expected)
+        self.assertEqual(_normalize_transient_name('asas sn 25 ab'), expected)
+        self.assertEqual(_normalize_transient_name('25 ab'), expected)
+        self.assertEqual(_normalize_transient_name('2025ab'), expected)
+
     def test_query_targets_handles_missing_lightcurve_tables(self):
         service = ASASSNDataService()
 
@@ -1058,6 +1077,61 @@ class ASASSNDataServiceTests(TestCase):
             results = service.query_targets({'ra': 12.3, 'dec': -45.6})
 
         self.assertEqual(results, [])
+
+    def test_query_targets_resolves_transient_name_when_coordinates_missing(self):
+        service = ASASSNDataService()
+        transient_row = {
+            'name': 'ASASSN-25ab',
+            'asassn_name': 'ASASSN-25ab',
+            'ra': 12.3,
+            'dec': -45.6,
+            'source_location': 'https://example.invalid/asassn/transients.html',
+        }
+
+        client = Mock()
+        client.cone_search.return_value = __import__('pandas').DataFrame()
+
+        with patch('custom_code.data_services.asassn_dataservice._fetch_transient_rows', return_value=[transient_row]), patch(
+            'custom_code.data_services.asassn_dataservice.SkyPatrolClient',
+            return_value=client,
+        ):
+            results = service.query_targets({'target_name': 'asas sn 25 ab', 'include_photometry': False})
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'ASASSN-25ab')
+        self.assertEqual(results[0]['aliases'], ['ASASSN-25ab'])
+        self.assertEqual(results[0]['ra'], 12.3)
+        self.assertEqual(results[0]['dec'], -45.6)
+
+    def test_query_targets_resolves_transient_from_target_names_aliases(self):
+        service = ASASSNDataService()
+        transient_row = {
+            'name': 'ASASSN-25ab',
+            'asassn_name': 'ASASSN-25ab',
+            'aliases': ['ASASSN-25ab', 'AT2025abc'],
+            'ra': 12.3,
+            'dec': -45.6,
+            'source_location': 'https://example.invalid/asassn/transients.html',
+        }
+
+        client = Mock()
+        client.cone_search.return_value = __import__('pandas').DataFrame()
+
+        with patch('custom_code.data_services.asassn_dataservice._fetch_transient_rows', return_value=[transient_row]), patch(
+            'custom_code.data_services.asassn_dataservice.SkyPatrolClient',
+            return_value=client,
+        ):
+            results = service.query_targets({
+                'target_name': 'Unrelated primary name',
+                'target_names': ['Unrelated primary name', 'AT2025abc'],
+                'ra': 12.3,
+                'dec': -45.6,
+                'include_photometry': False,
+            })
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'ASASSN-25ab')
+        self.assertEqual(results[0]['aliases'], ['ASASSN-25ab', 'AT2025abc'])
 
 
 class WISEDataServiceTests(TestCase):
