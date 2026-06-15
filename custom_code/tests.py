@@ -1108,7 +1108,7 @@ class ASASSNDataServiceTests(TestCase):
         transient_row = {
             'name': 'ASASSN-25ab',
             'asassn_name': 'ASASSN-25ab',
-            'aliases': ['ASASSN-25ab', 'AT2025abc'],
+            'lookup_aliases': ['ASASSN-25ab', 'AT2025abc'],
             'ra': 12.3,
             'dec': -45.6,
             'source_location': 'https://example.invalid/asassn/transients.html',
@@ -1131,7 +1131,65 @@ class ASASSNDataServiceTests(TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['name'], 'ASASSN-25ab')
-        self.assertEqual(results[0]['aliases'], ['ASASSN-25ab', 'AT2025abc'])
+        self.assertEqual(results[0]['aliases'], ['ASASSN-25ab'])
+
+    def test_query_targets_combines_catalog_id_and_transient_name(self):
+        service = ASASSNDataService()
+        transient_row = {
+            'name': 'ASASSN-17cf',
+            'asassn_name': 'ASASSN-17cf',
+            'lookup_aliases': ['ASASSN-17cf'],
+            'ra': 12.3,
+            'dec': -45.6,
+            'source_location': 'https://example.invalid/asassn/transients.html',
+        }
+
+        client = Mock()
+        client.cone_search.return_value = __import__('pandas').DataFrame([
+            {'asas_sn_id': 661428703026, 'ra_deg': 12.3, 'dec_deg': -45.6},
+        ])
+
+        with patch('custom_code.data_services.asassn_dataservice._fetch_transient_rows', return_value=[transient_row]), patch(
+            'custom_code.data_services.asassn_dataservice.SkyPatrolClient',
+            return_value=client,
+        ):
+            results = service.query_targets({
+                'target_name': 'ASASSN-17cf',
+                'ra': 12.3,
+                'dec': -45.6,
+                'include_photometry': False,
+            })
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'ASASSN-17cf')
+        self.assertEqual(results[0]['aliases'], ['661428703026/ASASSN-17cf'])
+
+    def test_query_targets_does_not_emit_other_id_as_asassn_alias(self):
+        service = ASASSNDataService()
+        transient_row = {
+            'name': '',
+            'asassn_name': '',
+            'lookup_aliases': ['ATLAS25abc'],
+            'ra': 12.3,
+            'dec': -45.6,
+            'source_location': 'https://example.invalid/asassn/transients.html',
+        }
+
+        client = Mock()
+        client.cone_search.return_value = __import__('pandas').DataFrame()
+
+        with patch('custom_code.data_services.asassn_dataservice._fetch_transient_rows', return_value=[transient_row]), patch(
+            'custom_code.data_services.asassn_dataservice.SkyPatrolClient',
+            return_value=client,
+        ):
+            results = service.query_targets({
+                'target_name': 'ATLAS25abc',
+                'ra': 12.3,
+                'dec': -45.6,
+                'include_photometry': False,
+            })
+
+        self.assertEqual(results, [])
 
 
 class WISEDataServiceTests(TestCase):

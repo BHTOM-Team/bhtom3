@@ -32,6 +32,7 @@ ASASSN_QUERY_URL = 'http://asas-sn.ifa.hawaii.edu/skypatrol'
 ASASSN_TRANSIENTS_URL = 'https://www.astronomy.ohio-state.edu/asassn/transients.html'
 ASASSN_TRANSIENTS_CACHE_KEY = 'asassn_transient_rows'
 ASASSN_TRANSIENTS_CACHE_TIMEOUT = 3600
+ASASSN_TRANSIENT_SEARCH_RADIUS_ARCSEC = 7.0
 
 
 def _to_float(value):
@@ -43,6 +44,15 @@ def _to_float(value):
 
 def _asassn_alias(id):
     return f'ASASSN_{id}'
+
+
+def _asassn_combined_alias(asassn_id=None, transient_name=''):
+    transient_name = str(transient_name or '').strip()
+    if asassn_id not in (None, '', -99):
+        if transient_name:
+            return f'{asassn_id}/{transient_name}'
+        return str(asassn_id)
+    return transient_name
 
 
 def _clean_text(value):
@@ -104,7 +114,8 @@ def _parse_transient_rows(html):
     for _, row in table.iterrows():
         asassn_name = _clean_text(row.get('ASAS-SN ID') or row.get('ASAS-SN') or row.get('ASASSN'))
         other_ids = _clean_text(row.get('Other IDs') or row.get('Other'))
-        aliases = [name for name in (_canonical_transient_name(asassn_name), *_split_other_ids(other_ids)) if name]
+        transient_name = _canonical_transient_name(asassn_name)
+        lookup_aliases = [name for name in (transient_name, *_split_other_ids(other_ids)) if name]
         ra_text = _clean_text(row.get('RA'))
         dec_text = _clean_text(row.get('Dec'))
         if not asassn_name and not other_ids:
@@ -115,10 +126,10 @@ def _parse_transient_rows(html):
             continue
 
         rows.append({
-            'name': aliases[0] if aliases else '',
+            'name': transient_name,
             'asassn_name': asassn_name,
             'other_ids': other_ids,
-            'aliases': aliases,
+            'lookup_aliases': lookup_aliases,
             'ra': coord.ra.deg,
             'dec': coord.dec.deg,
             'discovery': _clean_text(row.get('Discovery (UT)') or row.get('Discovery')),
@@ -168,10 +179,35 @@ def _find_transient_by_name(rows, target_name):
 
     if generic_term:
         for row in rows:
-            for alias in row.get('aliases') or _split_other_ids(row.get('other_ids')):
+            for alias in row.get('lookup_aliases') or _split_other_ids(row.get('other_ids')):
                 if _normalize_generic_name(alias) == generic_term:
                     return row
     return None
+
+
+def _find_transient_by_cone(rows, ra_deg, dec_deg, radius_arcsec):
+    ra = _to_float(ra_deg)
+    dec = _to_float(dec_deg)
+    radius = _to_float(radius_arcsec)
+    if ra is None or dec is None or radius is None or radius <= 0:
+        return None
+
+    center = SkyCoord(ra=ra * u.deg, dec=dec * u.deg)
+    best_row = None
+    best_sep = None
+    for row in rows:
+        if not row.get('name'):
+            continue
+        row_ra = _to_float(row.get('ra'))
+        row_dec = _to_float(row.get('dec'))
+        if row_ra is None or row_dec is None:
+            continue
+        candidate = SkyCoord(ra=row_ra * u.deg, dec=row_dec * u.deg)
+        separation = center.separation(candidate)
+        if separation <= radius * u.arcsec and (best_sep is None or separation < best_sep):
+            best_row = row
+            best_sep = separation
+    return best_row
 
 
 class ASASSNDataService(DataService):
@@ -204,13 +240,20 @@ class ASASSNDataService(DataService):
         radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 5.0
         transient = None
         transient_source_location = None
-        if target_names:
+        if target_names or (ra is not None and dec is not None):
             try:
                 transient_rows = _fetch_transient_rows()
                 for target_name in target_names:
                     transient = _find_transient_by_name(transient_rows, target_name)
                     if transient:
                         break
+                if transient is None:
+                    transient = _find_transient_by_cone(
+                        transient_rows,
+                        ra,
+                        dec,
+                        ASASSN_TRANSIENT_SEARCH_RADIUS_ARCSEC,
+                    )
             except Exception as exc:
                 logger.warning('ASAS-SN transient lookup failed for "%s": %s', ', '.join(target_names), exc)
                 transient = None
@@ -290,9 +333,11 @@ class ASASSNDataService(DataService):
         if ra is None or dec is None or ((filtered_count + limits_count) < 1 and not transient):
             return []
 
-        alias = _asassn_alias(data.get('asassn_id')) if data.get('asassn_id') else None
         transient_name = transient.get('name') if transient else None
-        aliases = list(transient.get('aliases') or [transient_name]) if transient else []
+        alias = _asassn_combined_alias(data.get('asassn_id'), transient_name)
+        if not alias:
+            return []
+        aliases = []
         if alias:
             aliases.append(alias)
         aliases = list(dict.fromkeys(name for name in aliases if name))
