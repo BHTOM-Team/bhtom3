@@ -226,9 +226,10 @@ class ASASSNDataService(DataService):
         target_name, ra, dec = resolve_query_coordinates(parameters)
         self.query_parameters = {
             'target_name': target_name,
+            'target_names': parameters.get('target_names') or [],
             'ra': ra,
             'dec': dec,
-            'radius_arcsec': parameters.get('radius_arcsec') or 5.0,
+            'radius_arcsec': parameters.get('radius_arcsec') or ASASSN_TRANSIENT_SEARCH_RADIUS_ARCSEC,
             'include_photometry': bool(parameters.get('include_photometry', True)),
         }
         return self.query_parameters

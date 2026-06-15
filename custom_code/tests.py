@@ -1063,6 +1063,20 @@ class ASASSNDataServiceTests(TestCase):
         self.assertEqual(_normalize_transient_name('25 ab'), expected)
         self.assertEqual(_normalize_transient_name('2025ab'), expected)
 
+    def test_build_query_parameters_preserves_target_names(self):
+        service = ASASSNDataService()
+
+        params = service.build_query_parameters({
+            'target_name': 'Primary',
+            'target_names': ['Primary', 'ASASSN-17cf'],
+            'ra': 12.3,
+            'dec': -45.6,
+            'include_photometry': False,
+        })
+
+        self.assertEqual(params['target_names'], ['Primary', 'ASASSN-17cf'])
+        self.assertEqual(params['radius_arcsec'], 7.0)
+
     def test_query_targets_handles_missing_lightcurve_tables(self):
         service = ASASSNDataService()
 
