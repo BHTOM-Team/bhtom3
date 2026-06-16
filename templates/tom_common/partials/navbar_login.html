@@ -1,4 +1,4 @@
-{% load tom_common_extras %}
+{% load tom_common_extras orcid_extras %}
 {% navbar_app_addons 'right' %}
 {% if user.is_authenticated %}
 <li class="nav-item">
@@ -15,6 +15,12 @@
     </form>
 </li>
 {% else %}
+{% orcid_login_url 'login' as orcid_register_url %}
+{% if orcid_register_url %}
+<li class="nav-item mr-2">
+    <a class="btn btn-outline-primary" title="register with ORCID" href="{{ orcid_register_url }}">Register with ORCID</a>
+</li>
+{% endif %}
 <li class="nav-item">
     <a class="btn btn-outline-success" title="login" href="{% url 'login' %}">Login</a>
 </li>
