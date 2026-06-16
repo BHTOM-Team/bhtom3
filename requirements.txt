@@ -1,5 +1,6 @@
 tomtoolkit
 python-dotenv==1.0.1
+django-allauth>=0.63,<65
 tom_swift==0.3.0
 tom_lt==0.4.3
 pyvo

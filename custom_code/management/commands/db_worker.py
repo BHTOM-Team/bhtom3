@@ -12,8 +12,9 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import connections, transaction
 from django.db.utils import OperationalError
+from tom_targets.models import Target
 
-from custom_code.tasks import run_observation_status_update
+from custom_code.tasks import enqueue_target_dataservices_update, run_observation_status_update
 from django_tasks import DEFAULT_TASK_BACKEND_ALIAS
 from django_tasks.backends.database.management.commands.db_worker import (
     package_logger,
@@ -72,6 +73,8 @@ class ScheduledStatusWorker:
         backend_name,
         startup_delay,
         status_interval,
+        dataservices_interval,
+        dataservices_importance_gt,
         configure_signal_handlers=True,
         worker_name=None,
     ):
@@ -82,7 +85,10 @@ class ScheduledStatusWorker:
         self.backend_name = backend_name
         self.startup_delay = startup_delay
         self.status_interval = status_interval
+        self.dataservices_interval = dataservices_interval
+        self.dataservices_importance_gt = dataservices_importance_gt
         self.next_status_enqueue_at = 0.0 if status_interval else None
+        self.next_dataservices_enqueue_at = 0.0 if dataservices_interval else None
         self.configure_signal_handlers = configure_signal_handlers
         self.worker_name = worker_name or "worker"
 
@@ -133,6 +139,38 @@ class ScheduledStatusWorker:
             result,
         )
 
+    def run_due_dataservices_update(self) -> None:
+        if self.next_dataservices_enqueue_at is None:
+            return
+        now = time.monotonic()
+        if now < self.next_dataservices_enqueue_at:
+            return
+        self.next_dataservices_enqueue_at = now + self.dataservices_interval
+
+        try:
+            target_ids = list(
+                Target.objects
+                .filter(importance__gt=self.dataservices_importance_gt)
+                .order_by("pk")
+                .values_list("pk", flat=True)
+            )
+            for target_id in target_ids:
+                enqueue_target_dataservices_update(
+                    target_id,
+                    include_create_only=False,
+                    force_all_services=False,
+                )
+        except Exception:
+            logger.exception("Scheduled DataServices refresh enqueue failed.")
+            return
+
+        logger.info(
+            "Scheduled DataServices refresh enqueued targets=%s importance_gt=%s next_update_in=%s seconds.",
+            len(target_ids),
+            self.dataservices_importance_gt,
+            self.dataservices_interval,
+        )
+
     def start(self) -> None:
         if self.configure_signal_handlers:
             self.configure_signals()
@@ -147,6 +185,7 @@ class ScheduledStatusWorker:
 
         while self.running:
             self.run_due_status_update()
+            self.run_due_dataservices_update()
 
             tasks = DBTaskResult.objects.ready().filter(backend_name=self.backend_name)
             if not self.process_all_queues:
@@ -262,6 +301,18 @@ class Command(BaseCommand):
             help="Seconds between observation status refresh jobs. Use 0 to disable (default: 180).",
         )
         parser.add_argument(
+            "--dataservices-interval",
+            type=int,
+            default=getattr(settings, "DATA_SERVICES_UPDATE_INTERVAL_SECONDS", 86400),
+            help="Seconds between scheduled DataServices refresh enqueues. Use 0 to disable (default: 86400).",
+        )
+        parser.add_argument(
+            "--dataservices-importance-gt",
+            type=float,
+            default=getattr(settings, "DATA_SERVICES_UPDATE_IMPORTANCE_GT", 0.0),
+            help="Refresh only targets with importance greater than this value (default: 0).",
+        )
+        parser.add_argument(
             "--workers",
             type=int,
             default=getattr(settings, "DB_WORKER_THREADS", 4),
@@ -282,10 +333,15 @@ class Command(BaseCommand):
             package_logger.setLevel(logging.DEBUG)
             logger.setLevel(logging.DEBUG)
 
+        formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
         if not package_logger.hasHandlers():
-            package_logger.addHandler(logging.StreamHandler(self.stdout))
+            handler = logging.StreamHandler(self.stdout)
+            handler.setFormatter(formatter)
+            package_logger.addHandler(handler)
         if not logger.hasHandlers():
-            logger.addHandler(logging.StreamHandler(self.stdout))
+            handler = logging.StreamHandler(self.stdout)
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
 
         log_dir = os.path.join(settings.BASE_DIR, "logs")
         os.makedirs(log_dir, exist_ok=True)
@@ -296,9 +352,7 @@ class Command(BaseCommand):
         }
         if log_path not in existing_file_paths:
             file_handler = logging.FileHandler(log_path)
-            file_handler.setFormatter(
-                logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-            )
+            file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
             package_logger.addHandler(file_handler)
 
@@ -312,18 +366,24 @@ class Command(BaseCommand):
         backend_name: str,
         startup_delay: bool,
         status_interval: int,
+        dataservices_interval: int,
+        dataservices_importance_gt: float,
         workers: int,
         **options,
     ) -> None:
         self.configure_logging(verbosity)
         worker_count = max(1, int(workers))
         status_interval = max(0, int(status_interval))
+        dataservices_interval = max(0, int(dataservices_interval))
+        dataservices_importance_gt = float(dataservices_importance_gt)
         queue_names = queue_name.split(",")
         logger.info(
-            "Configured BHTOM db_worker workers=%s queues=%s status_interval=%s bhtom2_token_configured=%s bhtom2_upload_url_configured=%s",
+            "Configured BHTOM db_worker workers=%s queues=%s status_interval=%s dataservices_interval=%s dataservices_importance_gt=%s bhtom2_token_configured=%s bhtom2_upload_url_configured=%s",
             worker_count,
             ",".join(queue_names),
             status_interval,
+            dataservices_interval,
+            dataservices_importance_gt,
             bool(str(getattr(settings, "BHTOM2_API_TOKEN", "") or "").strip()),
             bool(str(getattr(settings, "BHTOM2_UPLOAD_SERVICE_URL", "") or "").strip()),
         )
@@ -336,6 +396,8 @@ class Command(BaseCommand):
                 backend_name=backend_name,
                 startup_delay=startup_delay,
                 status_interval=status_interval,
+                dataservices_interval=dataservices_interval,
+                dataservices_importance_gt=dataservices_importance_gt,
             )
             worker.start()
 
@@ -351,6 +413,8 @@ class Command(BaseCommand):
                 backend_name=backend_name,
                 startup_delay=startup_delay,
                 status_interval=status_interval if index == 0 else 0,
+                dataservices_interval=dataservices_interval if index == 0 else 0,
+                dataservices_importance_gt=dataservices_importance_gt,
                 configure_signal_handlers=False,
                 worker_name=f"worker-{index + 1}",
             )

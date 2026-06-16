@@ -1,6 +1,9 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import User
 
 from custom_code.models import (
+    BhtomUserProfile,
     Facility,
     FacilityAccount,
     FacilityAccountMembership,
@@ -9,6 +12,43 @@ from custom_code.models import (
     GeoTarget,
     TransitEphemeris,
 )
+
+
+class BhtomUserProfileInline(admin.StackedInline):
+    model = BhtomUserProfile
+    can_delete = False
+    extra = 0
+    fields = (
+        'affiliation',
+        'about',
+        'orcid_id',
+        'orcid_verified',
+        'orcid_linked_at',
+        'orcid_public_url',
+        'orcid_source',
+    )
+    readonly_fields = ('orcid_public_url', 'orcid_linked_at')
+
+
+class BhtomUserAdmin(UserAdmin):
+    inlines = UserAdmin.inlines + (BhtomUserProfileInline,)
+    search_fields = UserAdmin.search_fields + ('bhtom_profile__orcid_id',)
+
+
+try:
+    admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    pass
+admin.site.register(User, BhtomUserAdmin)
+
+
+@admin.register(BhtomUserProfile)
+class BhtomUserProfileAdmin(admin.ModelAdmin):
+    list_display = ('user', 'orcid_id', 'orcid_verified', 'orcid_source', 'affiliation', 'modified')
+    search_fields = ('user__username', 'user__email', 'user__first_name', 'user__last_name', 'orcid_id')
+    list_filter = ('orcid_verified', 'orcid_source')
+    autocomplete_fields = ('user',)
+    readonly_fields = ('orcid_public_url', 'created', 'modified')
 
 
 @admin.register(GeoTarget)

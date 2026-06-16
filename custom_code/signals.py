@@ -4,14 +4,17 @@ from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.contrib.auth.signals import user_logged_in
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import OperationalError, ProgrammingError
 from django.db.backends.signals import connection_created
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
+from django.utils import timezone as django_timezone
 
 from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target
 
 from custom_code.last_photometry import refresh_target_last_photometry
+from custom_code.orcid import build_orcid_about, canonicalize_orcid, orcid_public_url, profile_has_orcid_note
 from custom_code.priority import refresh_target_priority
 
 logger = logging.getLogger(__name__)
@@ -108,6 +111,67 @@ def safe_user_updated_on_user_pre_save(sender, **kwargs):
             getattr(user, 'username', '<unknown>'),
             exc,
         )
+
+
+@receiver(post_save, sender=get_user_model(), dispatch_uid='custom_code.ensure_bhtom_user_profile')
+def ensure_bhtom_user_profile(sender, instance, **kwargs):
+    if not instance or getattr(instance, 'is_anonymous', False):
+        return
+    from custom_code.models import BhtomUserProfile
+
+    try:
+        BhtomUserProfile.objects.get_or_create(user=instance)
+    except (OperationalError, ProgrammingError):
+        pass
+
+
+try:
+    from allauth.socialaccount.signals import social_account_added, social_account_updated
+except ImportError:
+    social_account_added = None
+    social_account_updated = None
+
+
+def _sync_orcid_profile_from_social_account(request, sociallogin):
+    account = getattr(sociallogin, 'account', None)
+    user = getattr(sociallogin, 'user', None) or getattr(account, 'user', None)
+    if account is None or user is None or account.provider != 'orcid':
+        return
+
+    extra_data = account.extra_data or {}
+    orcid_id = canonicalize_orcid(
+        account.uid
+        or extra_data.get('orcid')
+        or extra_data.get('orcid-identifier', {}).get('path')
+        or extra_data.get('orcid-identifier', {}).get('uri', '').rstrip('/').split('/')[-1]
+    )
+    if not orcid_id:
+        return
+
+    from custom_code.models import BhtomUserProfile
+
+    profile, _ = BhtomUserProfile.objects.get_or_create(user=user)
+    profile.orcid_id = orcid_id
+    profile.orcid_verified = True
+    profile.orcid_linked_at = django_timezone.now()
+    profile.orcid_public_url = orcid_public_url(orcid_id)
+    profile.orcid_source = BhtomUserProfile.OrcidSource.OAUTH
+    if not profile_has_orcid_note(profile):
+        note = build_orcid_about(orcid_id)
+        profile.about = f'{profile.about.strip()}\n\n{note}'.strip()
+    profile.save()
+
+
+if social_account_added is not None:
+    @receiver(social_account_added, dispatch_uid='custom_code.sync_orcid_profile_on_social_account_added')
+    def sync_orcid_profile_on_social_account_added(sender, request, sociallogin, **kwargs):
+        _sync_orcid_profile_from_social_account(request, sociallogin)
+
+
+if social_account_updated is not None:
+    @receiver(social_account_updated, dispatch_uid='custom_code.sync_orcid_profile_on_social_account_updated')
+    def sync_orcid_profile_on_social_account_updated(sender, request, sociallogin, **kwargs):
+        _sync_orcid_profile_from_social_account(request, sociallogin)
 
 
 @receiver(post_save, sender=ReducedDatum, dispatch_uid='custom_code.update_target_last_photometry_on_save')

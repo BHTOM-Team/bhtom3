@@ -457,6 +457,18 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
     try:
         logger.info('Data service "%s" starting for target %s.', service_name, target.name)
         built_parameters = service.build_query_parameters(query_parameters)
+        if service_name == 'ASASSN':
+            logger.info(
+                'Data service "ASASSN" built parameters for target %s: target_name=%s target_names=%s ra=%s dec=%s radius_arcsec=%s include_photometry=%s force=%s',
+                target.name,
+                built_parameters.get('target_name'),
+                built_parameters.get('target_names'),
+                built_parameters.get('ra'),
+                built_parameters.get('dec'),
+                built_parameters.get('radius_arcsec'),
+                built_parameters.get('include_photometry'),
+                built_parameters.get('force'),
+            )
         close_old_connections()
         target_results = service.query_targets(built_parameters)
         close_old_connections()
@@ -608,7 +620,20 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
 
 def _iter_target_names(target):
     yield str(target.name).strip()
-    for name in target.names:
+    try:
+        names = list(target.names)
+    except Exception:
+        names = []
+    try:
+        names.extend(target.aliases.values_list('name', flat=True))
+    except Exception:
+        pass
+    for alias in getattr(target, 'extra_aliases', []) or []:
+        if isinstance(alias, dict):
+            names.append(alias.get('name'))
+        else:
+            names.append(alias)
+    for name in names:
         value = str(name).strip()
         if value:
             yield value

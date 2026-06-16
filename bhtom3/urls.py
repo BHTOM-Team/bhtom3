@@ -13,6 +13,7 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from django.conf import settings
 from django.urls import path, include
 from rest_framework.authtoken.views import obtain_auth_token
 
@@ -106,3 +107,6 @@ urlpatterns = [
     ),
     path('', include('tom_common.urls')),
 ]
+
+if getattr(settings, 'ORCID_ENABLED', True) and getattr(settings, 'ORCID_ALLAUTH_AVAILABLE', False):
+    urlpatterns.insert(-1, path('accounts/social/', include('allauth.urls')))

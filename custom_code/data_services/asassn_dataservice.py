@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import re
@@ -33,6 +34,7 @@ ASASSN_TRANSIENTS_URL = 'https://www.astronomy.ohio-state.edu/asassn/transients.
 ASASSN_TRANSIENTS_CACHE_KEY = 'asassn_transient_rows'
 ASASSN_TRANSIENTS_CACHE_TIMEOUT = 3600
 ASASSN_TRANSIENT_SEARCH_RADIUS_ARCSEC = 7.0
+ASASSN_SKYPATROL_TIMEOUT_SECONDS = 60
 
 
 def _to_float(value):
@@ -144,11 +146,14 @@ def _parse_transient_rows(html):
 def _fetch_transient_rows():
     cached_rows = cache.get(ASASSN_TRANSIENTS_CACHE_KEY)
     if cached_rows is not None:
+        logger.info('ASAS-SN transient table cache hit: rows=%s', len(cached_rows))
         return cached_rows
+    logger.info('ASAS-SN transient table fetch starting: url=%s', ASASSN_TRANSIENTS_URL)
     response = requests.get(ASASSN_TRANSIENTS_URL, timeout=DATA_SERVICE_HTTP_TIMEOUT)
     response.raise_for_status()
     rows = _parse_transient_rows(response.text)
     cache.set(ASASSN_TRANSIENTS_CACHE_KEY, rows, ASASSN_TRANSIENTS_CACHE_TIMEOUT)
+    logger.info('ASAS-SN transient table fetch finished: rows=%s', len(rows))
     return rows
 
 
@@ -210,6 +215,18 @@ def _find_transient_by_cone(rows, ra_deg, dec_deg, radius_arcsec):
     return best_row
 
 
+def _run_with_timeout(label, func, timeout_seconds=ASASSN_SKYPATROL_TIMEOUT_SECONDS):
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(func)
+    try:
+        return future.result(timeout=timeout_seconds)
+    except FutureTimeoutError:
+        future.cancel()
+        raise TimeoutError(f'{label} exceeded {timeout_seconds} seconds')
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 class ASASSNDataService(DataService):
     name = 'ASASSN'
     verbose_name = 'ASASSN'
@@ -243,6 +260,12 @@ class ASASSNDataService(DataService):
         transient_source_location = None
         if target_names or (ra is not None and dec is not None):
             try:
+                logger.info(
+                    'ASAS-SN transient lookup starting: names=%s ra=%s dec=%s',
+                    target_names,
+                    ra,
+                    dec,
+                )
                 transient_rows = _fetch_transient_rows()
                 for target_name in target_names:
                     transient = _find_transient_by_name(transient_rows, target_name)
@@ -255,6 +278,10 @@ class ASASSNDataService(DataService):
                         dec,
                         ASASSN_TRANSIENT_SEARCH_RADIUS_ARCSEC,
                     )
+                logger.info(
+                    'ASAS-SN transient lookup finished: match=%s',
+                    transient.get('name') if transient else None,
+                )
             except Exception as exc:
                 logger.warning('ASAS-SN transient lookup failed for "%s": %s', ', '.join(target_names), exc)
                 transient = None
@@ -280,14 +307,20 @@ class ASASSNDataService(DataService):
             if SkyPatrolClient is None:
                 logger.warning('ASAS-SN Sky Patrol client is unavailable; install pyasassn/skypatrol to ingest photometry.')
                 raise ValueError
-            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-                client = SkyPatrolClient()
-                query = client.cone_search(
-                    ra_deg=ra,
-                    dec_deg=dec,
-                    radius=radius_arcsec / 3600.0,
-                    catalog='master_list',
-                )
+            logger.info('ASAS-SN Sky Patrol master-list query starting: ra=%s dec=%s radius_arcsec=%s', ra, dec, radius_arcsec)
+
+            def _query_master_list():
+                with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                    client = SkyPatrolClient()
+                    query = client.cone_search(
+                        ra_deg=ra,
+                        dec_deg=dec,
+                        radius=radius_arcsec / 3600.0,
+                        catalog='master_list',
+                    )
+                return client, query
+
+            client, query = _run_with_timeout('ASAS-SN Sky Patrol master-list query', _query_master_list)
             if query.empty:
                 logger.debug('ASASSN returned no spectrum for RA=%s Dec=%s', ra, dec)
             else:
@@ -296,20 +329,34 @@ class ASASSNDataService(DataService):
                 min_index = np.argmin(separations)
                 asassn_id = query.iloc[min_index]['asas_sn_id']
                 source_location = f"http://asas-sn.ifa.hawaii.edu/skypatrol/objects/{asassn_id}"
+                logger.info('ASAS-SN Sky Patrol master-list query finished: asassn_id=%s', asassn_id)
                 if query_parameters.get('include_photometry', True):
-                    with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-                        lcs = client.cone_search(
-                            ra_deg=ra,
-                            dec_deg=dec,
-                            radius=radius_arcsec / 3600.0,
-                            download=True,
-                            threads=8,
-                        )
+                    logger.info('ASAS-SN Sky Patrol photometry download starting: asassn_id=%s', asassn_id)
+
+                    def _download_lightcurves():
+                        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                            return client.cone_search(
+                                ra_deg=ra,
+                                dec_deg=dec,
+                                radius=radius_arcsec / 3600.0,
+                                download=True,
+                                threads=8,
+                            )
+
+                    lcs = _run_with_timeout('ASAS-SN Sky Patrol photometry download', _download_lightcurves)
                     lc = lcs[asassn_id]
                     lc_filtered = lc.data[(lc.data['mag_err'] < 0.5) & (lc.data['mag'] <= 99) & (lc.data['mag_err'] > 0)]
                     lc_limits = lc.data[(lc.data['mag_err'] < 0) & (lc.data['mag'] <= 99)]
+                    logger.info(
+                        'ASAS-SN Sky Patrol photometry download finished: asassn_id=%s detections=%s limits=%s',
+                        asassn_id,
+                        len(lc_filtered),
+                        len(lc_limits),
+                    )
         except ValueError:
             logger.debug('ASASSN returned error for RA=%s Dec=%s', ra, dec)
+        except Exception as exc:
+            logger.warning('ASAS-SN Sky Patrol query failed for RA=%s Dec=%s: %s', ra, dec, exc)
 
         self.query_results = {
             'asassn_id':asassn_id,
@@ -331,11 +378,12 @@ class ASASSNDataService(DataService):
         filtered_count = len(lc_filtered) if lc_filtered is not None else 0
         limits_count = len(lc_limits) if lc_limits is not None else 0
         transient = data.get('transient')
-        if ra is None or dec is None or ((filtered_count + limits_count) < 1 and not transient):
+        asassn_id = data.get('asassn_id')
+        if ra is None or dec is None or ((filtered_count + limits_count) < 1 and not transient and not asassn_id):
             return []
 
         transient_name = transient.get('name') if transient else None
-        alias = _asassn_combined_alias(data.get('asassn_id'), transient_name)
+        alias = _asassn_combined_alias(asassn_id, transient_name)
         if not alias:
             return []
         aliases = []

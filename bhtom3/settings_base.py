@@ -6,6 +6,7 @@ import os
 import pkgutil
 import ast
 import tempfile
+import importlib.util
 
 from dotenv import dotenv_values
 
@@ -19,6 +20,27 @@ BHTOM2_API_BASE_URL = secret.get('BHTOM2_API_BASE_URL', '')
 BHTOM2_API_TOKEN = secret.get('BHTOM2_API_TOKEN', '')
 BHTOM2_API_TIMEOUT = int(secret.get('BHTOM2_API_TIMEOUT', '30'))
 PUBLIC_UPLOAD_PASSWORD = secret.get('PUBLIC_UPLOAD_PASSWORD', '')
+
+
+def env_bool(name, default=False):
+    value = secret.get(name, os.environ.get(name, default))
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+ORCID_ENABLED = env_bool('ORCID_ENABLED', True)
+ORCID_CLIENT_ID = secret.get('ORCID_CLIENT_ID', os.environ.get('ORCID_CLIENT_ID', ''))
+ORCID_CLIENT_SECRET = secret.get('ORCID_CLIENT_SECRET', os.environ.get('ORCID_CLIENT_SECRET', ''))
+ORCID_USE_SANDBOX = env_bool('ORCID_USE_SANDBOX', False)
+ORCID_BASE_DOMAIN = secret.get(
+    'ORCID_BASE_DOMAIN',
+    os.environ.get('ORCID_BASE_DOMAIN', 'sandbox.orcid.org' if ORCID_USE_SANDBOX else 'orcid.org'),
+)
+ORCID_SEND_ADMIN_NOTIFICATION = env_bool('ORCID_SEND_ADMIN_NOTIFICATION', True)
+ORCID_ADMIN_NOTIFY_EMAILS = secret.get('ORCID_ADMIN_NOTIFY_EMAILS', os.environ.get('ORCID_ADMIN_NOTIFY_EMAILS', ''))
+ORCID_PUBLIC_API_TIMEOUT = int(secret.get('ORCID_PUBLIC_API_TIMEOUT', os.environ.get('ORCID_PUBLIC_API_TIMEOUT', '6')))
+ORCID_ALLAUTH_AVAILABLE = importlib.util.find_spec('allauth') is not None
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = secret.get("SECRET_KEY", '')
@@ -58,6 +80,14 @@ INSTALLED_APPS = [
     'tom_swift',
 ]
 
+if ORCID_ENABLED and ORCID_ALLAUTH_AVAILABLE:
+    INSTALLED_APPS += [
+        'allauth',
+        'allauth.account',
+        'allauth.socialaccount',
+        'allauth.socialaccount.providers.orcid',
+    ]
+
 SITE_ID = 1
 
 MIDDLEWARE = [
@@ -73,6 +103,9 @@ MIDDLEWARE = [
     'tom_common.middleware.ExternalServiceMiddleware',
     'tom_common.middleware.AuthStrategyMiddleware',
 ]
+
+if ORCID_ENABLED and ORCID_ALLAUTH_AVAILABLE:
+    MIDDLEWARE += ['allauth.account.middleware.AccountMiddleware']
 
 ROOT_URLCONF = 'bhtom3.urls'
 
@@ -134,6 +167,26 @@ AUTHENTICATION_BACKENDS = (
     'guardian.backends.ObjectPermissionBackend',
 )
 
+if ORCID_ENABLED and ORCID_ALLAUTH_AVAILABLE:
+    AUTHENTICATION_BACKENDS += ('allauth.account.auth_backends.AuthenticationBackend',)
+
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+ACCOUNT_USERNAME_REQUIRED = True
+SOCIALACCOUNT_ADAPTER = 'custom_code.socialaccount_adapter.BhtomOrcidSocialAccountAdapter'
+SOCIALACCOUNT_AUTO_SIGNUP = True
+SOCIALACCOUNT_QUERY_EMAIL = True
+SOCIALACCOUNT_PROVIDERS = {
+    'orcid': {
+        'SCOPE': ['/authenticate'],
+        'BASE_DOMAIN': ORCID_BASE_DOMAIN,
+        'APP': {
+            'client_id': ORCID_CLIENT_ID,
+            'secret': ORCID_CLIENT_SECRET,
+            'key': '',
+        },
+    }
+}
+
 LANGUAGE_CODE = 'en-us'
 
 TIME_ZONE = 'UTC'
@@ -156,9 +209,15 @@ MEDIA_URL = '/data/'
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'timestamped': {
+            'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
+        },
+    },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
+            'formatter': 'timestamped',
         }
     },
     'loggers': {
@@ -382,6 +441,8 @@ HOOKS = {
 }
 
 AUTO_QUERY_DATA_SERVICES_ON_TARGET_CREATE = True
+DATA_SERVICES_UPDATE_INTERVAL_SECONDS = 86400
+DATA_SERVICES_UPDATE_IMPORTANCE_GT = 0.0
 
 AUTO_THUMBNAILS = False
 

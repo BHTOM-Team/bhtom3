@@ -1,5 +1,5 @@
 {% extends 'tom_common/base.html' %}
-{% load bootstrap4 %}
+{% load bootstrap4 orcid_extras %}
 {% block title %}Create user{% endblock %}
 {% block content %}
 {% if object %}
@@ -9,8 +9,35 @@
     <input id="user-token" type="text" value="{{ user_token }}" readonly hidden>
   </div>
   {% endif %}
+  {% with profile=object.bhtom_profile %}
+  {% orcid_login_url 'connect' as orcid_connect_url %}
+  <div class="mb-3">
+    {% if profile.orcid_id %}
+      <div>
+        ORCID iD:
+        <a href="{{ profile.orcid_public_url }}" target="_blank" rel="noopener">{{ profile.orcid_id }}</a>
+        {% if profile.orcid_verified %}
+          <span class="badge badge-success">verified</span>
+        {% else %}
+          <span class="badge badge-secondary">not verified</span>
+        {% endif %}
+      </div>
+    {% endif %}
+    {% if orcid_connect_url and not profile.orcid_verified %}
+      <a class="btn btn-outline-primary mt-2" href="{{ orcid_connect_url }}">
+        {% if profile.orcid_id %}Verify ORCID{% else %}Connect ORCID{% endif %}
+      </a>
+    {% endif %}
+  </div>
+  {% endwith %}
   <form action="{% url 'user-update' object.id %}" method="POST" novalidate>
 {% else %}
+  {% orcid_login_url 'login' as orcid_register_url %}
+  {% if orcid_register_url %}
+  <div class="mb-3">
+    <a class="btn btn-outline-primary" href="{{ orcid_register_url }}">Register with ORCID</a>
+  </div>
+  {% endif %}
   <form action="{% url 'user-create' %}" method="POST" novalidate>
 {% endif %}
   {% csrf_token %}

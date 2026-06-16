@@ -1,4 +1,32 @@
 # BHTOM3
+
+## ORCID login setup
+
+BHTOM3 supports optional ORCID registration, login, and account linking through
+`django-allauth` and the ORCID Public API. The classic BHTOM3 username/password
+login remains available at `/accounts/login/`.
+
+1. Create an ORCID Public API client in the ORCID developer tools. BHTOM3 only
+   needs the public `/authenticate` OAuth scope; ORCID Member API access is not
+   required for this feature.
+2. Register this callback URL for production:
+   `https://<your-bhtom3-host>/accounts/social/orcid/login/callback/`.
+3. Set these environment variables, or put them in `env/.bhtom.env`:
+   `ORCID_ENABLED=True`, `ORCID_CLIENT_ID=<client id>`,
+   `ORCID_CLIENT_SECRET=<client secret>`, `ORCID_BASE_DOMAIN=orcid.org`,
+   `ORCID_USE_SANDBOX=False`, `ORCID_SEND_ADMIN_NOTIFICATION=True`,
+   `ORCID_ADMIN_NOTIFY_EMAILS=<comma-separated emails>`,
+   `DEFAULT_FROM_EMAIL=<sender>`, and `SERVER_EMAIL=<sender>`.
+4. For sandbox development, create a sandbox ORCID public client, register
+   `https://<dev-host>/accounts/social/orcid/login/callback/`, and set
+   `ORCID_BASE_DOMAIN=sandbox.orcid.org` plus `ORCID_USE_SANDBOX=True`.
+5. Run migrations after installing dependencies:
+   `python manage.py migrate`.
+6. ORCID can be disabled without removing classic login by setting
+   `ORCID_ENABLED=False`.
+
+ORCID OAuth credentials must not be committed. In production, use HTTPS callback
+URLs and keep `ORCID_CLIENT_SECRET` in deployment configuration only.
 Currently under development!
 
 **_Note_: The latest update of tomtoolkit (12 March 2026) updates Django to v5.2.11. Now, some of the older Django modules may not work!**

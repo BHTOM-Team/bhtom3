@@ -178,5 +178,6 @@ bhtom2/.DS_Store
 /data
 custom_code/migrations/*
 !custom_code/migrations/
+!custom_code/migrations/0003_bhtomuserprofile.py
 !custom_code/migrations/0013_userbhtom2uploadpreference.py
 info.txt

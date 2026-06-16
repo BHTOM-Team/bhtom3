@@ -14,8 +14,9 @@ from tom_targets.models import Target, TargetName
 from tom_targets.permissions import targets_for_user
 
 from custom_code.bhtom2_uploads import PUBLIC_UPLOAD_FILTER_CHOICES, is_supported_fits_filename
-from custom_code.models import TargetAliasInfo, TransitEphemeris
+from custom_code.models import BhtomUserProfile, TargetAliasInfo, TransitEphemeris
 from custom_code.models import UserBhtom2UploadPreference
+from custom_code.orcid import validate_orcid
 
 
 CREATE_FORM_HIDDEN_FIELDS = (
@@ -53,6 +54,13 @@ class GeoTomAddSatForm(forms.Form):
 
 class BhtomUserBaseForm(forms.ModelForm):
     email = forms.EmailField(required=True)
+    affiliation = forms.CharField(required=False, max_length=255)
+    about = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 4}))
+    orcid_id = forms.CharField(
+        label='ORCID iD',
+        required=False,
+        help_text='Optional. Use 0000-0000-0000-0000 format.',
+    )
     groups = forms.ModelMultipleChoiceField(
         Group.objects.all().exclude(name='Public'),
         required=False,
@@ -71,6 +79,45 @@ class BhtomUserBaseForm(forms.ModelForm):
         if duplicates.exists():
             raise forms.ValidationError('A user with that username already exists.')
         return username
+
+    def clean_orcid_id(self):
+        value = self.cleaned_data.get('orcid_id')
+        if not value:
+            return ''
+        value = validate_orcid(value)
+        duplicates = BhtomUserProfile.objects.filter(orcid_id=value)
+        if self.instance.pk:
+            duplicates = duplicates.exclude(user=self.instance)
+        if duplicates.exists():
+            raise forms.ValidationError('A user profile with that ORCID iD already exists.')
+        return value
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        profile = getattr(self.instance, 'bhtom_profile', None)
+        if profile is not None:
+            self.fields['affiliation'].initial = profile.affiliation
+            self.fields['about'].initial = profile.about
+            self.fields['orcid_id'].initial = profile.orcid_id or ''
+            if profile.orcid_verified:
+                self.fields['orcid_id'].disabled = True
+                self.fields['orcid_id'].help_text = 'This ORCID iD has been verified via ORCID OAuth.'
+
+    def save_profile(self, user):
+        profile, _ = BhtomUserProfile.objects.get_or_create(user=user)
+        profile.affiliation = (self.cleaned_data.get('affiliation') or '').strip()
+        profile.about = (self.cleaned_data.get('about') or '').strip()
+        if not profile.orcid_verified:
+            orcid_id = self.cleaned_data.get('orcid_id') or ''
+            if orcid_id:
+                profile.orcid_id = orcid_id
+                profile.orcid_verified = False
+                profile.orcid_source = BhtomUserProfile.OrcidSource.MANUAL
+            else:
+                profile.orcid_id = None
+                profile.orcid_source = None
+        profile.save()
+        return profile
 
 
 class BhtomUserCreationForm(BhtomUserBaseForm):
@@ -106,6 +153,7 @@ class BhtomUserCreationForm(BhtomUserBaseForm):
         if commit:
             user.save()
             self.save_m2m()
+            self.save_profile(user)
         return user
 
 
@@ -177,6 +225,7 @@ class BhtomUserUpdateForm(BhtomUserBaseForm):
         if commit:
             user.save()
             self.save_m2m()
+            self.save_profile(user)
             preference, _ = UserBhtom2UploadPreference.objects.get_or_create(user=user)
             preference.token = (self.cleaned_data.get('bhtom2_upload_token') or '').strip()
             preference.oname = (self.cleaned_data.get('bhtom2_upload_oname') or '').strip()

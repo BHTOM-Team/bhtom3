@@ -8,11 +8,13 @@ from dateutil.parser import parse
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.db.models import Q
 from django.forms.models import model_to_dict
 from django.urls import reverse
 from astropy.time import Time
 
 from tom_targets.base_models import BaseTarget
+from custom_code.orcid import canonicalize_orcid, orcid_public_url, validate_orcid
 
 
 class BhtomTarget(BaseTarget):
@@ -435,3 +437,56 @@ class UserBhtom2UploadPreference(models.Model):
 
     def __str__(self):
         return f'BHTOM2 upload preference for {self.user}'
+
+
+class BhtomUserProfile(models.Model):
+    class OrcidSource(models.TextChoices):
+        OAUTH = 'oauth', 'OAuth'
+        MANUAL = 'manual', 'Manual'
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='bhtom_profile',
+    )
+    affiliation = models.CharField(max_length=255, blank=True, default='')
+    about = models.TextField(blank=True, default='')
+    orcid_id = models.CharField(max_length=19, null=True, blank=True, db_index=True)
+    orcid_verified = models.BooleanField(default=False)
+    orcid_linked_at = models.DateTimeField(null=True, blank=True)
+    orcid_public_url = models.URLField(blank=True, default='')
+    orcid_source = models.CharField(max_length=16, choices=OrcidSource.choices, null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'BHTOM user profile'
+        verbose_name_plural = 'BHTOM user profiles'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['orcid_id'],
+                condition=Q(orcid_id__isnull=False) & ~Q(orcid_id=''),
+                name='unique_nonempty_bhtom_orcid_id',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.orcid_id:
+            self.orcid_id = validate_orcid(self.orcid_id)
+            self.orcid_public_url = orcid_public_url(self.orcid_id)
+
+    def save(self, *args, **kwargs):
+        if self.orcid_id:
+            self.orcid_id = canonicalize_orcid(self.orcid_id)
+            self.orcid_public_url = orcid_public_url(self.orcid_id)
+        else:
+            self.orcid_id = None
+            self.orcid_public_url = ''
+            self.orcid_verified = False
+            self.orcid_source = None
+            self.orcid_linked_at = None
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'BHTOM profile for {self.user}'

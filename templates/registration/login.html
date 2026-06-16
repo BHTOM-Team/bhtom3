@@ -1,0 +1,23 @@
+{% extends 'tom_common/base.html' %}
+{% load bootstrap4 orcid_extras %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<div class="row justify-content-md-center">
+  <div class="col-md-4">
+    {% orcid_login_url 'login' as orcid_url %}
+    {% if orcid_url %}
+    <div class="mb-3">
+      <a class="btn btn-outline-primary btn-block" href="{{ orcid_url }}">Log in with ORCID</a>
+    </div>
+    <div class="text-center text-muted mb-3">or</div>
+    {% endif %}
+    <form action="{% url 'login' %}?next={{next}}" method="POST" class="form">
+      {% csrf_token %}
+      {% bootstrap_form form %}
+      {% buttons %}
+        <button type="submit" class="btn btn-primary">Login</button>
+      {% endbuttons %}
+    </form>
+  </div>
+</div>
+{% endblock %}

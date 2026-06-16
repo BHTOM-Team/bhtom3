@@ -32,6 +32,9 @@ def _enqueue_safely(target_id):
     try:
         from custom_code.tasks import enqueue_target_dataservices_update
         if getattr(settings, 'AUTO_QUERY_DATA_SERVICES_ON_TARGET_CREATE', True):
+            logger.info('Enqueuing DataServices for newly created target %s.', target_id)
             enqueue_target_dataservices_update(target_id)
+        else:
+            logger.info('Skipping DataServices enqueue for new target %s because AUTO_QUERY_DATA_SERVICES_ON_TARGET_CREATE is disabled.', target_id)
     except Exception as exc:
         logger.warning('Could not enqueue target-create background updates for target %s: %s', target_id, exc)

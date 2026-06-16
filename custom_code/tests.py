@@ -82,6 +82,8 @@ from custom_code.data_services.service_utils import resolve_query_coordinates
 from custom_code.bhtom2_uploads import has_successful_bhtom2_upload, is_supported_fits_filename, normalize_fits_upload
 from custom_code.forms import (
     ALL_DATA_SERVICES_VALUE,
+    BhtomUserCreationForm,
+    BhtomUserUpdateForm,
     BhtomNonSiderealTargetCreateForm,
     NonSiderealTargetVisibilityForm,
     BhtomPlanetaryTransitTargetCreateForm,
@@ -91,6 +93,7 @@ from custom_code.forms import (
     BhtomTargetNamesFormset,
 )
 from custom_code.models import (
+    BhtomUserProfile,
     Facility,
     FacilityAccount,
     FacilityAccountMembership,
@@ -100,6 +103,7 @@ from custom_code.models import (
     TransitEphemeris,
     UserBhtom2UploadPreference,
 )
+from custom_code.orcid import canonicalize_orcid, unique_orcid_username, validate_orcid
 from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
 from custom_code.signals import cleanup_target_relations_on_target_delete
 from custom_code.templatetags.custom_observation_extras import nonsidereal_target_plan
@@ -3066,6 +3070,22 @@ class GeoTomViewTests(TestCase):
 
 
 class TokenAuthAndProfileTests(TestCase):
+    def test_orcid_id_is_canonicalized_and_validated(self):
+        self.assertEqual(canonicalize_orcid('https://orcid.org/0000000218250097'), '0000-0002-1825-0097')
+        self.assertEqual(validate_orcid('0000000218250097'), '0000-0002-1825-0097')
+
+    def test_orcid_username_generation_uses_name_and_collision_suffix(self):
+        get_user_model().objects.create_user(username='lukasz.o.neil.smith')
+
+        username = unique_orcid_username('Lukasz', "O'Neil-Smith", '0000-0002-1825-0097')
+
+        self.assertEqual(username, 'lukasz.o.neil.smith2')
+
+    def test_orcid_username_generation_falls_back_to_orcid_id(self):
+        username = unique_orcid_username('', '', '0000-0002-1825-0097')
+
+        self.assertEqual(username, 'orcid.0000-0002-1825-0097')
+
     def test_api_token_auth_returns_token_for_valid_credentials(self):
         user = get_user_model().objects.create_user(username='token-user', password='secret-pass')
 
@@ -3100,6 +3120,24 @@ class TokenAuthAndProfileTests(TestCase):
         token = Token.objects.get(user=user)
         self.assertContains(response, token.key)
 
+    def test_user_update_page_displays_orcid_profile_status(self):
+        user = get_user_model().objects.create_user(username='profile-orcid-user', password='secret')
+        BhtomUserProfile.objects.update_or_create(
+            user=user,
+            defaults={
+                'orcid_id': '0000-0002-1825-0097',
+                'orcid_verified': True,
+                'orcid_source': BhtomUserProfile.OrcidSource.OAUTH,
+            },
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse('user-update', kwargs={'pk': user.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '0000-0002-1825-0097')
+        self.assertContains(response, 'verified')
+
     def test_user_create_post_persists_user_and_redirects(self):
         admin = get_user_model().objects.create_superuser('profile-admin', 'admin@example.com', 'secret')
         self.client.force_login(admin)
@@ -3123,6 +3161,49 @@ class TokenAuthAndProfileTests(TestCase):
         self.assertEqual(created_user.email, 'created@example.com')
         self.assertTrue(created_user.check_password('create-user-secret-123'))
 
+    def test_classic_user_create_stores_manual_orcid_unverified(self):
+        form = BhtomUserCreationForm(
+            data={
+                'username': 'classic-orcid-user',
+                'first_name': 'Classic',
+                'last_name': 'Orcid',
+                'email': 'classic-orcid@example.com',
+                'password1': 'create-user-secret-123',
+                'password2': 'create-user-secret-123',
+                'orcid_id': '0000000218250097',
+                'affiliation': 'Warsaw University Observatory',
+                'about': 'Researcher profile.',
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        user = form.save()
+        profile = user.bhtom_profile
+        self.assertEqual(profile.orcid_id, '0000-0002-1825-0097')
+        self.assertFalse(profile.orcid_verified)
+        self.assertEqual(profile.orcid_source, BhtomUserProfile.OrcidSource.MANUAL)
+        self.assertEqual(profile.affiliation, 'Warsaw University Observatory')
+        self.assertEqual(profile.about, 'Researcher profile.')
+
+    def test_duplicate_manual_orcid_is_rejected(self):
+        existing = get_user_model().objects.create_user(username='existing-orcid')
+        BhtomUserProfile.objects.update_or_create(user=existing, defaults={'orcid_id': '0000-0002-1825-0097'})
+
+        form = BhtomUserCreationForm(
+            data={
+                'username': 'duplicate-orcid',
+                'first_name': 'Duplicate',
+                'last_name': 'Orcid',
+                'email': 'duplicate-orcid@example.com',
+                'password1': 'create-user-secret-123',
+                'password2': 'create-user-secret-123',
+                'orcid_id': '0000-0002-1825-0097',
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('orcid_id', form.errors)
+
     def test_user_update_post_persists_profile_changes_without_password_reset(self):
         user = get_user_model().objects.create_user(
             username='profile-edit-user',
@@ -3141,6 +3222,9 @@ class TokenAuthAndProfileTests(TestCase):
                 'email': 'after@example.com',
                 'password1': '',
                 'password2': '',
+                'orcid_id': '0000-0002-1825-0097',
+                'affiliation': 'After Institute',
+                'about': 'Updated about text.',
             },
         )
 
@@ -3150,6 +3234,12 @@ class TokenAuthAndProfileTests(TestCase):
         self.assertEqual(user.last_name, 'Editor')
         self.assertEqual(user.email, 'after@example.com')
         self.assertTrue(user.check_password('existing-secret'))
+        profile = user.bhtom_profile
+        self.assertEqual(profile.orcid_id, '0000-0002-1825-0097')
+        self.assertFalse(profile.orcid_verified)
+        self.assertEqual(profile.orcid_source, BhtomUserProfile.OrcidSource.MANUAL)
+        self.assertEqual(profile.affiliation, 'After Institute')
+        self.assertEqual(profile.about, 'Updated about text.')
 
 
 class TargetDownloadPhotometryApiTests(TestCase):
