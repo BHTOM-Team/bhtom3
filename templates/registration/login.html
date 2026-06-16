@@ -7,8 +7,7 @@
     {% orcid_login_url 'login' as orcid_url %}
     {% if orcid_url %}
     <div class="mb-3">
-      <a class="btn btn-outline-primary btn-block mb-2" href="{{ orcid_url }}">Log in with ORCID</a>
-      <a class="btn btn-primary btn-block" href="{{ orcid_url }}">Register with ORCID</a>
+      <a class="btn btn-outline-primary btn-block" href="{{ orcid_url }}">Log in with ORCID</a>
     </div>
     <div class="text-center text-muted mb-3">or</div>
     {% endif %}

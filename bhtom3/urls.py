@@ -17,13 +17,6 @@ from django.conf import settings
 from django.urls import path, include
 from rest_framework.authtoken.views import obtain_auth_token
 
-try:
-    from allauth.socialaccount.providers.orcid.views import oauth2_callback as orcid_oauth2_callback
-    from allauth.socialaccount.providers.orcid.views import oauth2_login as orcid_oauth2_login
-except ImportError:
-    orcid_oauth2_callback = None
-    orcid_oauth2_login = None
-
 from custom_code.views import (
     BhtomCatalogSelectResultView,
     BhtomCatalogQueryView,
@@ -49,6 +42,8 @@ from custom_code.views import (
     GeoTomRefreshSingleTleView,
     GeoTomTargetListView,
     LegacyLogoutView,
+    OrcidCallbackView,
+    OrcidLoginView,
     ProposalListView,
     FacilityAccountCreateView,
     FacilityAccountUpdateView,
@@ -115,9 +110,9 @@ urlpatterns = [
     path('', include('tom_common.urls')),
 ]
 
-if getattr(settings, 'ORCID_ENABLED', True) and orcid_oauth2_login is not None:
-    urlpatterns.insert(-1, path('accounts/social/orcid/login/', orcid_oauth2_login, name='orcid_login'))
+if getattr(settings, 'ORCID_ENABLED', True):
+    urlpatterns.insert(-1, path('accounts/social/orcid/login/', OrcidLoginView.as_view(), name='orcid_login'))
     urlpatterns.insert(
         -1,
-        path('accounts/social/orcid/login/callback/', orcid_oauth2_callback, name='orcid_callback'),
+        path('accounts/social/orcid/login/callback/', OrcidCallbackView.as_view(), name='orcid_callback'),
     )

@@ -3250,6 +3250,38 @@ class UserProfileRedirectView(View):
         return redirect('user-update', pk=request.user.pk)
 
 
+class OrcidOAuthUnavailableView(View):
+    message = (
+        'ORCID login is enabled, but django-allauth with the ORCID provider is not available. '
+        'Install requirements and restart the Django server.'
+    )
+
+    def dispatch(self, request, *args, **kwargs):
+        return HttpResponse(self.message, status=503)
+
+
+class OrcidLoginView(View):
+    def dispatch(self, request, *args, **kwargs):
+        if not getattr(settings, 'ORCID_ENABLED', True):
+            return HttpResponse('ORCID login is disabled.', status=404)
+        try:
+            from allauth.socialaccount.providers.orcid.views import oauth2_login
+        except ImportError:
+            return OrcidOAuthUnavailableView.as_view()(request, *args, **kwargs)
+        return oauth2_login(request, *args, **kwargs)
+
+
+class OrcidCallbackView(View):
+    def dispatch(self, request, *args, **kwargs):
+        if not getattr(settings, 'ORCID_ENABLED', True):
+            return HttpResponse('ORCID login is disabled.', status=404)
+        try:
+            from allauth.socialaccount.providers.orcid.views import oauth2_callback
+        except ImportError:
+            return OrcidOAuthUnavailableView.as_view()(request, *args, **kwargs)
+        return oauth2_callback(request, *args, **kwargs)
+
+
 class UserCreateWithFixedFormView(TomCommonUserCreateView):
     form_class = BhtomUserCreationForm
 
