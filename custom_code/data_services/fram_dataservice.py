@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 FRAM_ARCHIVE_URL = 'http://fram.fzu.cz/archive/'
 FRAM_PHOTOMETRY_SEARCH_URL = f'{FRAM_ARCHIVE_URL}search/photometry/'
 FRAM_PHOTOMETRY_MJD_URL = f'{FRAM_ARCHIVE_URL}photometry/mjd'
+FRAM_PHOTOMETRY_PLOT_URL = f'{FRAM_ARCHIVE_URL}photometry/lc'
 FRAM_QUERY_CADENCE_DAYS = 3
 FRAM_FIRST_QUERY_NIGHT = '19000101'
 
@@ -41,6 +42,14 @@ def _fram_alias(target_name):
 
 
 def _build_fram_download_url(ra, dec, radius_arcsec, night1, night2):
+    return _build_fram_photometry_url(FRAM_PHOTOMETRY_MJD_URL, ra, dec, radius_arcsec, night1, night2)
+
+
+def _build_fram_visualization_url(ra, dec, radius_arcsec, night1, night2):
+    return _build_fram_photometry_url(FRAM_PHOTOMETRY_PLOT_URL, ra, dec, radius_arcsec, night1, night2)
+
+
+def _build_fram_photometry_url(base_url, ra, dec, radius_arcsec, night1, night2):
     sr_degrees = float(radius_arcsec) / 3600.0
     params = {
         'night1': night1,
@@ -51,7 +60,7 @@ def _build_fram_download_url(ra, dec, radius_arcsec, night1, night2):
         'dec': dec,
         'sr': sr_degrees,
     }
-    return f'{FRAM_PHOTOMETRY_MJD_URL}?{urlencode(params)}'
+    return f'{base_url}?{urlencode(params)}'
 
 
 def _parse_mjd_photometry(text):
@@ -146,11 +155,12 @@ class FRAMDataService(DataService):
             self.query_results = {'photometry_rows': [], 'source_location': None, 'ra': ra, 'dec': dec}
             return self.query_results
 
-        source_location = _build_fram_download_url(ra, dec, radius_arcsec, night1, night2)
+        download_location = _build_fram_download_url(ra, dec, radius_arcsec, night1, night2)
+        visualization_location = _build_fram_visualization_url(ra, dec, radius_arcsec, night1, night2)
         username = getattr(settings, 'FRAM_ARCHIVE_USERNAME', 'guest')
         password = getattr(settings, 'FRAM_ARCHIVE_PASSWORD', 'framarchive')
         response = requests.get(
-            source_location,
+            download_location,
             auth=(username, password),
             timeout=getattr(settings, 'FRAM_ARCHIVE_TIMEOUT', DATA_SERVICE_HTTP_TIMEOUT),
         )
@@ -159,7 +169,8 @@ class FRAMDataService(DataService):
 
         self.query_results = {
             'photometry_rows': rows,
-            'source_location': source_location,
+            'source_location': visualization_location,
+            'download_location': download_location,
             'ra': ra,
             'dec': dec,
             'night1': night1,

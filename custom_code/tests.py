@@ -4472,7 +4472,8 @@ class FRAMDataServiceTests(TestCase):
         mock_query_service.return_value = {
             'ra': 12.3,
             'dec': -45.6,
-            'source_location': 'http://fram.fzu.cz/archive/photometry/mjd?ra=12.3&dec=-45.6',
+            'source_location': 'http://fram.fzu.cz/archive/photometry/lc?ra=12.3&dec=-45.6',
+            'download_location': 'http://fram.fzu.cz/archive/photometry/mjd?ra=12.3&dec=-45.6',
             'photometry_rows': [{'mjd': 60000.0, 'magnitude': 15.2, 'error': 0.03, 'filter': 'R'}],
         }
 
@@ -4485,6 +4486,8 @@ class FRAMDataServiceTests(TestCase):
 
         self.assertEqual(results[0]['aliases'][0]['name'], 'FRAM_Gaia26abc')
         self.assertEqual(results[0]['aliases'][0]['source_name'], 'FRAM')
+        self.assertIn('/archive/photometry/lc?', results[0]['aliases'][0]['url'])
+        self.assertIn('/archive/photometry/lc?', results[0]['source_location'])
         self.assertEqual(results[0]['reduced_datums']['photometry'][0]['value']['filter'], 'FRAM(R)')
 
         mock_query_service.return_value['photometry_rows'] = []
