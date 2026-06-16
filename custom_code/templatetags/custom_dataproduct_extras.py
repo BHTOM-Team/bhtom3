@@ -136,6 +136,17 @@ PHOTOMETRY_COLOR_MAP = {
     'JVAR(J0660)': ['#ff6d00', 'pentagon', 4],
     'JVAR(ISDSS)': ['#c62828', 'pentagon', 4],
     'JVAR(J0861)': ['#7b1fa2', 'pentagon', 4],
+    'FRAM(U)': ['#5ac6bc', 'hexagon', 4],
+    'FRAM(B)': ['#1d4ed8', 'hexagon', 4],
+    'FRAM(V)': ['darkgreen', 'hexagon', 4],
+    'FRAM(R)': ['red', 'hexagon', 4],
+    'FRAM(I)': ['#800000', 'hexagon', 4],
+    'FRAM(z)': ['#ff0074', 'hexagon', 4],
+    'FRAM(D)': ['#6b7280', 'hexagon', 4],
+    'FRAM(DF)': ['#374151', 'hexagon', 4],
+    'FRAM(N)': ['#111827', 'hexagon', 4],
+    'FRAM(UNK)': ['#9ca3af', 'hexagon', 4],
+    'FRAM(unknown)': ['#9ca3af', 'hexagon', 4],
 }
 
 # Color map for limits (non-detections).
@@ -203,6 +214,17 @@ PHOTOMETRY_LIMITS_COLOR_MAP = {
     'SkyMapper(V)': ['darkgreen', 'arrow-down-open', 5],
     'HST(ACS_F814W)': ['#b5a300', 'arrow-down-open', 5],
     'HST(ACS_F606W)': ['#5c0011', 'arrow-down-open', 5],
+    'FRAM(U)': ['#5ac6bc', 'arrow-down-open', 4],
+    'FRAM(B)': ['#1d4ed8', 'arrow-down-open', 4],
+    'FRAM(V)': ['darkgreen', 'arrow-down-open', 4],
+    'FRAM(R)': ['red', 'arrow-down-open', 4],
+    'FRAM(I)': ['#800000', 'arrow-down-open', 4],
+    'FRAM(z)': ['#ff0074', 'arrow-down-open', 4],
+    'FRAM(D)': ['#6b7280', 'arrow-down-open', 4],
+    'FRAM(DF)': ['#374151', 'arrow-down-open', 4],
+    'FRAM(N)': ['#111827', 'arrow-down-open', 4],
+    'FRAM(UNK)': ['#9ca3af', 'arrow-down-open', 4],
+    'FRAM(unknown)': ['#9ca3af', 'arrow-down-open', 4],
 }
 
 ALERCE_SPECIAL_COLOR_MAP = {

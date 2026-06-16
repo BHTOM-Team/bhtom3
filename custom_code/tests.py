@@ -59,6 +59,7 @@ from custom_code.data_services.asassn_dataservice import ASASSNDataService, _nor
 from custom_code.data_services.exoclock_dataservice import ExoClockDataService
 from custom_code.data_services.gaia_alerts_dataservice import GaiaAlertsDataService
 from custom_code.data_services.gaia_dr3_dataservice import GaiaDR3DataService
+from custom_code.data_services.fram_dataservice import FRAMDataService, _parse_mjd_photometry
 from custom_code.data_services.kmt_dataservice import (
     KMTDataService,
     _event_id as _kmt_event_id,
@@ -4401,3 +4402,90 @@ class Bhtom2FitsUploadTests(TestCase):
         self.assertEqual(dataproduct.data_product_type, 'fits_file')
         self.assertTrue(has_successful_bhtom2_upload(dataproduct))
         self.assertEqual(mock_post.call_args.kwargs['headers']['Authorization'], 'Token token-xyz')
+
+
+class FRAMDataServiceTests(TestCase):
+    def test_parse_mjd_photometry_skips_comments_and_invalid_rows(self):
+        rows = _parse_mjd_photometry(
+            '# MJD Mag Magerr Filter\n'
+            '60000.125 15.2 0.03 R\n'
+            'bad 15.4 0.04 V\n'
+            '60001.5 15.1 0.02 I extra\n'
+        )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]['mjd'], 60000.125)
+        self.assertEqual(rows[0]['filter'], 'R')
+        self.assertEqual(rows[1]['filter'], 'I')
+
+    @patch('custom_code.data_services.fram_dataservice.django_timezone.now')
+    def test_build_query_parameters_uses_full_range_before_first_ingest(self, mock_now):
+        mock_now.return_value = datetime(2026, 6, 16, 12, 0, tzinfo=timezone.utc)
+        target = Target.objects.create(name='Gaia26abc', type='SIDEREAL', ra=12.3, dec=-45.6)
+
+        parameters = FRAMDataService().build_query_parameters({
+            'target_id': target.id,
+            'target_name': target.name,
+            'ra': target.ra,
+            'dec': target.dec,
+        })
+
+        self.assertEqual(parameters['radius_arcsec'], 3.0)
+        self.assertEqual(parameters['night1'], '19000101')
+        self.assertEqual(parameters['night2'], '20260616')
+        self.assertEqual(parameters['site'], 'all')
+        self.assertEqual(parameters['ccd'], 'all')
+
+    def test_scheduler_parameters_include_target_name_for_alias(self):
+        target = Target.objects.create(name='Gaia26abc', type='SIDEREAL', ra=12.3, dec=-45.6)
+
+        parameters = _build_query_parameters_for_service(target, 'FRAM', FRAMDataService())
+
+        self.assertEqual(parameters['target_name'], 'Gaia26abc')
+        self.assertEqual(parameters['radius_arcsec'], 3.0)
+
+    @patch('custom_code.data_services.fram_dataservice.django_timezone.now')
+    def test_build_query_parameters_uses_three_day_range_after_existing_ingest(self, mock_now):
+        mock_now.return_value = datetime(2026, 6, 16, 12, 0, tzinfo=timezone.utc)
+        target = Target.objects.create(name='Gaia26abc', type='SIDEREAL', ra=12.3, dec=-45.6)
+        ReducedDatum.objects.create(
+            target=target,
+            data_type='photometry',
+            source_name='FRAM',
+            source_location='http://fram.fzu.cz/archive/photometry/mjd',
+            timestamp=datetime(2026, 6, 12, 0, 0, tzinfo=timezone.utc),
+            value={'filter': 'FRAM(R)', 'magnitude': 15.2, 'error': 0.03},
+        )
+
+        parameters = FRAMDataService().build_query_parameters({
+            'target_id': target.id,
+            'target_name': target.name,
+            'ra': target.ra,
+            'dec': target.dec,
+        })
+
+        self.assertEqual(parameters['night1'], '20260613')
+        self.assertEqual(parameters['night2'], '20260616')
+
+    @patch.object(FRAMDataService, 'query_service')
+    def test_query_targets_adds_alias_only_when_photometry_exists(self, mock_query_service):
+        mock_query_service.return_value = {
+            'ra': 12.3,
+            'dec': -45.6,
+            'source_location': 'http://fram.fzu.cz/archive/photometry/mjd?ra=12.3&dec=-45.6',
+            'photometry_rows': [{'mjd': 60000.0, 'magnitude': 15.2, 'error': 0.03, 'filter': 'R'}],
+        }
+
+        results = FRAMDataService().query_targets({
+            'target_name': 'Gaia26abc',
+            'ra': 12.3,
+            'dec': -45.6,
+            'include_photometry': True,
+        })
+
+        self.assertEqual(results[0]['aliases'][0]['name'], 'FRAM_Gaia26abc')
+        self.assertEqual(results[0]['aliases'][0]['source_name'], 'FRAM')
+        self.assertEqual(results[0]['reduced_datums']['photometry'][0]['value']['filter'], 'FRAM(R)')
+
+        mock_query_service.return_value['photometry_rows'] = []
+        self.assertEqual(FRAMDataService().query_targets({'ra': 12.3, 'dec': -45.6}), [])

@@ -550,3 +550,26 @@ class JVARQueryForm(BaseQueryForm):
         if cleaned.get('radius_arcsec') is None:
             cleaned['radius_arcsec'] = 3.0
         return cleaned
+
+
+class FRAMQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(required=False, initial=3.0, min_value=0.1, max_value=300.0, label='Search radius (arcsec)')
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
+    night1 = forms.CharField(required=False, label='Not before', help_text='YYYYMMDD. Leave blank for the full first-ingest range.')
+    night2 = forms.CharField(required=False, label='Not after', help_text='YYYYMMDD. Leave blank for today.')
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 3.0
+        for field_name in ('night1', 'night2'):
+            value = (cleaned.get(field_name) or '').strip()
+            if value and (len(value) != 8 or not value.isdigit()):
+                self.add_error(field_name, 'Use YYYYMMDD.')
+            cleaned[field_name] = value
+        return cleaned

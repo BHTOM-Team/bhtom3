@@ -34,7 +34,8 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.eso_spectra_dataservice.ESOSpectraDataService'},
             {'class': f'{self.name}.data_services.alerce_dataservice.AlerceDataService'},
             {'class': f'{self.name}.data_services.hst_dataservice.HSTDataService'},
-            {'class': f'{self.name}.data_services.jvar_dataservice.JVARDataService'}
+            {'class': f'{self.name}.data_services.jvar_dataservice.JVARDataService'},
+            {'class': f'{self.name}.data_services.fram_dataservice.FRAMDataService'}
         ]
 
     def ready(self):
