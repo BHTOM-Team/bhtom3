@@ -106,7 +106,11 @@ from custom_code.models import (
 from custom_code.orcid import canonicalize_orcid, unique_orcid_username, validate_orcid
 from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
 from custom_code.signals import cleanup_target_relations_on_target_delete
-from custom_code.templatetags.custom_observation_extras import nonsidereal_target_plan
+from custom_code.templatetags.custom_observation_extras import (
+    _target_plan_layout,
+    _target_plan_plot_data,
+    nonsidereal_target_plan,
+)
 from custom_code.templatetags.custom_target_extras import bhtom_target_data, non_sidereal_aladin
 from custom_code.templatetags.custom_target_extras import truncate_decimals
 from custom_code.tasks import _build_query_parameters_for_service, _run_service_for_target
@@ -2266,6 +2270,24 @@ class NonSiderealVisibilityTests(TestCase):
         self.assertIn('(FakeFacility) Warsaw', context['visibility_graph'])
         self.assertEqual(context['form']['airmass'].value(), '2.5')
 
+    def test_target_plan_plot_caps_airmass_at_three(self):
+        visibility_data = {
+            '(LCO) Siding Spring': (
+                [
+                    datetime(2026, 6, 16, 22, 0, tzinfo=timezone.utc),
+                    datetime(2026, 6, 16, 23, 0, tzinfo=timezone.utc),
+                    datetime(2026, 6, 17, 0, 0, tzinfo=timezone.utc),
+                ],
+                [1.4, 3.0, 4.2],
+            )
+        }
+
+        plot_data = _target_plan_plot_data(visibility_data)
+        layout = _target_plan_layout(600, 400, None)
+
+        self.assertEqual(list(plot_data[0].y), [1.4, 3.0, None])
+        self.assertEqual(tuple(layout.yaxis.range), (3.0, 1))
+
     def test_non_sidereal_aladin_requires_specific_observer(self):
         target = Target(name='MinorPlanetChart', type=Target.NON_SIDEREAL)
 
@@ -3948,6 +3970,7 @@ class LCOFacilityAccountRoutingTests(TestCase):
         })
         self.assertEqual(form.fields['c_1_ic_1_readout_mode'].initial, 'qhy600_central_30x30')
         self.assertIn(('qhy600_full_frame', 'QHY600 Full Frame Readout'), form.fields['c_1_ic_1_readout_mode'].choices)
+        self.assertNotIn(('sinistro_full_frame', '1M Sinistro Full Frame'), form.fields['c_1_ic_1_readout_mode'].choices)
         form.cleaned_data = {
             'name': 'BHTOM LCO Target 20260602',
             'proposal': str(self.proposal.pk),
@@ -3990,6 +4013,7 @@ class LCOFacilityAccountRoutingTests(TestCase):
 
         self.assertEqual(form.fields['c_1_ic_1_readout_mode'].initial, 'sinistro_central_2k_2x2')
         self.assertIn(('sinistro_full_frame', '1M Sinistro Full Frame'), form.fields['c_1_ic_1_readout_mode'].choices)
+        self.assertNotIn(('qhy600_full_frame', 'QHY600 Full Frame Readout'), form.fields['c_1_ic_1_readout_mode'].choices)
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_monitoring_dither_is_half_window_in_hours(self, mock_get_instruments):

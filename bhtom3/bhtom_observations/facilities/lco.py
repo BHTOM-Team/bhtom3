@@ -825,9 +825,6 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
         return choices[0][0] if choices else ''
 
     def _readout_mode_choices_for_instrument(self, instrument_type):
-        all_readout_choices = list(self.mode_choices('readout'))
-        if all_readout_choices:
-            return all_readout_choices
         instrument = self.get_instruments().get(instrument_type, {})
         modes = instrument.get('modes', {}).get('readout', {}).get('modes', [])
         if modes:
@@ -835,7 +832,22 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
                 [(mode['code'], mode.get('name') or mode['code']) for mode in modes],
                 key=lambda mode_choice: mode_choice[1],
             )
-        return []
+        return list(self.mode_choices('readout'))
+
+    def _monitoring_readout_context(self):
+        readout_by_instrument = {}
+        default_by_instrument = {}
+        for instrument_type in self.get_instruments().keys():
+            choices = self._readout_mode_choices_for_instrument(instrument_type)
+            readout_by_instrument[instrument_type] = [
+                {'value': value, 'label': label}
+                for value, label in choices
+            ]
+            default_by_instrument[instrument_type] = self._default_readout_mode_for_instrument(instrument_type, choices)
+        return {
+            'readout_by_instrument': readout_by_instrument,
+            'default_by_instrument': default_by_instrument,
+        }
 
     def _default_readout_mode_for_instrument(self, instrument_type, choices):
         if not choices:
@@ -858,7 +870,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
         choices = self._readout_mode_choices_for_instrument(instrument_type)
         selected = self.data.get(field_name) or self.initial.get(field_name)
         if selected and selected not in [choice[0] for choice in choices]:
-            choices = list(choices) + [(selected, selected)]
+            selected = ''
         self.fields[field_name] = forms.ChoiceField(
             choices=choices,
             initial=selected or self._default_readout_mode_for_instrument(instrument_type, choices),
@@ -953,10 +965,12 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
 
     def _monitoring_etc_script(self):
         context_json = json.dumps(self.lco_etc_context)
+        readout_context_json = json.dumps(self._monitoring_readout_context())
         return f"""
 <script>
 (function() {{
   const context = {context_json};
+  const readoutContext = {readout_context_json};
   const FILTER_INDEX = {json.dumps(LCO_ETC_FILTER_INDEX)};
   const TELESCOPE_INDEX = {json.dumps(LCO_ETC_TELESCOPE_INDEX)};
   const PIXEL_SCALE = {json.dumps(LCO_ETC_PIXEL_SCALE)};
@@ -968,6 +982,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
   const telescopeSelect = document.getElementById('lco-monitoring-telescope-class');
   const snrInput = document.getElementById('lco-monitoring-snr');
   const instrumentField = document.getElementById('id_c_1_instrument_type');
+  const readoutField = document.getElementById('id_c_1_ic_1_readout_mode');
   const recomputeButton = document.getElementById('lco-monitoring-recompute');
 
   function calculateExposureTime(telescopeClass, filterCode, magnitude, signalToNoise) {{
@@ -1008,6 +1023,23 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
     if (classCode) telescopeSelect.value = classCode;
   }}
 
+  function syncReadoutFromInstrument() {{
+    if (!instrumentField || !readoutField) return;
+    const instrumentType = instrumentField.value || '';
+    const choices = readoutContext.readout_by_instrument[instrumentType] || [];
+    const defaultValue = readoutContext.default_by_instrument[instrumentType] || (choices[0] && choices[0].value) || '';
+    const currentValue = readoutField.value || defaultValue;
+    readoutField.innerHTML = choices.map((choice) => {{
+      const option = document.createElement('option');
+      option.value = choice.value;
+      option.textContent = choice.label;
+      if (choice.value === currentValue || (!choices.some((item) => item.value === currentValue) && choice.value === defaultValue)) {{
+        option.selected = true;
+      }}
+      return option.outerHTML;
+    }}).join('');
+  }}
+
   function recompute() {{
     document.querySelectorAll('.lco-monitoring-table tbody tr').forEach((row) => {{
       const filterCode = row.dataset.filterCode;
@@ -1020,9 +1052,10 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
 
   syncTelescopeFromInstrument();
   syncInstrumentToTelescopeClass();
+  syncReadoutFromInstrument();
   if (recomputeButton) recomputeButton.addEventListener('click', recompute);
-  if (telescopeSelect) telescopeSelect.addEventListener('change', () => {{ syncInstrumentToTelescopeClass(); recompute(); }});
-  if (instrumentField) instrumentField.addEventListener('change', syncTelescopeFromInstrument);
+  if (telescopeSelect) telescopeSelect.addEventListener('change', () => {{ syncInstrumentToTelescopeClass(); syncReadoutFromInstrument(); recompute(); }});
+  if (instrumentField) instrumentField.addEventListener('change', () => {{ syncTelescopeFromInstrument(); syncReadoutFromInstrument(); }});
 }})();
 </script>
 """

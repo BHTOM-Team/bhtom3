@@ -11,6 +11,33 @@ from tom_observations.utils import get_sidereal_visibility
 
 register = template.Library()
 NON_SIDEREAL_PLAN_INTERVAL_MINUTES = 30
+TARGET_PLAN_MAX_PLOTTED_AIRMASS = 3.0
+TARGET_PLAN_CACHE_VERSION = 2
+
+
+def _target_plan_plot_data(visibility_data):
+    return [
+        go.Scatter(
+            x=data[0],
+            y=[
+                None if airmass is None or float(airmass) > TARGET_PLAN_MAX_PLOTTED_AIRMASS else airmass
+                for airmass in data[1]
+            ],
+            mode='lines',
+            name=site,
+        )
+        for site, data in visibility_data.items()
+    ]
+
+
+def _target_plan_layout(width, height, background):
+    return go.Layout(
+        yaxis=dict(autorange='reversed', range=[TARGET_PLAN_MAX_PLOTTED_AIRMASS, 1]),
+        width=width,
+        height=height,
+        paper_bgcolor=background,
+        plot_bgcolor=background,
+    )
 
 
 @register.inclusion_tag('tom_observations/partials/observing_buttons.html', takes_context=True)
@@ -52,7 +79,7 @@ def sidereal_target_plan(
         end_time = form.cleaned_data['end_time']
         airmass_limit = form.cleaned_data['airmass']
         cache_key = (
-            f'sidereal-plan:{context["object"].pk}:'
+            f'sidereal-plan:v{TARGET_PLAN_CACHE_VERSION}:{context["object"].pk}:'
             f'{start_time.strftime("%Y%m%d%H%M")}:'
             f'{end_time.strftime("%Y%m%d%H%M")}:'
             f'{airmass_limit}'
@@ -60,17 +87,8 @@ def sidereal_target_plan(
         visibility_graph = cache.get(cache_key, '')
         if not visibility_graph:
             visibility_data = get_sidereal_visibility(context['object'], start_time, end_time, 10, airmass_limit)
-            plot_data = [
-                go.Scatter(x=data[0], y=data[1], mode='lines', name=site)
-                for site, data in visibility_data.items()
-            ]
-            layout = go.Layout(
-                yaxis=dict(autorange='reversed'),
-                width=width,
-                height=height,
-                paper_bgcolor=background,
-                plot_bgcolor=background,
-            )
+            plot_data = _target_plan_plot_data(visibility_data)
+            layout = _target_plan_layout(width, height, background)
             layout.legend.font.color = label_color
             fig = go.Figure(data=plot_data, layout=layout)
             fig.update_yaxes(
@@ -125,7 +143,7 @@ def nonsidereal_target_plan(
         end_time = plan_form.cleaned_data['end_time']
         airmass_limit = plan_form.cleaned_data['airmass']
         cache_key = (
-            f'nonsidereal-plan:{context["object"].pk}:'
+            f'nonsidereal-plan:v{TARGET_PLAN_CACHE_VERSION}:{context["object"].pk}:'
             f'{start_time.strftime("%Y%m%d%H%M")}:'
             f'{end_time.strftime("%Y%m%d%H%M")}:'
             f'{airmass_limit}'
@@ -139,17 +157,8 @@ def nonsidereal_target_plan(
                 NON_SIDEREAL_PLAN_INTERVAL_MINUTES,
                 airmass_limit,
             )
-            plot_data = [
-                go.Scatter(x=data[0], y=data[1], mode='lines', name=site)
-                for site, data in visibility_data.items()
-            ]
-            layout = go.Layout(
-                yaxis=dict(autorange='reversed'),
-                width=width,
-                height=height,
-                paper_bgcolor=background,
-                plot_bgcolor=background,
-            )
+            plot_data = _target_plan_plot_data(visibility_data)
+            layout = _target_plan_layout(width, height, background)
             layout.legend.font.color = label_color
             fig = go.Figure(data=plot_data, layout=layout)
             fig.update_yaxes(
