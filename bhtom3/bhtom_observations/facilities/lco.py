@@ -804,6 +804,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
         self.fields['c_1_min_lunar_distance'].required = False
         self.fields['c_1_min_lunar_distance'].initial = 30
         self.fields['c_1_max_lunar_phase'].widget = forms.HiddenInput()
+        self._configure_monitoring_readout_field()
         for field_name in (
             'dither_pattern', 'dither_num_points', 'dither_point_spacing', 'dither_line_spacing',
             'dither_orientation', 'dither_num_rows', 'dither_num_columns', 'dither_center',
@@ -814,6 +815,56 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             if field_name in self.fields:
                 self.fields[field_name].widget = forms.HiddenInput()
                 self.fields[field_name].required = False
+
+    def _monitoring_selected_instrument_type(self):
+        field_name = 'c_1_instrument_type'
+        value = self.data.get(field_name) or self.initial.get(field_name) or self.fields[field_name].initial
+        if value:
+            return value
+        choices = list(self.fields[field_name].choices)
+        return choices[0][0] if choices else ''
+
+    def _readout_mode_choices_for_instrument(self, instrument_type):
+        all_readout_choices = list(self.mode_choices('readout'))
+        if all_readout_choices:
+            return all_readout_choices
+        instrument = self.get_instruments().get(instrument_type, {})
+        modes = instrument.get('modes', {}).get('readout', {}).get('modes', [])
+        if modes:
+            return sorted(
+                [(mode['code'], mode.get('name') or mode['code']) for mode in modes],
+                key=lambda mode_choice: mode_choice[1],
+            )
+        return []
+
+    def _default_readout_mode_for_instrument(self, instrument_type, choices):
+        if not choices:
+            return ''
+        instrument = self.get_instruments().get(instrument_type, {})
+        instrument_label = f'{instrument_type} {instrument.get("name", "")}'.lower()
+        preferred_terms = ('qhy600', 'sinistro') if 'qhy600' in instrument_label else ('sinistro',)
+        for term in preferred_terms:
+            matching = [
+                code for code, label in choices
+                if term in f'{code} {label}'.lower() and 'central' in f'{code} {label}'.lower()
+            ]
+            if matching:
+                return matching[0]
+        return choices[0][0]
+
+    def _configure_monitoring_readout_field(self):
+        field_name = 'c_1_ic_1_readout_mode'
+        instrument_type = self._monitoring_selected_instrument_type()
+        choices = self._readout_mode_choices_for_instrument(instrument_type)
+        selected = self.data.get(field_name) or self.initial.get(field_name)
+        if selected and selected not in [choice[0] for choice in choices]:
+            choices = list(choices) + [(selected, selected)]
+        self.fields[field_name] = forms.ChoiceField(
+            choices=choices,
+            initial=selected or self._default_readout_mode_for_instrument(instrument_type, choices),
+            required=True,
+            label='Readout Mode',
+        )
 
     def _add_monitoring_filter_fields(self):
         rows = self.lco_etc_context.get('rows_by_class', {}).get('0m4', [])
@@ -1037,6 +1088,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             ),
             Div(
                 Div('c_1_instrument_type', css_class='col'),
+                Div('c_1_ic_1_readout_mode', css_class='col'),
                 css_class='form-row',
             ),
             HTML(calculator_html),
@@ -1058,6 +1110,8 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
 
     def _build_instrument_configs(self, instrument_type, configuration_id):
         instrument_configs = []
+        readout_field = self.fields.get('c_1_ic_1_readout_mode')
+        readout_mode = self.cleaned_data.get('c_1_ic_1_readout_mode') or (readout_field.initial if readout_field else None)
         for filter_code in self.monitoring_filter_codes:
             exposure_count = self.cleaned_data.get(f'monitoring_frames_{filter_code}') or 0
             exposure_time = self.cleaned_data.get(f'monitoring_exp_{filter_code}')
@@ -1068,6 +1122,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
             instrument_configs.append({
                 'exposure_count': exposure_count,
                 'exposure_time': exposure_time,
+                'mode': readout_mode,
                 'optical_elements': {'filter': filter_code},
             })
         return instrument_configs
@@ -1084,6 +1139,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
         required_fields = (
             'name', 'proposal', 'ipp_value', 'observation_mode', 'target_id', 'start', 'end', 'period',
             'monitoring_dither_hours', 'c_1_instrument_type', 'c_1_configuration_type', 'c_1_max_airmass',
+            'c_1_ic_1_readout_mode',
         )
         if any(field_name not in self.cleaned_data for field_name in required_fields):
             return

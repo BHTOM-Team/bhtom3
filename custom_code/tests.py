@@ -154,6 +154,62 @@ def _minimal_lco_instruments():
             },
             'default_configuration_type': 'EXPOSE',
         },
+        '0M4-SCICAM-QHY600': {
+            'type': 'IMAGE',
+            'class': '0m4',
+            'name': '0m4 SCICAM QHY600',
+            'optical_elements': {
+                'filters': [
+                    {'name': 'SDSS-gp', 'code': 'gp', 'schedulable': True, 'default': False},
+                ],
+            },
+            'modes': {
+                'readout': {
+                    'modes': [
+                        {'name': 'QHY600 Central 30x30 arcmin', 'code': 'qhy600_central_30x30'},
+                        {'name': 'QHY600 Full Frame Readout', 'code': 'qhy600_full_frame'},
+                    ],
+                },
+                'guiding': {
+                    'modes': [
+                        {'name': 'On', 'code': 'ON'},
+                        {'name': 'Off', 'code': 'OFF'},
+                    ],
+                },
+            },
+            'configuration_types': {
+                'EXPOSE': {'name': 'Expose', 'code': 'EXPOSE', 'schedulable': True},
+            },
+            'default_configuration_type': 'EXPOSE',
+        },
+        '1M0-SCICAM-SINISTRO': {
+            'type': 'IMAGE',
+            'class': '1m0',
+            'name': '1.0 meter Sinistro',
+            'optical_elements': {
+                'filters': [
+                    {'name': 'SDSS-gp', 'code': 'gp', 'schedulable': True, 'default': False},
+                ],
+            },
+            'modes': {
+                'readout': {
+                    'modes': [
+                        {'name': '1M Sinistro Central 2k 2x2 binned', 'code': 'sinistro_central_2k_2x2'},
+                        {'name': '1M Sinistro Full Frame', 'code': 'sinistro_full_frame'},
+                    ],
+                },
+                'guiding': {
+                    'modes': [
+                        {'name': 'On', 'code': 'ON'},
+                        {'name': 'Off', 'code': 'OFF'},
+                    ],
+                },
+            },
+            'configuration_types': {
+                'EXPOSE': {'name': 'Expose', 'code': 'EXPOSE', 'schedulable': True},
+            },
+            'default_configuration_type': 'EXPOSE',
+        },
     }
 
 
@@ -3877,8 +3933,63 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertEqual(configuration['instrument_configs'], [{
             'exposure_count': 2,
             'exposure_time': 86.0,
+            'mode': '1x1',
             'optical_elements': {'filter': 'gp'},
         }])
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    def test_lco_monitoring_payload_preserves_selected_qhy600_readout_mode(self, mock_get_instruments):
+        mock_get_instruments.return_value = _minimal_lco_instruments()
+        form = BhtomLCOMonitoringObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+            'c_1_instrument_type': '0M4-SCICAM-QHY600',
+        })
+        self.assertEqual(form.fields['c_1_ic_1_readout_mode'].initial, 'qhy600_central_30x30')
+        self.assertIn(('qhy600_full_frame', 'QHY600 Full Frame Readout'), form.fields['c_1_ic_1_readout_mode'].choices)
+        form.cleaned_data = {
+            'name': 'BHTOM LCO Target 20260602',
+            'proposal': str(self.proposal.pk),
+            'ipp_value': 1.05,
+            'observation_mode': 'NORMAL',
+            'optimization_type': 'TIME',
+            'configuration_repeats': 1,
+            'target_id': self.target.pk,
+            'start': '2026-06-02T12:00:00+00:00',
+            'end': '2026-06-02T12:00:00+00:00',
+            'period': 1.0,
+            'monitoring_dither_hours': 1.5,
+            'jitter': 0.0,
+            'c_1_instrument_type': '0M4-SCICAM-QHY600',
+            'c_1_configuration_type': 'EXPOSE',
+            'c_1_max_airmass': 1.6,
+            'c_1_min_lunar_distance': 30,
+            'c_1_ic_1_readout_mode': 'qhy600_full_frame',
+            'monitoring_frames_gp': 1,
+            'monitoring_exp_gp': 86.0,
+        }
+        for filter_code in BhtomLCOMonitoringObservationForm.monitoring_filter_codes:
+            form.cleaned_data.setdefault(f'monitoring_frames_{filter_code}', 0)
+            form.cleaned_data.setdefault(f'monitoring_exp_{filter_code}', None)
+
+        configuration = form.observation_payload()['requests'][0]['configurations'][0]
+
+        self.assertEqual(configuration['instrument_type'], '0M4-SCICAM-QHY600')
+        self.assertEqual(configuration['instrument_configs'][0]['mode'], 'qhy600_full_frame')
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    def test_lco_monitoring_form_offers_sinistro_readout_modes(self, mock_get_instruments):
+        mock_get_instruments.return_value = _minimal_lco_instruments()
+        form = BhtomLCOMonitoringObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+            'c_1_instrument_type': '1M0-SCICAM-SINISTRO',
+        })
+
+        self.assertEqual(form.fields['c_1_ic_1_readout_mode'].initial, 'sinistro_central_2k_2x2')
+        self.assertIn(('sinistro_full_frame', '1M Sinistro Full Frame'), form.fields['c_1_ic_1_readout_mode'].choices)
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_monitoring_dither_is_half_window_in_hours(self, mock_get_instruments):
