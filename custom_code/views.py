@@ -3264,6 +3264,20 @@ class OrcidLoginView(View):
     def dispatch(self, request, *args, **kwargs):
         if not getattr(settings, 'ORCID_ENABLED', True):
             return HttpResponse('ORCID login is disabled.', status=404)
+        if not getattr(settings, 'ORCID_CLIENT_ID', '').strip():
+            return HttpResponse(
+                'ORCID login is enabled, but ORCID_CLIENT_ID is not configured. '
+                'Create an ORCID Public API client, set ORCID_CLIENT_ID and ORCID_CLIENT_SECRET, '
+                'then restart the Django server.',
+                status=503,
+            )
+        if not getattr(settings, 'ORCID_CLIENT_SECRET', '').strip():
+            return HttpResponse(
+                'ORCID login is enabled, but ORCID_CLIENT_SECRET is not configured. '
+                'Create an ORCID Public API client, set ORCID_CLIENT_ID and ORCID_CLIENT_SECRET, '
+                'then restart the Django server.',
+                status=503,
+            )
         try:
             from allauth.socialaccount.providers.orcid.views import oauth2_login
         except ImportError:
