@@ -13,5 +13,5 @@ def orcid_login_url(process='login'):
     try:
         url = reverse('orcid_login')
     except NoReverseMatch:
-        return ''
+        url = '/accounts/social/orcid/login/'
     return f'{url}?process={process}' if process else url

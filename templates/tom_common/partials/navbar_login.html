@@ -21,6 +21,9 @@
     <a class="btn btn-outline-primary" title="register with ORCID" href="{{ orcid_register_url }}">Register with ORCID</a>
 </li>
 {% endif %}
+<li class="nav-item mr-2">
+    <a class="btn btn-outline-light" title="register" href="{% url 'user-create' %}">Register</a>
+</li>
 <li class="nav-item">
     <a class="btn btn-outline-success" title="login" href="{% url 'login' %}">Login</a>
 </li>
