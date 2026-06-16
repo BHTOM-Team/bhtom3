@@ -167,8 +167,9 @@ def _notify_admins_for_orcid_user(request, user, profile):
         ]
     )
     subject = 'New BHTOM3 account created via ORCID'
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or getattr(settings, 'EMAIL_HOST_USER', None)
     if recipients:
-        send_mail(subject, body, getattr(settings, 'DEFAULT_FROM_EMAIL', None), recipients, fail_silently=True)
+        send_mail(subject, body, from_email, recipients, fail_silently=True)
     else:
         mail_admins(subject, body, fail_silently=True)
 
