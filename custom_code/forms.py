@@ -55,7 +55,12 @@ class GeoTomAddSatForm(forms.Form):
 class BhtomUserBaseForm(forms.ModelForm):
     email = forms.EmailField(required=True)
     affiliation = forms.CharField(required=False, max_length=255)
-    about = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 4}))
+    about = forms.CharField(
+        label='About me - justify why you want to create an account',
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 4}),
+        help_text='Justify why you want to create a BHTOM account.',
+    )
     orcid_id = forms.CharField(
         label='ORCID iD',
         required=False,
@@ -133,6 +138,12 @@ class BhtomUserCreationForm(BhtomUserBaseForm):
         widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
         help_text='Enter the same password as before, for verification.',
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['first_name'].required = True
+        self.fields['last_name'].required = True
+        self.fields['about'].required = True
 
     def clean(self):
         cleaned_data = super().clean()

@@ -3149,6 +3149,7 @@ class TokenAuthAndProfileTests(TestCase):
                 'first_name': 'Created',
                 'last_name': 'User',
                 'email': 'created@example.com',
+                'about': 'I need a BHTOM account for target follow-up work.',
                 'password1': 'create-user-secret-123',
                 'password2': 'create-user-secret-123',
             },

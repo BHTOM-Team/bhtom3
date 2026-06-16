@@ -33,7 +33,7 @@ from django.shortcuts import redirect
 from django.shortcuts import get_object_or_404
 from django.shortcuts import resolve_url
 from django.shortcuts import render
-from django.views.generic import FormView, ListView, RedirectView, TemplateView
+from django.views.generic import CreateView, FormView, ListView, RedirectView, TemplateView
 from django.views import View
 from django.utils import timezone as django_timezone
 from django.utils.decorators import method_decorator
@@ -3253,11 +3253,28 @@ class UserProfileRedirectView(View):
 class UserCreateWithFixedFormView(TomCommonUserCreateView):
     form_class = BhtomUserCreationForm
 
+    def dispatch(self, request, *args, **kwargs):
+        return CreateView.dispatch(self, request, *args, **kwargs)
+
+    def get_form(self, form_class=None):
+        form = CreateView.get_form(self, form_class)
+        if not self.request.user.is_superuser:
+            form.fields.pop('groups', None)
+        return form
+
+    def get_success_url(self):
+        if self.request.user.is_superuser:
+            return reverse_lazy('user-list')
+        return reverse_lazy('login')
+
     def form_valid(self, form):
         self.object = form.save()
         group, _ = Group.objects.get_or_create(name='Public')
         group.user_set.add(self.object)
-        messages.success(self.request, 'User created')
+        if self.request.user.is_superuser:
+            messages.success(self.request, 'User created')
+        else:
+            messages.success(self.request, 'Account created. You can now log in.')
         return HttpResponseRedirect(self.get_success_url())
 
     def form_invalid(self, form):
