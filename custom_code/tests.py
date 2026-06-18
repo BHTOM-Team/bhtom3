@@ -4017,6 +4017,43 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertNotIn(('qhy600_full_frame', 'QHY600 Full Frame Readout'), form.fields['c_1_ic_1_readout_mode'].choices)
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    def test_lco_monitoring_readout_fallback_filters_global_modes_by_instrument(self, mock_get_instruments):
+        instruments = _minimal_lco_instruments()
+        instruments['1M0-SCICAM-NOMODES'] = {
+            'type': 'IMAGE',
+            'class': '1m0',
+            'name': '1.0 meter Sinistro',
+            'optical_elements': {
+                'filters': [
+                    {'name': 'SDSS-gp', 'code': 'gp', 'schedulable': True, 'default': False},
+                ],
+            },
+            'modes': {
+                'guiding': {
+                    'modes': [
+                        {'name': 'On', 'code': 'ON'},
+                        {'name': 'Off', 'code': 'OFF'},
+                    ],
+                },
+            },
+            'configuration_types': {
+                'EXPOSE': {'name': 'Expose', 'code': 'EXPOSE', 'schedulable': True},
+            },
+            'default_configuration_type': 'EXPOSE',
+        }
+        mock_get_instruments.return_value = instruments
+
+        form = BhtomLCOMonitoringObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+            'c_1_instrument_type': '1M0-SCICAM-NOMODES',
+        })
+
+        self.assertIn(('sinistro_full_frame', '1M Sinistro Full Frame'), form.fields['c_1_ic_1_readout_mode'].choices)
+        self.assertNotIn(('qhy600_full_frame', 'QHY600 Full Frame Readout'), form.fields['c_1_ic_1_readout_mode'].choices)
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_monitoring_dither_is_half_window_in_hours(self, mock_get_instruments):
         mock_get_instruments.return_value = _minimal_lco_instruments()
         form = BhtomLCOMonitoringObservationForm(initial={

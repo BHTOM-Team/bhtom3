@@ -832,7 +832,27 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
                 [(mode['code'], mode.get('name') or mode['code']) for mode in modes],
                 key=lambda mode_choice: mode_choice[1],
             )
-        return list(self.mode_choices('readout'))
+        choices = list(self.mode_choices('readout'))
+        keywords = self._readout_mode_keywords_for_instrument(instrument_type)
+        if keywords:
+            filtered_choices = [
+                choice for choice in choices
+                if any(keyword in f'{choice[0]} {choice[1]}'.lower() for keyword in keywords)
+            ]
+            if filtered_choices:
+                return filtered_choices
+        return choices
+
+    def _readout_mode_keywords_for_instrument(self, instrument_type):
+        instrument = self.get_instruments().get(instrument_type, {})
+        instrument_label = f'{instrument_type} {instrument.get("name", "")} {instrument.get("class", "")}'.lower()
+        if 'qhy600' in instrument_label:
+            return ('qhy600',)
+        if 'sinistro' in instrument_label or '1m0' in instrument_label or '1.0 meter' in instrument_label:
+            return ('sinistro', '1m')
+        if '0m4' in instrument_label or '0.4 meter' in instrument_label:
+            return ('qhy600',)
+        return ()
 
     def _monitoring_readout_context(self):
         readout_by_instrument = {}
