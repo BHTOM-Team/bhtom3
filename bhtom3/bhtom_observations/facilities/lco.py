@@ -999,6 +999,11 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
         return f"""
 <script>
 (function() {{
+  const scriptElement = document.currentScript;
+  const formRoot = (scriptElement && (scriptElement.closest('.tab-pane') || scriptElement.closest('form'))) || document;
+  function scopedQuery(selector) {{
+    return formRoot.querySelector(selector) || document.querySelector(selector);
+  }}
   const context = {context_json};
   const readoutContext = {readout_context_json};
   const FILTER_INDEX = {json.dumps(LCO_ETC_FILTER_INDEX)};
@@ -1009,11 +1014,11 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
   const ZEROPOINT = {json.dumps(LCO_ETC_ZEROPOINT)};
   const SKY = {json.dumps(LCO_ETC_SKY_BRIGHTNESS)};
   const EXT = {json.dumps(LCO_ETC_EXTINCTION)};
-  const telescopeSelect = document.getElementById('lco-monitoring-telescope-class');
-  const snrInput = document.getElementById('lco-monitoring-snr');
-  const instrumentField = document.getElementById('id_c_1_instrument_type');
-  const readoutField = document.getElementById('id_c_1_ic_1_readout_mode');
-  const recomputeButton = document.getElementById('lco-monitoring-recompute');
+  const telescopeSelect = scopedQuery('#lco-monitoring-telescope-class');
+  const snrInput = scopedQuery('#lco-monitoring-snr');
+  const instrumentField = scopedQuery('#id_c_1_instrument_type');
+  const readoutField = scopedQuery('#id_c_1_ic_1_readout_mode');
+  const recomputeButton = scopedQuery('#lco-monitoring-recompute');
   const readoutFallbacks = {{
     qhy600: [
       {{ value: 'qhy600_central_30x30', label: 'QHY600 Central 30x30 arcmin' }},
@@ -1104,7 +1109,7 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
   }}
 
   function recompute() {{
-    document.querySelectorAll('.lco-monitoring-table tbody tr').forEach((row) => {{
+    formRoot.querySelectorAll('.lco-monitoring-table tbody tr').forEach((row) => {{
       const filterCode = row.dataset.filterCode;
       const magInput = row.querySelector('.monitoring-mag');
       const expInput = row.querySelector('.monitoring-exp');
