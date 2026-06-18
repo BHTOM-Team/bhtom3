@@ -1014,6 +1014,16 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
   const instrumentField = document.getElementById('id_c_1_instrument_type');
   const readoutField = document.getElementById('id_c_1_ic_1_readout_mode');
   const recomputeButton = document.getElementById('lco-monitoring-recompute');
+  const readoutFallbacks = {{
+    qhy600: [
+      {{ value: 'qhy600_central_30x30', label: 'QHY600 Central 30x30 arcmin' }},
+      {{ value: 'qhy600_full_frame', label: 'QHY600 Full Frame Readout' }},
+    ],
+    sinistro: [
+      {{ value: 'sinistro_central_2k_2x2', label: '1M Sinistro Central 2k 2x2 binned' }},
+      {{ value: 'sinistro_full_frame', label: '1M Sinistro Full Frame' }},
+    ],
+  }};
 
   function calculateExposureTime(telescopeClass, filterCode, magnitude, signalToNoise) {{
     const telescopeIndex = TELESCOPE_INDEX[telescopeClass];
@@ -1053,11 +1063,34 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
     if (classCode) telescopeSelect.value = classCode;
   }}
 
+  function selectedInstrumentText() {{
+    if (!instrumentField) return '';
+    const selectedOption = instrumentField.options[instrumentField.selectedIndex];
+    return `${{instrumentField.value || ''}} ${{selectedOption ? selectedOption.textContent || '' : ''}}`.toLowerCase();
+  }}
+
+  function readoutFamilyFromInstrument() {{
+    const text = selectedInstrumentText();
+    if (text.includes('sinistro') || text.includes('1m0') || text.includes('1.0 meter')) return 'sinistro';
+    if (text.includes('qhy600') || text.includes('0m4') || text.includes('0.4 meter')) return 'qhy600';
+    return '';
+  }}
+
+  function filterReadoutChoicesForInstrument(choices) {{
+    const family = readoutFamilyFromInstrument();
+    if (!family) return choices;
+    const filtered = choices.filter((choice) => `${{choice.value}} ${{choice.label}}`.toLowerCase().includes(family));
+    return filtered.length ? filtered : readoutFallbacks[family] || choices;
+  }}
+
   function syncReadoutFromInstrument() {{
     if (!instrumentField || !readoutField) return;
     const instrumentType = instrumentField.value || '';
-    const choices = readoutContext.readout_by_instrument[instrumentType] || [];
-    const defaultValue = readoutContext.default_by_instrument[instrumentType] || (choices[0] && choices[0].value) || '';
+    const family = readoutFamilyFromInstrument();
+    const choices = filterReadoutChoicesForInstrument(readoutContext.readout_by_instrument[instrumentType] || []);
+    const configuredDefault = readoutContext.default_by_instrument[instrumentType] || '';
+    const fallbackDefault = family ? readoutFallbacks[family][0].value : '';
+    const defaultValue = choices.some((choice) => choice.value === configuredDefault) ? configuredDefault : fallbackDefault || (choices[0] && choices[0].value) || '';
     const currentValue = readoutField.value || defaultValue;
     readoutField.innerHTML = choices.map((choice) => {{
       const option = document.createElement('option');
