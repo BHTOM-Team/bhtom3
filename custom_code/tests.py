@@ -4054,6 +4054,51 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertNotIn(('qhy600_full_frame', 'QHY600 Full Frame Readout'), form.fields['c_1_ic_1_readout_mode'].choices)
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
+    def test_lco_monitoring_readout_replaces_wrong_modes_for_sinistro_instrument(self, mock_get_instruments):
+        instruments = _minimal_lco_instruments()
+        instruments['1M0-SCICAM-WRONGMODES'] = {
+            'type': 'IMAGE',
+            'class': '1m0',
+            'name': '1.0 meter Sinistro',
+            'optical_elements': {
+                'filters': [
+                    {'name': 'SDSS-gp', 'code': 'gp', 'schedulable': True, 'default': False},
+                ],
+            },
+            'modes': {
+                'readout': {
+                    'modes': [
+                        {'name': 'QHY600 Central 30x30 arcmin', 'code': 'qhy600_central_30x30'},
+                        {'name': 'QHY600 Full Frame Readout', 'code': 'qhy600_full_frame'},
+                    ],
+                },
+                'guiding': {
+                    'modes': [
+                        {'name': 'On', 'code': 'ON'},
+                        {'name': 'Off', 'code': 'OFF'},
+                    ],
+                },
+            },
+            'configuration_types': {
+                'EXPOSE': {'name': 'Expose', 'code': 'EXPOSE', 'schedulable': True},
+            },
+            'default_configuration_type': 'EXPOSE',
+        }
+        mock_get_instruments.return_value = instruments
+
+        form = BhtomLCOMonitoringObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+            'c_1_instrument_type': '1M0-SCICAM-WRONGMODES',
+        })
+
+        self.assertEqual(form.fields['c_1_ic_1_readout_mode'].choices, [
+            ('sinistro_central_2k_2x2', '1M Sinistro Central 2k 2x2 binned'),
+            ('sinistro_full_frame', '1M Sinistro Full Frame'),
+        ])
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_monitoring_dither_is_half_window_in_hours(self, mock_get_instruments):
         mock_get_instruments.return_value = _minimal_lco_instruments()
         form = BhtomLCOMonitoringObservationForm(initial={

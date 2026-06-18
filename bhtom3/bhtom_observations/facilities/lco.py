@@ -109,6 +109,16 @@ LCO_PREFIX_SUFFIX_TO_INSTRUMENT_KIND = {
     'spectral': 'spectral',
     'muscat': 'muscat',
 }
+LCO_MONITORING_READOUT_FALLBACKS = {
+    'qhy600': [
+        ('qhy600_central_30x30', 'QHY600 Central 30x30 arcmin'),
+        ('qhy600_full_frame', 'QHY600 Full Frame Readout'),
+    ],
+    'sinistro': [
+        ('sinistro_central_2k_2x2', '1M Sinistro Central 2k 2x2 binned'),
+        ('sinistro_full_frame', '1M Sinistro Full Frame'),
+    ],
+}
 
 
 def _lco_etc_normalize_filter_name(filter_name):
@@ -828,31 +838,31 @@ class BhtomLCOMonitoringObservationForm(BhtomLCOImagingObservationForm):
         instrument = self.get_instruments().get(instrument_type, {})
         modes = instrument.get('modes', {}).get('readout', {}).get('modes', [])
         if modes:
-            return sorted(
+            choices = sorted(
                 [(mode['code'], mode.get('name') or mode['code']) for mode in modes],
                 key=lambda mode_choice: mode_choice[1],
             )
-        choices = list(self.mode_choices('readout'))
-        keywords = self._readout_mode_keywords_for_instrument(instrument_type)
-        if keywords:
-            filtered_choices = [
-                choice for choice in choices
-                if any(keyword in f'{choice[0]} {choice[1]}'.lower() for keyword in keywords)
-            ]
-            if filtered_choices:
-                return filtered_choices
-        return choices
+        else:
+            choices = list(self.mode_choices('readout'))
+        family = self._readout_mode_family_for_instrument(instrument_type)
+        if not family:
+            return choices
+        filtered_choices = [
+            choice for choice in choices
+            if family in f'{choice[0]} {choice[1]}'.lower()
+        ]
+        return filtered_choices or LCO_MONITORING_READOUT_FALLBACKS.get(family, choices)
 
-    def _readout_mode_keywords_for_instrument(self, instrument_type):
+    def _readout_mode_family_for_instrument(self, instrument_type):
         instrument = self.get_instruments().get(instrument_type, {})
         instrument_label = f'{instrument_type} {instrument.get("name", "")} {instrument.get("class", "")}'.lower()
         if 'qhy600' in instrument_label:
-            return ('qhy600',)
+            return 'qhy600'
         if 'sinistro' in instrument_label or '1m0' in instrument_label or '1.0 meter' in instrument_label:
-            return ('sinistro', '1m')
+            return 'sinistro'
         if '0m4' in instrument_label or '0.4 meter' in instrument_label:
-            return ('qhy600',)
-        return ()
+            return 'qhy600'
+        return ''
 
     def _monitoring_readout_context(self):
         readout_by_instrument = {}
