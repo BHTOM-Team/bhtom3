@@ -72,7 +72,7 @@ class CRTSDataService(DataService):
             return self.query_results
 
         source_location = _build_crts_url(ra, dec, radius_arcmin)
-        response = requests.get(source_location, timeout=30, headers=CRTS_REQUEST_HEADERS)
+        response = requests.get(source_location, timeout=300, headers=CRTS_REQUEST_HEADERS)
         response.raise_for_status()
 
         match_row = None
@@ -81,6 +81,7 @@ class CRTSDataService(DataService):
             tables = pd.read_html(StringIO(response.text), match='Photometry of Objs')
             if tables:
                 df = tables[0]
+                df.columns = [str(col).strip() for col in df.columns]
                 rows = df.to_dict(orient='records')
                 if rows:
                     match_row = rows[0]
