@@ -2,7 +2,6 @@ import logging
 
 import astropy.units as u
 from astropy.coordinates import SkyCoord
-from astroquery.gaia import Gaia
 from astroquery.vizier import Vizier
 from typing import Any, Callable, Dict, List
 from functools import lru_cache
@@ -101,6 +100,7 @@ def query_service(ra: float,
 
 def query_gaia(coord: SkyCoord,
                radius: u.Quantity) -> Any:
+    from astroquery.gaia import Gaia
     Gaia.MAIN_GAIA_TABLE = "gaiaedr3.gaia_source"
     return Gaia.cone_search_async(coordinate=coord, radius=radius).get_results()
 

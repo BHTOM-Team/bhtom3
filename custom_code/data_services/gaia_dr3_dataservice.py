@@ -5,7 +5,6 @@ from datetime import datetime
 
 from astropy import units as u
 from astropy.time import Time
-from astroquery.gaia import Gaia
 from datetime import timezone
 import pyvo
 from specutils import Spectrum1D
@@ -414,6 +413,7 @@ class GaiaDR3DataService(DataService):
 
     def _query_source_esa(self, query):
         try:
+            from astroquery.gaia import Gaia
             result = Gaia.launch_job(query).get_results()
             if len(result) > 0:
                 return _row_to_dict(result[0])
@@ -432,6 +432,7 @@ class GaiaDR3DataService(DataService):
 
     def _query_variability_esa(self, source_id):
         try:
+            from astroquery.gaia import Gaia
             result = Gaia.launch_job(_build_variability_query(source_id)).get_results()
             return [_row_to_dict(row) for row in result]
         except Exception as exc:
@@ -472,6 +473,7 @@ class GaiaDR3DataService(DataService):
 
     def _fetch_epoch_photometry_esa(self, source_id):
         try:
+            from astroquery.gaia import Gaia
             datalink = Gaia.load_data(
                 ids=[str(source_id)],
                 data_release='Gaia DR3',
@@ -499,6 +501,7 @@ class GaiaDR3DataService(DataService):
 
     def _fetch_xp_spectrum_esa(self, source_id):
         try:
+            from astroquery.gaia import Gaia
             datalink = Gaia.load_data(
                 ids=[str(source_id)],
                 data_release='Gaia DR3',

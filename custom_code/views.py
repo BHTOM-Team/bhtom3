@@ -132,9 +132,7 @@ from custom_code.geosat import (
 from custom_code.data_services.geosat_dataservice import GeoSatDataService
 from custom_code.tasks import enqueue_target_dataservices_update
 from custom_code.bhtom_catalogs.harvesters import gaia_alerts as gaia_alerts_harvester
-from custom_code.bhtom_catalogs.harvesters import gaia_dr3 as gaia_dr3_harvester
 from custom_code.bhtom_catalogs.harvesters import ogle_ews as ogle_ews_harvester
-from custom_code.bhtom_catalogs.harvesters import simbad as simbad_harvester
 from custom_code.sun_separation import get_live_target_values
 
 
@@ -1754,10 +1752,12 @@ def _get_catalog_matches(service_name, cleaned_data):
     if service_name == 'Gaia Alerts':
         return gaia_alerts_harvester.get_all(term)
     if service_name == 'Gaia DR3':
+        from custom_code.bhtom_catalogs.harvesters import gaia_dr3 as gaia_dr3_harvester
         return gaia_dr3_harvester.get_all(term)
     if service_name == 'OGLE EWS':
         return ogle_ews_harvester.get_all(term)
     if service_name == 'Simbad':
+        from custom_code.bhtom_catalogs.harvesters import simbad as simbad_harvester
         return simbad_harvester.get_all(
             cleaned_data.get('ra'),
             cleaned_data.get('dec'),
@@ -1771,6 +1771,7 @@ def _build_catalog_target_from_match(service_name, match):
     if service_name == 'Gaia Alerts':
         return _build_gaia_alerts_catalog_target(match)
     if service_name == 'Gaia DR3':
+        from custom_code.bhtom_catalogs.harvesters import gaia_dr3 as gaia_dr3_harvester
         harvester = gaia_dr3_harvester.GaiaDR3Harvester()
         harvester.catalog_data = match
         return harvester.to_target()
@@ -1779,6 +1780,7 @@ def _build_catalog_target_from_match(service_name, match):
         harvester.catalog_data = match
         return harvester.to_target()
     if service_name == 'Simbad':
+        from custom_code.bhtom_catalogs.harvesters import simbad as simbad_harvester
         return simbad_harvester.target_from_result(match)
     raise ValueError(f'Unsupported catalog multi-match service: {service_name}')
 

@@ -452,7 +452,156 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
     )
 
     request = context.get('request')
-    return {'target': target, 'plot': offline.plot(fig, output_type='div', show_link=False), 'request': request}
+    he_result = _build_highenergy_plot(context, target, width=width, height=height,
+                                       background=background, label_color=label_color, grid=grid)
+    return {
+        'target': target,
+        'plot': offline.plot(fig, output_type='div', show_link=False),
+        'highenergy_plot': he_result,
+        'request': request,
+    }
+
+HIGHENERGY_COLOR_MAP = {
+    'LAT(>100MeV)': ['#e63946', 'circle', 3],
+    'LAT(>800MeV)': ['#457b9d', 'diamond', 3],
+}
+
+HIGHENERGY_LIMITS_COLOR_MAP = {
+    'LAT(>100MeV)': ['#e63946', 'arrow-down-open', 3],
+    'LAT(>800MeV)': ['#457b9d', 'arrow-down-open', 3],
+}
+
+HIGHENERGY_FILTER_ORDER = ['LAT(>800MeV)', 'LAT(>100MeV)']
+
+
+def _build_highenergy_plot(context, target, width=1000, height=600, background=None, label_color=None, grid=True):
+    try:
+        highenergy_data_type = settings.DATA_PRODUCT_TYPES['highenergy'][0]
+    except (AttributeError, KeyError):
+        highenergy_data_type = 'highenergy'
+
+    detection_data = {}
+    limits_data = {}
+    if settings.TARGET_PERMISSIONS_ONLY:
+        datums = ReducedDatum.objects.filter(target=target, data_type=highenergy_data_type)
+    else:
+        datums = get_objects_for_user(
+            context['request'].user,
+            'tom_dataproducts.view_reduceddatum',
+            klass=ReducedDatum.objects.filter(target=target, data_type=highenergy_data_type),
+        )
+
+    if not datums.exists():
+        return None
+
+    for datum in datums:
+        filter_name = str(datum.value.get('filter', '')).strip()
+        if not filter_name:
+            continue
+
+        value = datum.value.get('flux')
+        error = datum.value.get('error')
+        try:
+            value = float(value) if value is not None else None
+            error = float(error) if error is not None else None
+        except (TypeError, ValueError):
+            continue
+        if value is None:
+            continue
+
+        facility = datum.value.get('facility') or datum.source_name or ''
+        observer = datum.value.get('observer') or ''
+        custom = f"{facility}, {observer}".strip(', ')
+
+        is_limit = (value == -1) or (error is not None and error == 0)
+        target_bucket = limits_data if is_limit else detection_data
+
+        target_bucket.setdefault(filter_name, {})
+        target_bucket[filter_name].setdefault('time', []).append(datum.timestamp)
+        target_bucket[filter_name].setdefault('flux', []).append(np.around(value, 6))
+        target_bucket[filter_name].setdefault('error', []).append(np.around(error if error is not None else 0.0, 6))
+        target_bucket[filter_name].setdefault('customdata', []).append(custom)
+
+    plot_data = []
+
+    def _sorted_filters(data_dict):
+        return sorted(data_dict.keys(), key=lambda f: HIGHENERGY_FILTER_ORDER.index(f) if f in HIGHENERGY_FILTER_ORDER else 999)
+
+    mjds_to_plot = {}
+    for filter_name, fv in detection_data.items():
+        if fv.get('flux'):
+            mjds_to_plot[filter_name] = Time(fv['time'], format='datetime').mjd
+
+    for filter_name in _sorted_filters(detection_data):
+        filter_values = detection_data[filter_name]
+        if not filter_values.get('flux'):
+            continue
+        style = HIGHENERGY_COLOR_MAP.get(filter_name, ['gray', 'circle', 3])
+        plot_data.append(
+            go.Scatter(
+                x=filter_values['time'],
+                y=filter_values['flux'],
+                mode='markers',
+                opacity=0.75,
+                marker=dict(color=style[0], symbol=style[1], size=1.2 * style[2]),
+                name=filter_name,
+                error_y=dict(type='data', array=filter_values['error'], visible=True, thickness=0.5, width=0),
+                text=mjds_to_plot[filter_name],
+                customdata=list(zip(filter_values['customdata'])),
+                hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>'
+                              'MJD= %{text:.6f}'
+                              '<br>rel. flux= %{y:.6f}&#177;%{error_y.array:.6f}'
+                              '<br>%{customdata[0]}',
+            )
+        )
+
+    limit_mjds = {}
+    for filter_name, fv in limits_data.items():
+        if fv.get('flux'):
+            limit_mjds[filter_name] = Time(fv['time'], format='datetime').mjd
+
+    for filter_name in _sorted_filters(limits_data):
+        filter_values = limits_data[filter_name]
+        if not filter_values.get('flux'):
+            continue
+        style = HIGHENERGY_LIMITS_COLOR_MAP.get(filter_name, ['gray', 'arrow-down-open', 3])
+        plot_data.append(
+            go.Scatter(
+                x=filter_values['time'],
+                y=filter_values['flux'],
+                mode='markers',
+                visible='legendonly',
+                opacity=0.5,
+                marker=dict(color=style[0], symbol=style[1], size=1.2 * style[2]),
+                name=f'{filter_name}-LIMIT',
+                text=limit_mjds[filter_name],
+                customdata=list(zip(filter_values['customdata'])),
+                hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>'
+                              'MJD= %{text:.6f}'
+                              '<br>limit rel. flux= %{y:.6f}'
+                              '<br>%{customdata[0]}',
+            )
+        )
+
+    fig = go.Figure(
+        data=plot_data,
+        layout=go.Layout(height=height, width=width, paper_bgcolor=background, plot_bgcolor=background),
+    )
+
+    fig.update_layout(
+        showlegend=True,
+        margin=dict(t=40, r=20, b=40, l=80),
+        xaxis=dict(autorange=True, title='date', showgrid=grid, color=label_color,
+                   showline=True, linecolor=label_color, mirror=True),
+        yaxis=dict(autorange=True, title='relative flux', showgrid=grid, color=label_color,
+                   showline=True, linecolor=label_color, mirror=True, zeroline=True),
+        legend=dict(yanchor='top', y=-0.15, xanchor='left', x=0.0, orientation='h',
+                    font=dict(color=label_color)),
+        clickmode='event+select',
+    )
+
+    return offline.plot(fig, output_type='div', show_link=False)
+
 
 @register.inclusion_tag('tom_dataproducts/partials/spectroscopy_for_target.html', takes_context=True)
 def custom_spectroscopy_for_target(context, target, dataproduct=None):

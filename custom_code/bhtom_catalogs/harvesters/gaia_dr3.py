@@ -3,7 +3,6 @@ import math
 import re
 
 from astropy.coordinates import Angle, SkyCoord
-from astroquery.gaia import Gaia
 from tom_catalogs.harvester import AbstractHarvester
 
 
@@ -104,6 +103,7 @@ def _enrich_missing_variability_types(rows):
         return rows
 
     try:
+        from astroquery.gaia import Gaia
         result = Gaia.launch_job(query).get_results()
     except Exception as exc:
         logger.warning('Error when backfilling Gaia DR3 variability class: %s', exc)
@@ -127,6 +127,7 @@ def search_term_in_gaia(term):
         return {}
 
     try:
+        from astroquery.gaia import Gaia
         query = _build_source_query(f'g.source_id = {term_str}')
         job = Gaia.launch_job(query)
         result = job.get_results()
@@ -153,6 +154,7 @@ def cone_search(coordinates, radius):
             )
             + ' ORDER BY dist ASC'
         )
+        from astroquery.gaia import Gaia
         result = Gaia.launch_job(query).get_results()
         if len(result) == 0:
             return {}
@@ -180,6 +182,7 @@ def cone_search_all(coordinates, radius, limit=100):
             f'  AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) <= {radius_deg} '
             'ORDER BY dist ASC'
         )
+        from astroquery.gaia import Gaia
         result = Gaia.launch_job(query).get_results()
         return _enrich_missing_variability_types([_row_to_dict(row) for row in result])
     except Exception as exc:
