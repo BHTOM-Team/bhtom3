@@ -295,6 +295,7 @@ DATA_PRODUCT_TYPES = {
     'photometry_csv': ('photometry_csv', 'Photometry - CSV'),
     'fits_file': ('fits_file', 'FITS File'),
     'spectroscopy': ('spectroscopy', 'Spectroscopy'),
+    'highenergy': ('highenergy', 'High-Energy Light Curves'),
     # 'image_file': ('image_file', 'Image File')
 }
 CLASSIFICATION_TYPES = [

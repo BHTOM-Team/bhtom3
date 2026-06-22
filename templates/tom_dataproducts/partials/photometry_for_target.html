@@ -10,3 +10,11 @@
 <div class="light-curve">
   {{ plot|safe }}
 </div>
+{% if highenergy_plot %}
+<div class="mt-4">
+  <h4>High-Energy Light Curve</h4>
+  <div class="light-curve">
+    {{ highenergy_plot|safe }}
+  </div>
+</div>
+{% endif %}

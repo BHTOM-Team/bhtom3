@@ -552,6 +552,18 @@ class JVARQueryForm(BaseQueryForm):
         return cleaned
 
 
+class FAVAQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        return cleaned
+
+
 class FRAMQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()
