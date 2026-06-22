@@ -49,6 +49,73 @@
           <p class="mb-3">For moving targets such as comets and asteroids, that assumption breaks down because the target position changes between frames as the object moves across the detector.</p>
           <p class="mb-0">The intended PALLAS approach is therefore to use the image timestamp together with an ephemeris to determine the target position separately for each frame before measuring the photometry.</p>
         </div>
+        <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
+          <h3 class="h5 mb-3">ATLAS forced photometry</h3>
+          <p class="mb-3" style="color: rgba(255,255,255,0.78);">Submit an MPC-recognised moving-object identifier to the public ATLAS forced photometry service. This first version uses the ATLAS moving-object workflow by MPC name and returns the light-curve table directly into BHTOM-PALLAS.</p>
+          <form method="post" class="mb-0">
+            {% csrf_token %}
+            <div class="form-row align-items-end">
+              <div class="form-group col-lg-6 col-md-8">
+                <label for="id_atlas_object_name">MPC object identifier</label>
+                <input id="id_atlas_object_name" type="text" name="atlas_object_name" class="form-control" value="{{ atlas_object_input }}" placeholder="e.g. (12267), K22W01O, CK21Y010">
+              </div>
+              <div class="form-group col-lg-3 col-md-4">
+                <button type="submit" class="btn btn-light btn-block">Request ATLAS photometry</button>
+              </div>
+            </div>
+          </form>
+          <p class="mb-0 mt-2" style="color: rgba(255,255,255,0.62); font-size: 0.84rem;">ATLAS expects MPC-style identifiers for moving objects. For asteroids this often means a numbered designation such as <code>(12267)</code> or a packed designation. For comets, use the MPC packed designation.</p>
+        </div>
+        {% if atlas_error %}
+        <div class="alert alert-warning mt-4 mb-0">{{ atlas_error }}</div>
+        {% endif %}
+        {% if atlas_results %}
+        <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
+          <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+            <h3 class="h5 mb-2 mb-md-0">ATLAS light-curve results</h3>
+            <div style="color: rgba(255,255,255,0.72); font-size: 0.9rem;">{{ atlas_result_count }} rows returned</div>
+          </div>
+          <div class="mb-3" style="color: rgba(255,255,255,0.72); font-size: 0.85rem;">
+            {% if atlas_task_url %}<div>Task URL: <a href="{{ atlas_task_url }}" target="_blank" rel="noopener noreferrer" style="color: #9fd3ff;">{{ atlas_task_url }}</a></div>{% endif %}
+            {% if atlas_result_url %}<div>Result URL: <a href="{{ atlas_result_url }}" target="_blank" rel="noopener noreferrer" style="color: #9fd3ff;">{{ atlas_result_url }}</a></div>{% endif %}
+          </div>
+          <div style="overflow-x: auto;">
+            <table class="table table-sm table-dark table-striped mb-0" style="min-width: 980px;">
+              <thead>
+                <tr>
+                  {% for column in atlas_result_columns %}
+                  <th>{{ column }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in atlas_result_rows %}
+                <tr>
+                  {% for value in row %}
+                  <td>{{ value }}</td>
+                  {% endfor %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+        {% if atlas_plot_points %}
+        <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
+          <h3 class="h5 mb-3">Light-curve plot</h3>
+          <svg viewBox="0 0 800 280" style="width: 100%; height: auto; background-color: rgba(8,14,22,0.45); border: 1px solid rgba(255,255,255,0.12); border-radius: 0.3rem;">
+            <line x1="40" y1="20" x2="40" y2="240" stroke="rgba(255,255,255,0.35)" stroke-width="1" />
+            <line x1="40" y1="240" x2="760" y2="240" stroke="rgba(255,255,255,0.35)" stroke-width="1" />
+            {% for point in atlas_plot_points %}
+            <circle cx="{{ point.x }}" cy="{{ point.y }}" r="3.3" fill="{% if point.filter == 'c' %}#1f7e7d{% elif point.filter == 'o' %}#f88f1e{% else %}#dfe9f3{% endif %}">
+              <title>{{ point.label }}</title>
+            </circle>
+            {% endfor %}
+          </svg>
+          <div class="mt-2" style="color: rgba(255,255,255,0.62); font-size: 0.82rem;">MJD on the x-axis, ATLAS magnitude on the y-axis. Lower magnitudes appear higher in the plot.</div>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>

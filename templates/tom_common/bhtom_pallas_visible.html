@@ -48,33 +48,40 @@
       </ul>
       <div class="pb-4 pt-1" style="width: 100%; max-width: none; margin: 0 auto;">
         <h2 class="h4 mb-3">Visible to me</h2>
-        <form class="mb-0">
+        <form method="get" class="mb-0">
           <div class="form-row">
-            <div class="form-group col-lg-3 col-md-6 d-flex flex-column">
-              <label for="id_visible_location">MPC observatory code</label>
-              <input id="id_visible_location" type="text" class="form-control" placeholder="e.g. 500">
+            <div class="form-group col-lg-4 col-md-6 d-flex flex-column">
+              <label for="id_visible_location">Location</label>
+              <select id="id_visible_location" name="location" class="form-control" style="max-width: 22rem;">
+                {% for choice in visible_location_choices %}
+                <option value="{{ choice.value }}"{% if visible_location_input == choice.value %} selected{% endif %}>{{ choice.label }}</option>
+                {% endfor %}
+              </select>
             </div>
             <div class="form-group col-lg-2 col-md-6 d-flex flex-column">
               <label for="id_visible_mag_min">Magnitude min</label>
-              <input id="id_visible_mag_min" type="text" inputmode="decimal" class="form-control" placeholder="Min">
+              <input id="id_visible_mag_min" type="text" name="mag_min" inputmode="decimal" class="form-control" placeholder="Min" value="{{ visible_mag_min_input }}">
             </div>
             <div class="form-group col-lg-2 col-md-6 d-flex flex-column">
               <label for="id_visible_mag_max">Magnitude max</label>
-              <input id="id_visible_mag_max" type="text" inputmode="decimal" class="form-control" placeholder="Max">
+              <input id="id_visible_mag_max" type="text" name="mag_max" inputmode="decimal" class="form-control" placeholder="Max" value="{{ visible_mag_max_input }}">
             </div>
             <div class="form-group col-lg-2 col-md-6 d-flex flex-column">
               <label for="id_visible_airmass_min">Airmass min</label>
-              <input id="id_visible_airmass_min" type="text" inputmode="decimal" class="form-control" placeholder="Min">
+              <input id="id_visible_airmass_min" type="text" name="airmass_min" inputmode="decimal" class="form-control" placeholder="Min" value="{{ visible_airmass_min_input }}">
             </div>
             <div class="form-group col-lg-2 col-md-6 d-flex flex-column">
               <label for="id_visible_airmass_max">Airmass max</label>
-              <input id="id_visible_airmass_max" type="text" inputmode="decimal" class="form-control" placeholder="Max">
+              <input id="id_visible_airmass_max" type="text" name="airmass_max" inputmode="decimal" class="form-control" placeholder="Max" value="{{ visible_airmass_max_input }}">
             </div>
           </div>
-          <button type="button" class="btn btn-light">Find targets</button>
+          <button type="submit" class="btn btn-light">Find targets</button>
         </form>
         <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem;">
           <h3 class="h5 mb-2">Visible targets</h3>
+          {% if visible_error %}
+          <div class="alert alert-warning py-2 mb-3">{{ visible_error }}</div>
+          {% endif %}
           <div class="table-responsive">
             <table class="table table-sm table-dark table-striped mb-0">
               <thead>
@@ -87,9 +94,25 @@
                 </tr>
               </thead>
               <tbody>
+                {% if visible_targets %}
+                {% for row in visible_targets %}
+                <tr>
+                  <td>{{ row.target }}</td>
+                  <td>{{ row.type }}</td>
+                  <td>{{ row.magnitude|floatformat:1 }}</td>
+                  <td>{{ row.airmass|floatformat:1 }}</td>
+                  <td><span style="color: rgba(255,255,255,0.64);">Available</span></td>
+                </tr>
+                {% endfor %}
+                {% elif visible_search_requested and not visible_error %}
+                <tr>
+                  <td colspan="5" style="color: rgba(255,255,255,0.74);">No matching targets found for the selected filters.</td>
+                </tr>
+                {% else %}
                 <tr>
                   <td colspan="5" style="color: rgba(255,255,255,0.74);">Matching targets will appear here.</td>
                 </tr>
+                {% endif %}
               </tbody>
             </table>
           </div>

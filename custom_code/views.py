@@ -1,9 +1,11 @@
 import json
 import logging
 import math
+import os
 import re
 import requests
 import csv
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta, timezone
 from io import StringIO
@@ -782,11 +784,328 @@ class BhtomPallasView(BhtomPallasBaseMixin, TemplateView):
 class BhtomPallasVisibleView(BhtomPallasBaseMixin, TemplateView):
     template_name = 'tom_common/bhtom_pallas_visible.html'
     bhtom_pallas_active_tab = 'visible'
+    LOCATION_CHOICES = [
+        {'value': 'Warsaw', 'label': 'Warsaw (52.2297, 21.0122)'},
+        {'value': 'Edinburgh', 'label': 'Edinburgh (55.9533, -3.1883)'},
+    ]
+    EXAMPLE_TARGETS = [
+        {'target': '67P/Churyumov-Gerasimenko', 'type': 'Comet', 'location': 'Warsaw', 'magnitude': 13.4, 'airmass': 1.7},
+        {'target': 'C/2023 A3 (Tsuchinshan-ATLAS)', 'type': 'Comet', 'location': 'Warsaw', 'magnitude': 9.8, 'airmass': 1.4},
+        {'target': '1 Ceres', 'type': 'Asteroid', 'location': 'Warsaw', 'magnitude': 8.1, 'airmass': 1.3},
+        {'target': '411 Xanthe', 'type': 'Asteroid', 'location': 'Warsaw', 'magnitude': 11.9, 'airmass': 2.2},
+        {'target': '29P/Schwassmann-Wachmann', 'type': 'Comet', 'location': 'Edinburgh', 'magnitude': 12.6, 'airmass': 1.9},
+        {'target': '2 Pallas', 'type': 'Asteroid', 'location': 'Edinburgh', 'magnitude': 9.7, 'airmass': 1.5},
+        {'target': '4 Vesta', 'type': 'Asteroid', 'location': 'Edinburgh', 'magnitude': 7.4, 'airmass': 1.2},
+        {'target': '12P/Pons-Brooks', 'type': 'Comet', 'location': 'Edinburgh', 'magnitude': 10.8, 'airmass': 2.4},
+    ]
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        location_input = (self.request.GET.get('location') or 'Warsaw').strip()
+        mag_min_input = (self.request.GET.get('mag_min') or '').strip()
+        mag_max_input = (self.request.GET.get('mag_max') or '').strip()
+        airmass_min_input = (self.request.GET.get('airmass_min') or '').strip()
+        airmass_max_input = (self.request.GET.get('airmass_max') or '').strip()
+        search_requested = 'location' in self.request.GET or any([
+            mag_min_input,
+            mag_max_input,
+            airmass_min_input,
+            airmass_max_input,
+        ])
+
+        mag_min = _parse_float(mag_min_input)
+        mag_max = _parse_float(mag_max_input)
+        airmass_min = _parse_float(airmass_min_input)
+        airmass_max = _parse_float(airmass_max_input)
+
+        visible_error = ''
+        if mag_min_input and not _is_finite_number(mag_min):
+            visible_error = 'Magnitude min must be numeric.'
+        elif mag_max_input and not _is_finite_number(mag_max):
+            visible_error = 'Magnitude max must be numeric.'
+        elif airmass_min_input and not _is_finite_number(airmass_min):
+            visible_error = 'Airmass min must be numeric.'
+        elif airmass_max_input and not _is_finite_number(airmass_max):
+            visible_error = 'Airmass max must be numeric.'
+        elif _is_finite_number(mag_min) and _is_finite_number(mag_max) and mag_min > mag_max:
+            visible_error = 'Magnitude min cannot be greater than magnitude max.'
+        elif _is_finite_number(airmass_min) and _is_finite_number(airmass_max) and airmass_min > airmass_max:
+            visible_error = 'Airmass min cannot be greater than airmass max.'
+
+        location_values = {choice['value'] for choice in self.LOCATION_CHOICES}
+        if location_input not in location_values:
+            location_input = 'Warsaw'
+
+        visible_targets = []
+        if search_requested and not visible_error:
+            for target in self.EXAMPLE_TARGETS:
+                if target['location'] != location_input:
+                    continue
+                if _is_finite_number(mag_min) and target['magnitude'] < mag_min:
+                    continue
+                if _is_finite_number(mag_max) and target['magnitude'] > mag_max:
+                    continue
+                if _is_finite_number(airmass_min) and target['airmass'] < airmass_min:
+                    continue
+                if _is_finite_number(airmass_max) and target['airmass'] > airmass_max:
+                    continue
+                visible_targets.append(target)
+
+        context.update({
+            'visible_location_choices': self.LOCATION_CHOICES,
+            'visible_location_input': location_input,
+            'visible_mag_min_input': mag_min_input,
+            'visible_mag_max_input': mag_max_input,
+            'visible_airmass_min_input': airmass_min_input,
+            'visible_airmass_max_input': airmass_max_input,
+            'visible_search_requested': search_requested,
+            'visible_targets': visible_targets,
+            'visible_error': visible_error,
+        })
+        return context
 
 
 class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     template_name = 'tom_common/bhtom_pallas_photometry.html'
     bhtom_pallas_active_tab = 'photometry'
+    ATLAS_BASE_URL = 'https://fallingstar-data.com/forcedphot'
+    ATLAS_RESULT_POLL_SECONDS = 45
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({
+            'atlas_object_input': '',
+            'atlas_error': '',
+            'atlas_results': [],
+            'atlas_result_rows': [],
+            'atlas_result_columns': [],
+            'atlas_result_count': 0,
+            'atlas_task_url': '',
+            'atlas_result_url': '',
+            'atlas_plot_points': [],
+        })
+        return context
+
+    def post(self, request, *args, **kwargs):
+        context = self.get_context_data(**kwargs)
+        atlas_object_input = (request.POST.get('atlas_object_name') or '').strip()
+        context['atlas_object_input'] = atlas_object_input
+
+        if not atlas_object_input:
+            context['atlas_error'] = 'Enter an MPC-recognised moving-object identifier.'
+            return self.render_to_response(context)
+
+        try:
+            token = self._get_atlas_token()
+            task_url = self._submit_atlas_moving_object_request(token, atlas_object_input)
+            result_url = self._poll_atlas_result_url(token, task_url)
+            rows, columns = self._fetch_atlas_result_table(token, result_url)
+        except Exception as exc:
+            context['atlas_error'] = str(exc)
+            return self.render_to_response(context)
+
+        context.update({
+            'atlas_task_url': task_url,
+            'atlas_result_url': result_url,
+            'atlas_results': rows,
+            'atlas_result_rows': [[row.get(column, '') for column in columns] for row in rows],
+            'atlas_result_columns': columns,
+            'atlas_result_count': len(rows),
+            'atlas_plot_points': self._build_atlas_plot_points(rows),
+        })
+        return self.render_to_response(context)
+
+    def _get_atlas_token(self):
+        token = (
+            os.environ.get('ATLASFORCED_SECRET_KEY')
+            or getattr(settings, 'ATLASFORCED_SECRET_KEY', '')
+            or getattr(settings, 'ATLAS_FORCED_SECRET_KEY', '')
+        )
+        if token:
+            return token.strip()
+
+        username = (
+            os.environ.get('ATLASFORCED_USERNAME')
+            or getattr(settings, 'ATLASFORCED_USERNAME', '')
+            or getattr(settings, 'ATLAS_FORCED_USERNAME', '')
+        )
+        password = (
+            os.environ.get('ATLASFORCED_PASSWORD')
+            or getattr(settings, 'ATLASFORCED_PASSWORD', '')
+            or getattr(settings, 'ATLAS_FORCED_PASSWORD', '')
+        )
+        if not username or not password:
+            raise ValueError(
+                'ATLAS credentials are not configured. Set ATLASFORCED_SECRET_KEY or '
+                'ATLASFORCED_USERNAME and ATLASFORCED_PASSWORD on the server.'
+            )
+
+        response = requests.post(
+            f'{self.ATLAS_BASE_URL}/api-token-auth/',
+            data={'username': username, 'password': password},
+            headers={'Accept': 'application/json'},
+            timeout=30,
+        )
+        if response.status_code != 200:
+            raise ValueError(f'ATLAS token request failed with status {response.status_code}.')
+
+        payload = response.json()
+        token = (payload.get('token') or '').strip()
+        if not token:
+            raise ValueError('ATLAS token request succeeded, but no token was returned.')
+        return token
+
+    def _atlas_headers(self, token):
+        return {'Authorization': f'Token {token}', 'Accept': 'application/json'}
+
+    def _submit_atlas_moving_object_request(self, token, atlas_object_input):
+        headers = self._atlas_headers(token)
+        task_url = None
+        deadline = time.monotonic() + 60
+
+        while not task_url:
+            if time.monotonic() > deadline:
+                raise ValueError('ATLAS request could not be queued within 60 seconds.')
+
+            response = requests.post(
+                f'{self.ATLAS_BASE_URL}/queue/',
+                headers=headers,
+                data={
+                    'ra': f'mpc {atlas_object_input}',
+                    'dec': '',
+                },
+                timeout=30,
+            )
+            if response.status_code == 201:
+                task_url = response.json().get('url', '').strip()
+                break
+            if response.status_code == 429:
+                waittime = self._extract_atlas_wait_seconds(response.json().get('detail', ''))
+                time.sleep(waittime)
+                continue
+
+            detail = self._extract_atlas_error_detail(response)
+            raise ValueError(f'ATLAS queue submission failed: {detail}')
+
+        if not task_url:
+            raise ValueError('ATLAS did not return a task URL for the queued request.')
+        return task_url
+
+    def _poll_atlas_result_url(self, token, task_url):
+        headers = self._atlas_headers(token)
+        deadline = time.monotonic() + self.ATLAS_RESULT_POLL_SECONDS
+        last_state = ''
+
+        while time.monotonic() <= deadline:
+            response = requests.get(task_url, headers=headers, timeout=30)
+            if response.status_code != 200:
+                detail = self._extract_atlas_error_detail(response)
+                raise ValueError(f'ATLAS task polling failed: {detail}')
+
+            payload = response.json()
+            result_url = (payload.get('result_url') or '').strip()
+            if payload.get('finishtimestamp') and result_url:
+                return result_url
+
+            if payload.get('error_msg'):
+                raise ValueError(f"ATLAS task failed: {payload['error_msg']}")
+
+            if payload.get('starttimestamp'):
+                last_state = 'running'
+                time.sleep(2)
+            else:
+                last_state = 'queued'
+                time.sleep(4)
+
+        raise ValueError(
+            f'ATLAS request is still {last_state or "queued"} after '
+            f'{self.ATLAS_RESULT_POLL_SECONDS} seconds. Try again later.'
+        )
+
+    def _fetch_atlas_result_table(self, token, result_url):
+        response = requests.get(result_url, headers=self._atlas_headers(token), timeout=60)
+        if response.status_code != 200:
+            detail = self._extract_atlas_error_detail(response)
+            raise ValueError(f'ATLAS result download failed: {detail}')
+
+        textdata = response.text.strip()
+        if not textdata:
+            raise ValueError('ATLAS returned an empty forced-photometry result.')
+
+        rows = self._parse_atlas_result_text(textdata)
+        columns = list(rows[0].keys()) if rows else []
+        return rows, columns
+
+    def _parse_atlas_result_text(self, textdata):
+        lines = [line.strip() for line in textdata.splitlines() if line.strip()]
+        if not lines:
+            return []
+
+        header_line = lines[0].replace('###', '')
+        reader = csv.reader([header_line] + lines[1:], delimiter=' ', skipinitialspace=True)
+        parsed_rows = list(reader)
+        if not parsed_rows:
+            return []
+
+        headers = parsed_rows[0]
+        rows = []
+        for values in parsed_rows[1:]:
+            if len(values) != len(headers):
+                continue
+            row = dict(zip(headers, values))
+            rows.append(row)
+        return rows
+
+    def _build_atlas_plot_points(self, rows):
+        plot_rows = []
+        for row in rows:
+            mjd = _parse_float(row.get('MJD'))
+            mag = _parse_float(row.get('m'))
+            if not all(_is_finite_number(value) for value in [mjd, mag]):
+                continue
+            plot_rows.append({'mjd': mjd, 'mag': mag, 'filter': row.get('F', '')})
+
+        if not plot_rows:
+            return []
+
+        plot_rows.sort(key=lambda item: item['mjd'])
+        mjd_values = [row['mjd'] for row in plot_rows]
+        mag_values = [row['mag'] for row in plot_rows]
+        min_mjd, max_mjd = min(mjd_values), max(mjd_values)
+        min_mag, max_mag = min(mag_values), max(mag_values)
+        mjd_span = max(max_mjd - min_mjd, 1e-9)
+        mag_span = max(max_mag - min_mag, 1e-9)
+
+        points = []
+        for row in plot_rows:
+            x = 40 + ((row['mjd'] - min_mjd) / mjd_span) * 720
+            y = 240 - ((row['mag'] - min_mag) / mag_span) * 180
+            points.append({
+                'x': round(x, 2),
+                'y': round(y, 2),
+                'label': f"MJD {row['mjd']:.5f}, m={row['mag']:.3f}, F={row['filter']}",
+                'filter': row['filter'],
+            })
+        return points
+
+    def _extract_atlas_wait_seconds(self, message):
+        t_sec = re.findall(r'available in (\d+) seconds', message or '')
+        t_min = re.findall(r'available in (\d+) minutes', message or '')
+        if t_sec:
+            return max(int(t_sec[0]), 1)
+        if t_min:
+            return max(int(t_min[0]) * 60, 1)
+        return 10
+
+    def _extract_atlas_error_detail(self, response):
+        try:
+            payload = response.json()
+        except ValueError:
+            return f'HTTP {response.status_code}'
+
+        if isinstance(payload, dict):
+            return payload.get('detail') or payload.get('error') or str(payload)
+        return str(payload)
 
 
 class BhtomPallasAView(BhtomPallasBaseMixin, TemplateView):
