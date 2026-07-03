@@ -9,9 +9,7 @@ from specutils import Spectrum1D
 import numpy as np
 from astropy.coordinates import SkyCoord
 from pyvo.dal import SSAService
-from astroquery.vizier import Vizier
 import astropy.units as u
-import astropy.coordinates as coord
 
 from tom_dataservices.dataservices import DataService
 from tom_dataproducts.models import ReducedDatum
@@ -118,7 +116,7 @@ class Gs6dfDataService(DataService):
         ra = data.get('ra')
         dec = data.get('dec')
         spectroscopy_data = data.get('spectroscopy_data')
-        if ra is None or dec is None or spectroscopy_data is None or cat_name is None:
+        if ra is None or dec is None or spectroscopy_data is None:
             return []
 
         return [{

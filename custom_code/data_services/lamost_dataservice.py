@@ -93,12 +93,10 @@ class LAMOSTDataService(DataService):
 
     def query_targets(self, query_parameters, **kwargs):
         data = self.query_service(query_parameters, **kwargs)
-        cat_name = data.get('cat_name')
         ra = data.get('ra')
         dec = data.get('dec')
-        time = data.get('time')
         spectroscopy_data = data.get('spectroscopy_data')
-        if ra is None or dec is None or spectroscopy_data is None or cat_name is None:
+        if ra is None or dec is None or spectroscopy_data is None:
             return []
 
         alias = _lamost_alias(spectroscopy_data['uid'])
