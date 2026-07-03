@@ -2,7 +2,6 @@ import logging
 
 from astropy.time import Time
 from datetime import timezone
-from django.db import IntegrityError, transaction
 
 from astropy.io import fits
 from specutils import Spectrum1D
@@ -141,42 +140,20 @@ class Gs6dfDataService(DataService):
         return [TargetName(name=alias) for alias in alias_results]
 
     def create_reduced_datums_from_query(self, target, data=None, data_type=None, **kwargs):
-        if data_type != 'photometry' or not data:
+        if data_type != 'spectroscopy' or not data:
             return
         source_location = kwargs.get('source_location') or self.info_url
-
         for datum in data:
-            try:
-                ReducedDatum.objects.get_or_create(
-                    target=target,
-                    data_type='photometry',
-                    timestamp=datum['timestamp'],
-                    value=datum['value'],
-                    defaults={
-                        'source_name': self.name,
-                        'source_location': source_location,
-                    },
-                )
-            except IntegrityError:
-                # Another process inserted it concurrently; retry with get
-                try:
-                    ReducedDatum.objects.get(
-                        target=target,
-                        data_type='photometry',
-                        timestamp=datum['timestamp'],
-                        value=datum['value'],
-                    )
-                except ReducedDatum.DoesNotExist:
-                    # Rare case: still doesn't exist, retry in a transaction
-                    with transaction.atomic():
-                        ReducedDatum.objects.create(
-                            target=target,
-                            data_type='photometry',
-                            timestamp=datum['timestamp'],
-                            value=datum['value'],
-                            source_name=self.name,
-                            source_location=source_location,
-                        )
+            ReducedDatum.objects.get_or_create(
+                target=target,
+                data_type='spectroscopy',
+                timestamp=datum['timestamp'],
+                value=datum['value'],
+                defaults={
+                    'source_name': self.name,
+                    'source_location': source_location,
+                },
+            )
 
 
     def to_reduced_datums(self, target, data_results=None, **kwargs):
