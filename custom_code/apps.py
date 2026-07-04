@@ -38,6 +38,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.fram_dataservice.FRAMDataService'},
             {'class': f'{self.name}.data_services.fava_dataservice.FAVADataService'},
             {'class': f'{self.name}.data_services.lamost_dataservice.LAMOSTDataService'},
+            {'class': f'{self.name}.data_services.galah_dataservice.GALAHDataService'}
         ]
 
     def ready(self):

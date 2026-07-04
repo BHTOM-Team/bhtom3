@@ -38,7 +38,7 @@ def _read_ext(hdul, ext):
     wave = crval + (np.arange(n) - (crpix - 1)) * cdelt   # Angstroms
     return wave, flux
 
-class Gs6dfDataService(DataService):
+class GALAHDataService(DataService):
     name = 'GALAH'
     verbose_name = 'GALAH'
     update_on_daily_refresh = False
