@@ -2,55 +2,10 @@ from datetime import timezone as datetime_timezone
 
 from django import forms
 from django.utils import timezone
-from astropy.coordinates import Angle
-import astropy.units as u
 
 from tom_dataservices.forms import BaseQueryForm
+from custom_code.coordinate_fields import COORDINATE_HELP_TEXT, CoordinateField, dec_field, ra_field
 from custom_code.data_services.service_utils import TARGET_NAME_HELP_TEXT
-
-
-COORDINATE_HELP_TEXT = 'Accepts decimal degrees or sexagesimal, e.g. 267.4128 or 17:49:39.07 / -30:27:08.4.'
-
-
-class CoordinateField(forms.FloatField):
-    def __init__(self, *args, coordinate_type='dec', **kwargs):
-        self.coordinate_type = coordinate_type
-        kwargs.setdefault('widget', forms.TextInput())
-        super().__init__(*args, **kwargs)
-
-    def to_python(self, value):
-        if value in self.empty_values:
-            return None
-        if isinstance(value, (int, float)):
-            return super().to_python(value)
-
-        text = str(value).strip()
-        if not text:
-            return None
-
-        try:
-            return super().to_python(text)
-        except forms.ValidationError:
-            pass
-
-        try:
-            if self.coordinate_type == 'ra':
-                if any(token in text.lower() for token in ('h', 'm', 's', ':')):
-                    return Angle(text, unit=u.hourangle).degree
-                return Angle(float(text), unit=u.deg).degree
-            return Angle(text, unit=u.deg).degree
-        except Exception as exc:
-            raise forms.ValidationError(
-                f'Enter a valid {self.coordinate_type.upper()} in decimal degrees or sexagesimal format.'
-            ) from exc
-
-
-def ra_field():
-    return CoordinateField(required=False, coordinate_type='ra', label='RA', help_text=COORDINATE_HELP_TEXT)
-
-
-def dec_field():
-    return CoordinateField(required=False, coordinate_type='dec', label='Dec', help_text=COORDINATE_HELP_TEXT)
 
 
 def target_name_field(label='Target name'):

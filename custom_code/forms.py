@@ -14,6 +14,7 @@ from tom_targets.models import Target, TargetName
 from tom_targets.permissions import targets_for_user
 
 from custom_code.bhtom2_uploads import PUBLIC_UPLOAD_FILTER_CHOICES, is_supported_fits_filename
+from custom_code.coordinate_fields import dec_field, ra_field
 from custom_code.models import BhtomUserProfile, TargetAliasInfo, TransitEphemeris
 from custom_code.models import UserBhtom2UploadPreference
 from custom_code.orcid import validate_orcid
@@ -376,8 +377,8 @@ BhtomTargetNamesFormset = inlineformset_factory(
 class BhtomCatalogQueryForm(forms.Form):
     service = forms.ChoiceField(choices=catalog_service_choices)
     term = forms.CharField(required=False, label='Object name or identifier')
-    ra = forms.FloatField(required=False, label='RA (deg)')
-    dec = forms.FloatField(required=False, label='Dec (deg)')
+    ra = ra_field(label='RA')
+    dec = dec_field(label='Dec')
     radius_arcsec = forms.FloatField(required=False, min_value=0.1, initial=3.0, label='Search radius (arcsec)')
 
     def clean(self):
@@ -478,6 +479,8 @@ class GaiaAstrometryFormMixin(forms.Form):
 
 
 class BhtomSiderealTargetCreateForm(GaiaAstrometryFormMixin, PlanetaryTransitTargetFormMixin, SiderealTargetCreateForm):
+    ra = ra_field(required=True, label='Right Ascension')
+    dec = dec_field(required=True, label='Declination')
     classification = forms.ChoiceField(
         choices=Target._meta.get_field('classification').choices,
         required=False,

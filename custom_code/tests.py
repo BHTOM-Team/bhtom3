@@ -83,6 +83,7 @@ from custom_code.data_services.service_utils import resolve_query_coordinates
 from custom_code.bhtom2_uploads import has_successful_bhtom2_upload, is_supported_fits_filename, normalize_fits_upload
 from custom_code.forms import (
     ALL_DATA_SERVICES_VALUE,
+    BhtomCatalogQueryForm,
     BhtomUserCreationForm,
     BhtomUserUpdateForm,
     BhtomNonSiderealTargetCreateForm,
@@ -898,6 +899,13 @@ class DataServiceCoordinateFormTests(TestCase):
         self.assertAlmostEqual(form.cleaned_data['ra'], 267.4127916666667)
         self.assertAlmostEqual(form.cleaned_data['dec'], -30.452333333333332)
 
+    def test_coordinate_form_accepts_space_separated_sexagesimal_ra(self):
+        form = SimbadQueryForm(data={'ra': '17 49 39.07', 'dec': '-30 27 08.4'})
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertAlmostEqual(form.cleaned_data['ra'], 267.4127916666667)
+        self.assertAlmostEqual(form.cleaned_data['dec'], -30.452333333333332)
+
     def test_coordinate_form_rejects_invalid_value(self):
         form = SimbadQueryForm(data={'ra': 'not-a-coordinate', 'dec': '-30:27:08.4'})
 
@@ -913,6 +921,30 @@ class DataServiceCoordinateFormTests(TestCase):
         form = GaiaDR3QueryForm(data={'target_name': 'GaiaDR3_123'})
 
         self.assertTrue(form.is_valid(), form.errors)
+
+
+class CatalogQueryCoordinateFormTests(TestCase):
+    def test_catalog_query_accepts_decimal_degrees(self):
+        form = BhtomCatalogQueryForm(data={
+            'service': 'Simbad',
+            'ra': '21.4001011',
+            'dec': '34.1517361',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertAlmostEqual(form.cleaned_data['ra'], 21.4001011)
+        self.assertAlmostEqual(form.cleaned_data['dec'], 34.1517361)
+
+    def test_catalog_query_accepts_sexagesimal_coordinates(self):
+        form = BhtomCatalogQueryForm(data={
+            'service': 'Simbad',
+            'ra': '01:25:36.024',
+            'dec': '+34:09:06.25',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertAlmostEqual(form.cleaned_data['ra'], 21.4001, places=4)
+        self.assertAlmostEqual(form.cleaned_data['dec'], 34.1517, places=4)
 
 
 class DataServiceTargetNameResolutionTests(TestCase):
@@ -1865,6 +1897,38 @@ class TargetCreateFormVisibilityTests(TestCase):
         self.assertNotIn('photometry_icon_plot', form.fields)
         self.assertNotIn('spectroscopy_plot', form.fields)
         self.assertNotIn('plot_created', form.fields)
+
+    def test_sidereal_create_form_accepts_decimal_degrees(self):
+        form = BhtomSiderealTargetCreateForm(data={
+            'name': 'DecimalDegreeTarget',
+            'type': Target.SIDEREAL,
+            'ra': '21.4001011',
+            'dec': '34.1517361',
+            'permissions': Target.Permissions.PUBLIC,
+            'importance': 0,
+            'cadence': 0,
+            'recommended_observing_strategy': 'Observe nightly.',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertAlmostEqual(form.cleaned_data['ra'], 21.4001011)
+        self.assertAlmostEqual(form.cleaned_data['dec'], 34.1517361)
+
+    def test_sidereal_create_form_accepts_sexagesimal_coordinates(self):
+        form = BhtomSiderealTargetCreateForm(data={
+            'name': 'SexagesimalTarget',
+            'type': Target.SIDEREAL,
+            'ra': '01:25:36.024',
+            'dec': '+34:09:06.25',
+            'permissions': Target.Permissions.PUBLIC,
+            'importance': 0,
+            'cadence': 0,
+            'recommended_observing_strategy': 'Observe nightly.',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertAlmostEqual(form.cleaned_data['ra'], 21.4001, places=4)
+        self.assertAlmostEqual(form.cleaned_data['dec'], 34.1517, places=4)
 
     def test_planetary_transit_create_form_includes_transit_ephemeris_fields(self):
         form = BhtomPlanetaryTransitTargetCreateForm()
