@@ -61,12 +61,14 @@ from custom_code.data_services.exoclock_dataservice import ExoClockDataService
 from custom_code.data_services.gaia_alerts_dataservice import GaiaAlertsDataService
 from custom_code.data_services.gaia_dr3_dataservice import GaiaDR3DataService
 from custom_code.data_services.fram_dataservice import FRAMDataService, _parse_mjd_photometry
+from custom_code.data_services.galah_dataservice import GALAHDataService
 from custom_code.data_services.kmt_dataservice import (
     KMTDataService,
     _event_id as _kmt_event_id,
     _normalize_event_name as _normalize_kmt_event_name,
     _normalize_hjd as _normalize_kmt_hjd,
 )
+from custom_code.data_services.lamost_dataservice import LAMOSTDataService
 from custom_code.data_services.neowise_dataservice import NeoWISEDataService
 from custom_code.data_services.twomass_dataservice import TwoMASSDataService
 from custom_code.bhtom_catalogs.harvesters.simbad import target_from_result
@@ -79,7 +81,15 @@ from custom_code.bhtom_catalogs.harvesters.kmt import KMTHarvester
 from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
 from custom_code.bhtom_catalogs.harvesters.moa import MOAHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
-from custom_code.data_services.forms import ExoClockQueryForm, GaiaDR3QueryForm, SimbadQueryForm, WISEQueryForm
+from custom_code.data_services.forms import (
+    ExoClockQueryForm,
+    GaiaDR3QueryForm,
+    GALAHQueryForm,
+    GS6dFQueryForm,
+    LAMOSTQueryForm,
+    SimbadQueryForm,
+    WISEQueryForm,
+)
 from custom_code.data_services.service_utils import resolve_query_coordinates
 from custom_code.bhtom2_uploads import has_successful_bhtom2_upload, is_supported_fits_filename, normalize_fits_upload
 from custom_code.forms import (
@@ -1039,6 +1049,22 @@ class DataServiceCoordinateFormTests(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors)
 
+    def test_gs6df_form_uses_arcsec_radius_field(self):
+        form = GS6dFQueryForm(data={'target_name': 'Gaia24abc'})
+
+        self.assertIn('radius_arcsec', form.fields)
+        self.assertNotIn('radius_arcmin', form.fields)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['radius_arcsec'], 5.0)
+
+    def test_lamost_and_galah_forms_default_to_two_point_five_arcsec_radius(self):
+        for form_class in (LAMOSTQueryForm, GALAHQueryForm):
+            with self.subTest(form_class=form_class.__name__):
+                form = form_class(data={'target_name': 'Gaia24abc'})
+
+                self.assertTrue(form.is_valid(), form.errors)
+                self.assertEqual(form.cleaned_data['radius_arcsec'], 2.5)
+
     def test_gaia_form_accepts_target_name_only(self):
         form = GaiaDR3QueryForm(data={'target_name': 'GaiaDR3_123'})
 
@@ -1423,6 +1449,44 @@ class ASASSNDataServiceTests(TestCase):
             })
 
         self.assertEqual(results, [])
+
+
+class SpectroscopicDataServiceRadiusTests(TestCase):
+    @patch('custom_code.data_services.lamost_dataservice.requests.get')
+    def test_lamost_query_uses_two_point_five_arcsec_radius_in_degrees(self, mock_get):
+        mock_get.return_value.json.return_value = []
+
+        LAMOSTDataService().query_service({'ra': 12.3, 'dec': -45.6})
+
+        url = mock_get.call_args.args[0]
+        self.assertIn('radius=0.0006944444444444445', url)
+
+    def test_lamost_build_query_parameters_defaults_to_two_point_five_arcsec_radius(self):
+        params = LAMOSTDataService().build_query_parameters({
+            'target_name': 'Gaia24abc',
+            'ra': 12.3,
+            'dec': -45.6,
+        })
+
+        self.assertEqual(params['radius_arcsec'], 2.5)
+
+    @patch('custom_code.data_services.galah_dataservice.SSAService')
+    def test_galah_query_sends_two_point_five_arcsec_radius_as_diameter(self, mock_service_class):
+        mock_service = mock_service_class.return_value
+        mock_service.search.return_value.to_table.return_value = []
+
+        GALAHDataService().query_service({'ra': 12.3, 'dec': -45.6})
+
+        self.assertEqual(mock_service.search.call_args.kwargs['SIZE'], 5.0 / 3600.0)
+
+    def test_galah_build_query_parameters_defaults_to_two_point_five_arcsec_radius(self):
+        params = GALAHDataService().build_query_parameters({
+            'target_name': 'Gaia24abc',
+            'ra': 12.3,
+            'dec': -45.6,
+        })
+
+        self.assertEqual(params['radius_arcsec'], 2.5)
 
 
 class WISEDataServiceTests(TestCase):
@@ -3221,6 +3285,16 @@ class TargetListViewTests(TestCase):
         self.assertContains(response, 'Not Specified')
         self.assertContains(response, 'Visible Now')
         self.assertContains(response, 'name="min_alt"')
+
+    def test_authenticated_empty_cone_search_shows_empty_filter_message(self):
+        user = get_user_model().objects.create_user(username='cone-tester', password='pass')
+        self.client.force_login(user)
+
+        response = self.client.get('/targets/', {'cone_search': '12.34,-45.67,0.1'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No targets match those filters.')
+        self.assertNotContains(response, 'login</a> to view targets')
 
     def test_visible_now_does_not_activate_for_unspecified_observer(self):
         user = get_user_model().objects.create_user(username='tester2', password='pass')

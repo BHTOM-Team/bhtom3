@@ -15,7 +15,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from tom_dataproducts.processors.data_serializers import SpectrumSerializer
-from custom_code.data_services.forms import GS6dFQueryForm
+from custom_code.data_services.forms import LAMOSTQueryForm
 from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
@@ -44,7 +44,7 @@ class LAMOSTDataService(DataService):
 
     @classmethod
     def get_form_class(cls):
-        return GS6dFQueryForm
+        return LAMOSTQueryForm
 
     def build_query_parameters(self, parameters, **kwargs):
         from custom_code.data_services.service_utils import resolve_query_coordinates
@@ -53,7 +53,7 @@ class LAMOSTDataService(DataService):
             'target_name': target_name,
             'ra': ra,
             'dec': dec,
-            'radius_arcsec': parameters.get('radius_arcsec') or 2.0,
+            'radius_arcsec': parameters.get('radius_arcsec') or 2.5,
             'include_spectroscopy': bool(parameters.get('include_spectroscopy', True)),
         }
         return self.query_parameters
@@ -61,7 +61,7 @@ class LAMOSTDataService(DataService):
     def query_service(self, query_parameters, **kwargs):
         ra = _to_float(query_parameters.get('ra'))
         dec = _to_float(query_parameters.get('dec'))
-        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 2.0
+        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 2.5
 
         lamost_info = None
         
