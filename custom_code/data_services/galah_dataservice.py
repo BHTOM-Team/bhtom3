@@ -182,7 +182,7 @@ class GALAHDataService(DataService):
             serialized.update({
                 'filter': 'GALAH',
                 'source_id': str(tab['target_name']),
-                'spectrum_type': f'GALAH_{tab['band_name']}_spectrum',
+                'spectrum_type': f"GALAH_{tab['band_name']}_spectrum",
                 })
             output.append({
                 'timestamp': Time(time, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
