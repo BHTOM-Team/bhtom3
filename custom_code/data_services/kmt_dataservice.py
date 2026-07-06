@@ -17,6 +17,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import KMTQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ KMT_BASE_URL = 'https://kmtnet.kasi.re.kr/ulens/event/'
 KMT_CATALOG_URL = 'https://raw.githubusercontent.com/mauritzwicker/queryKMTmicrolensing/main/kmt_fullEvents.csv'
 KMT_NAME_RE = re.compile(r'^(?:KMT-)?(?P<year>\d{4})-BLG-(?P<number>\d{1,5})$', re.IGNORECASE)
 KMT_SITE_MAP = {'KMTC': 'CTIO', 'KMTA': 'SSO', 'KMTS': 'SAAO'}
-REQUEST_TIMEOUT = 45
+REQUEST_TIMEOUT = DATA_SERVICE_HTTP_TIMEOUT
 
 
 def _to_float(value):

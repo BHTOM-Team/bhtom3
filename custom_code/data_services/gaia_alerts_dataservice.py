@@ -218,12 +218,14 @@ class GaiaAlertsDataService(DataService):
             )
 
     def _fetch_alerts_rows(self):
-        response = requests.get(f'{GAIA_ALERTS_BASE_URL}/alerts/alerts.csv', timeout=30)
+        from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
+        response = requests.get(f'{GAIA_ALERTS_BASE_URL}/alerts/alerts.csv', timeout=DATA_SERVICE_HTTP_TIMEOUT)
         response.raise_for_status()
         return _to_rows(response.text)
 
     def _fetch_lightcurve_rows(self, lightcurve_url):
-        response = requests.get(lightcurve_url, timeout=30)
+        from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
+        response = requests.get(lightcurve_url, timeout=DATA_SERVICE_HTTP_TIMEOUT)
         response.raise_for_status()
         rows = []
         for raw_line in response.text.splitlines():

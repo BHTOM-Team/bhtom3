@@ -12,6 +12,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import OGLEEWSQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 logger = logging.getLogger(__name__)
@@ -322,7 +323,7 @@ class OGLEEWSDataService(DataService):
         year = _year_from_target_name(target_name)
         years = [year] if year else _ogle_years()
         for year in years:
-            response = requests.get(_lenses_url(year), timeout=30)
+            response = requests.get(_lenses_url(year), timeout=DATA_SERVICE_HTTP_TIMEOUT)
             if response.status_code == 404:
                 continue
             response.raise_for_status()
@@ -330,7 +331,7 @@ class OGLEEWSDataService(DataService):
         return rows
 
     def _fetch_photometry_rows(self, photometry_url):
-        response = requests.get(photometry_url, timeout=30)
+        response = requests.get(photometry_url, timeout=DATA_SERVICE_HTTP_TIMEOUT)
         response.raise_for_status()
         return _parse_photometry_rows(response.text)
 

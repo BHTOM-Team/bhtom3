@@ -2,6 +2,7 @@ import json
 import math
 import urllib.request
 
+from custom_code.data_services.service_utils import DATA_SERVICE_READ_TIMEOUT
 from sgp4.api import Satrec
 
 from custom_code.geosat import get_tle
@@ -76,7 +77,7 @@ class GeoSatDataService:
     def fetch_catalog_record_by_norad(self, norad_id: int):
         try:
             url = self.CELESTRAK_NORAD_JSON_URL.format(norad_id=int(norad_id))
-            with urllib.request.urlopen(url, timeout=20) as response:
+            with urllib.request.urlopen(url, timeout=DATA_SERVICE_READ_TIMEOUT) as response:
                 payload = response.read().decode("utf-8")
             data = json.loads(payload)
             if isinstance(data, list) and data:

@@ -5,6 +5,7 @@ import signal
 import sys
 import threading
 import time
+from datetime import timedelta
 from types import FrameType
 from typing import Optional
 
@@ -12,6 +13,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import connections, transaction
 from django.db.utils import OperationalError
+from django.utils import timezone
 from tom_targets.models import Target
 
 from custom_code.tasks import enqueue_target_dataservices_update, run_observation_status_update
@@ -89,6 +91,10 @@ class ScheduledStatusWorker:
         self.dataservices_importance_gt = dataservices_importance_gt
         self.next_status_enqueue_at = 0.0 if status_interval else None
         self.next_dataservices_enqueue_at = 0.0 if dataservices_interval else None
+        self.heartbeat_interval = getattr(settings, "DB_WORKER_HEARTBEAT_INTERVAL", 300)
+        self.stale_running_after = getattr(settings, "DB_WORKER_STALE_RUNNING_AFTER", 7200)
+        self.next_heartbeat_at = 0.0
+        self.next_stale_recovery_at = 0.0
         self.configure_signal_handlers = configure_signal_handlers
         self.worker_name = worker_name or "worker"
 
@@ -171,19 +177,95 @@ class ScheduledStatusWorker:
             self.dataservices_interval,
         )
 
+    def log_heartbeat(self) -> None:
+        if not self.heartbeat_interval:
+            return
+        now = time.monotonic()
+        if now < self.next_heartbeat_at:
+            return
+        self.next_heartbeat_at = now + self.heartbeat_interval
+        try:
+            tasks = DBTaskResult.objects.filter(backend_name=self.backend_name)
+            if not self.process_all_queues:
+                tasks = tasks.filter(queue_name__in=self.queue_names)
+            counts = {}
+            for row in tasks.values("status"):
+                status = row.get("status")
+                counts[status] = counts.get(status, 0) + 1
+        except Exception:
+            logger.exception("BHTOM %s heartbeat failed while counting tasks.", self.worker_name)
+            return
+        logger.info(
+            "BHTOM %s heartbeat pid=%s queues=%s running_task=%s task_counts=%s",
+            self.worker_name,
+            os.getpid(),
+            ",".join(self.queue_names),
+            self.running_task,
+            counts,
+        )
+
+    def recover_stale_running_tasks(self) -> None:
+        if not self.stale_running_after:
+            return
+        now = time.monotonic()
+        check_interval = min(max(self.stale_running_after / 2, 60), 300)
+        if now < self.next_stale_recovery_at:
+            return
+        self.next_stale_recovery_at = now + check_interval
+
+        cutoff = timezone.now() - timedelta(seconds=self.stale_running_after)
+        try:
+            stale_tasks = DBTaskResult.objects.filter(
+                backend_name=self.backend_name,
+                status="RUNNING",
+                started_at__lt=cutoff,
+                finished_at__isnull=True,
+            )
+            if not self.process_all_queues:
+                stale_tasks = stale_tasks.filter(queue_name__in=self.queue_names)
+            stale_ids = list(stale_tasks.values_list("id", flat=True)[:100])
+            if not stale_ids:
+                return
+            recovered = DBTaskResult.objects.filter(
+                id__in=stale_ids,
+                status="RUNNING",
+                finished_at__isnull=True,
+            ).update(status="NEW", started_at=None)
+        except Exception:
+            logger.exception("BHTOM %s stale RUNNING task recovery failed.", self.worker_name)
+            return
+
+        logger.warning(
+            "Recovered stale RUNNING tasks older_than=%ss recovered=%s task_ids=%s",
+            self.stale_running_after,
+            recovered,
+            stale_ids,
+        )
+
     def start(self) -> None:
         if self.configure_signal_handlers:
             self.configure_signals()
         logger.info(
-            "Starting BHTOM %s for queues=%s",
+            "Starting BHTOM %s pid=%s queues=%s backend=%s poll_interval=%s batch=%s heartbeat_interval=%s stale_running_after=%s data_service_timeout=(%s,%s) data_service_job_timeout=%s",
             self.worker_name,
+            os.getpid(),
             ",".join(self.queue_names),
+            self.backend_name,
+            self.interval,
+            self.batch,
+            self.heartbeat_interval,
+            self.stale_running_after,
+            getattr(settings, "DATA_SERVICE_CONNECT_TIMEOUT", 10),
+            getattr(settings, "DATA_SERVICE_READ_TIMEOUT", 60),
+            getattr(settings, "DATA_SERVICE_JOB_TIMEOUT", 300),
         )
 
         if self.startup_delay and self.interval:
             time.sleep(random.random())
 
         while self.running:
+            self.log_heartbeat()
+            self.recover_stale_running_tasks()
             self.run_due_status_update()
             self.run_due_dataservices_update()
 
@@ -226,26 +308,43 @@ class ScheduledStatusWorker:
         from django.core.exceptions import SuspiciousOperation
         from django_tasks.signals import task_finished
 
+        started_at = time.monotonic()
         try:
             task = db_task_result.task
             task_result = db_task_result.task_result
+            args = task_result.args
+            kwargs = task_result.kwargs
+            target_id = args[0] if args and "dataservice" in db_task_result.task_path else None
+            service_name = args[1] if len(args) > 1 and "dataservice" in db_task_result.task_path else None
 
             logger.info(
-                "Task id=%s path=%s state=%s",
+                "Task id=%s path=%s state=%s target_id=%s service=%s starting",
                 db_task_result.id,
                 db_task_result.task_path,
                 task_result.status,
+                target_id,
+                service_name,
             )
-            return_value = task.call(*task_result.args, **task_result.kwargs)
+            return_value = task.call(*args, **kwargs)
             db_task_result.set_succeeded(return_value)
             task_finished.send(
                 sender=type(task.get_backend()), task_result=db_task_result.task_result
             )
+            logger.info(
+                "Task id=%s path=%s target_id=%s service=%s succeeded elapsed=%.2fs",
+                db_task_result.id,
+                db_task_result.task_path,
+                target_id,
+                service_name,
+                time.monotonic() - started_at,
+            )
         except BaseException as exc:
             logger.exception(
-                "Task id=%s path=%s failed",
+                "Task id=%s path=%s failed elapsed=%.2fs exception=%s",
                 db_task_result.id,
                 getattr(db_task_result, "task_path", None),
+                time.monotonic() - started_at,
+                exc.__class__.__name__,
             )
             db_task_result.set_failed(exc)
             try:

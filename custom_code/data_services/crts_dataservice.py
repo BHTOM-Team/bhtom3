@@ -11,6 +11,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import CRTSQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ class CRTSDataService(DataService):
             return self.query_results
 
         source_location = _build_crts_url(ra, dec, radius_arcmin)
-        response = requests.get(source_location, timeout=300, headers=CRTS_REQUEST_HEADERS)
+        response = requests.get(source_location, timeout=DATA_SERVICE_HTTP_TIMEOUT, headers=CRTS_REQUEST_HEADERS)
         response.raise_for_status()
 
         match_row = None

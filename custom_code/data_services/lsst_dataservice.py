@@ -11,6 +11,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import LSSTQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 FINK_API_URL = 'https://api.lsst.fink-portal.org'
@@ -204,7 +205,7 @@ class LSSTDataService(DataService):
             )
 
     def _post(self, endpoint, payload):
-        response = requests.post(f'{FINK_API_URL}{endpoint}', json=payload, timeout=25)
+        response = requests.post(f'{FINK_API_URL}{endpoint}', json=payload, timeout=DATA_SERVICE_HTTP_TIMEOUT)
         response.raise_for_status()
         return _parse_rows(response.json())
 

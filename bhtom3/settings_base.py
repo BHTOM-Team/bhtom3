@@ -21,6 +21,12 @@ BHTOM2_API_TOKEN = secret.get('BHTOM2_API_TOKEN', '')
 BHTOM2_API_TIMEOUT = int(secret.get('BHTOM2_API_TIMEOUT', '30'))
 PUBLIC_UPLOAD_PASSWORD = secret.get('PUBLIC_UPLOAD_PASSWORD', '')
 
+DATA_SERVICE_CONNECT_TIMEOUT = int(secret.get('DATA_SERVICE_CONNECT_TIMEOUT', os.environ.get('DATA_SERVICE_CONNECT_TIMEOUT', '10')))
+DATA_SERVICE_READ_TIMEOUT = int(secret.get('DATA_SERVICE_READ_TIMEOUT', os.environ.get('DATA_SERVICE_READ_TIMEOUT', '60')))
+DATA_SERVICE_JOB_TIMEOUT = int(secret.get('DATA_SERVICE_JOB_TIMEOUT', os.environ.get('DATA_SERVICE_JOB_TIMEOUT', '300')))
+DB_WORKER_HEARTBEAT_INTERVAL = int(secret.get('DB_WORKER_HEARTBEAT_INTERVAL', os.environ.get('DB_WORKER_HEARTBEAT_INTERVAL', '300')))
+DB_WORKER_STALE_RUNNING_AFTER = int(secret.get('DB_WORKER_STALE_RUNNING_AFTER', os.environ.get('DB_WORKER_STALE_RUNNING_AFTER', '7200')))
+
 
 def env_bool(name, default=False):
     value = secret.get(name, os.environ.get(name, default))

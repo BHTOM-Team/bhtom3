@@ -13,6 +13,7 @@ from tom_dataservices.dataservices import DataService
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import ExoClockQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 from custom_code.sun_separation import compute_sun_separation
 
 
@@ -83,7 +84,7 @@ class ExoClockDataService(DataService):
         return self.query_parameters
 
     def query_service(self, query_parameters, **kwargs):
-        response = requests.get(EXOCLOCK_PLANETS_JSON_URL, timeout=60)
+        response = requests.get(EXOCLOCK_PLANETS_JSON_URL, timeout=DATA_SERVICE_HTTP_TIMEOUT)
         response.raise_for_status()
         catalog = response.json()
         self.query_results = {

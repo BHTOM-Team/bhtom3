@@ -18,6 +18,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import MOAQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ MOA_CATALOG_URL = (
 )
 EVENT_NAME_RE = re.compile(r'^(?:MOA-)?(?P<year>\d{4})-BLG-(?P<number>\d{1,4})$', re.IGNORECASE)
 
-REQUEST_TIMEOUT = 45
+REQUEST_TIMEOUT = DATA_SERVICE_HTTP_TIMEOUT
 REQUEST_VERIFY = False
 
 

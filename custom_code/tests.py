@@ -1,6 +1,7 @@
 import gzip
 import json
 import requests
+import time
 from io import BytesIO
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
@@ -837,6 +838,127 @@ class DataServicePersistenceTests(TestCase):
 
         self.assertFalse(target.aliases.filter(name='SharedAlias').exists())
         self.assertEqual(TargetName.objects.get(name='SharedAlias').target_id, owner.id)
+
+    def test_run_service_for_target_logs_timeout_and_allows_next_service(self):
+        target = Target.objects.create(
+            name='TimeoutTarget',
+            type=Target.SIDEREAL,
+            ra=30.0,
+            dec=40.0,
+            epoch=2000.0,
+        )
+
+        class HangingService:
+            name = 'Hanging'
+
+            @classmethod
+            def get_form_class(cls):
+                return ExoClockDataService.get_form_class()
+
+            def build_query_parameters(self, parameters, **kwargs):
+                return parameters
+
+            def query_targets(self, query_parameters, **kwargs):
+                time.sleep(5)
+                return [{'aliases': ['ShouldNotPersist']}]
+
+        class NextService:
+            name = 'Next'
+
+            @classmethod
+            def get_form_class(cls):
+                return ExoClockDataService.get_form_class()
+
+            def build_query_parameters(self, parameters, **kwargs):
+                return parameters
+
+            def query_targets(self, query_parameters, **kwargs):
+                return [{'aliases': ['RecoveredAlias']}]
+
+        with self.settings(DATA_SERVICE_JOB_TIMEOUT=1):
+            started_at = time.monotonic()
+            _run_service_for_target(target, 'Hanging', HangingService, force_all_services=False)
+            elapsed = time.monotonic() - started_at
+            _run_service_for_target(target, 'Next', NextService, force_all_services=False)
+
+        self.assertLess(elapsed, 3)
+        self.assertFalse(target.aliases.filter(name='ShouldNotPersist').exists())
+        self.assertTrue(target.aliases.filter(name='RecoveredAlias').exists())
+
+    def test_run_service_for_target_logs_exception_and_allows_next_service(self):
+        target = Target.objects.create(
+            name='ExceptionTarget',
+            type=Target.SIDEREAL,
+            ra=30.0,
+            dec=40.0,
+            epoch=2000.0,
+        )
+
+        class TimeoutService:
+            name = 'Timeout'
+
+            @classmethod
+            def get_form_class(cls):
+                return ExoClockDataService.get_form_class()
+
+            def build_query_parameters(self, parameters, **kwargs):
+                return parameters
+
+            def query_targets(self, query_parameters, **kwargs):
+                raise requests.Timeout('simulated timeout')
+
+        class NextService:
+            name = 'Next'
+
+            @classmethod
+            def get_form_class(cls):
+                return ExoClockDataService.get_form_class()
+
+            def build_query_parameters(self, parameters, **kwargs):
+                return parameters
+
+            def query_targets(self, query_parameters, **kwargs):
+                return [{'aliases': ['AfterTimeoutAlias']}]
+
+        _run_service_for_target(target, 'Timeout', TimeoutService, force_all_services=False)
+        _run_service_for_target(target, 'Next', NextService, force_all_services=False)
+
+        self.assertTrue(target.aliases.filter(name='AfterTimeoutAlias').exists())
+
+    def test_db_worker_recovers_stale_running_tasks(self):
+        from custom_code.management.commands.db_worker import ScheduledStatusWorker
+
+        worker = ScheduledStatusWorker(
+            queue_names=['default'],
+            interval=1,
+            batch=False,
+            backend_name='default',
+            startup_delay=False,
+            status_interval=0,
+            dataservices_interval=0,
+            dataservices_importance_gt=0,
+            configure_signal_handlers=False,
+        )
+        worker.stale_running_after = 7200
+
+        stale_queryset = Mock()
+        stale_queryset.values_list.return_value = ['task-1']
+        stale_queryset.filter.return_value = stale_queryset
+        update_queryset = Mock()
+        update_queryset.update.return_value = 1
+        manager = Mock()
+        manager.filter.side_effect = [stale_queryset, update_queryset]
+
+        with patch('custom_code.management.commands.db_worker.DBTaskResult') as db_task_result:
+            db_task_result.objects = manager
+            worker.recover_stale_running_tasks()
+
+        stale_filter_kwargs = manager.filter.call_args_list[0].kwargs
+        update_kwargs = manager.filter.call_args_list[1].kwargs
+        update_queryset.update.assert_called_once_with(status='NEW', started_at=None)
+        self.assertEqual(stale_filter_kwargs['status'], 'RUNNING')
+        self.assertEqual(stale_filter_kwargs['finished_at__isnull'], True)
+        self.assertEqual(update_kwargs['id__in'], ['task-1'])
 
     def test_build_query_parameters_for_exoclock_uses_cone_search_radius(self):
         target = Target.objects.create(name='Gaia DR3 123', type=Target.SIDEREAL, ra=97.63665, dec=29.672296, epoch=2000.0)

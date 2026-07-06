@@ -1,6 +1,10 @@
 import logging
 import json
+import multiprocessing
 import re
+import time
+import traceback
+from queue import Empty
 
 from django.apps import apps
 from django.conf import settings
@@ -20,6 +24,89 @@ from custom_code.sun_separation import refresh_target_sun_separation
 
 
 logger = logging.getLogger(__name__)
+
+
+class DataServiceJobTimeout(TimeoutError):
+    pass
+
+
+class DataServiceExecutionError(RuntimeError):
+    pass
+
+
+def _query_targets_child(queue, service, built_parameters):
+    close_old_connections()
+    try:
+        from custom_code.data_services.service_utils import configure_data_service_timeouts
+        configure_data_service_timeouts()
+        result = service.query_targets(built_parameters)
+    except BaseException as exc:
+        queue.put({
+            'ok': False,
+            'exception_class': exc.__class__.__name__,
+            'message': str(exc),
+            'traceback': traceback.format_exc(),
+        })
+    else:
+        queue.put({'ok': True, 'result': result})
+    finally:
+        close_old_connections()
+
+
+def _run_query_targets_with_timeout(service, built_parameters, timeout_seconds):
+    if not timeout_seconds or timeout_seconds <= 0:
+        return service.query_targets(built_parameters)
+
+    try:
+        context = multiprocessing.get_context('fork')
+    except ValueError:
+        logger.warning(
+            'Fork multiprocessing context is unavailable; running DataService query without hard process cancellation.'
+        )
+        return service.query_targets(built_parameters)
+
+    queue = context.Queue(maxsize=1)
+    process = context.Process(
+        target=_query_targets_child,
+        args=(queue, service, built_parameters),
+        daemon=True,
+    )
+    process.start()
+    deadline = time.monotonic() + timeout_seconds
+    payload = None
+    while time.monotonic() < deadline:
+        try:
+            payload = queue.get(timeout=0.2)
+            break
+        except Empty:
+            if not process.is_alive():
+                break
+
+    if payload is None and process.is_alive():
+        process.terminate()
+        process.join(10)
+        if process.is_alive():
+            process.kill()
+            process.join(5)
+        raise DataServiceJobTimeout(f'DataService query exceeded {timeout_seconds} seconds')
+
+    process.join(10)
+    if process.is_alive():
+        process.terminate()
+        process.join(5)
+    if payload is None:
+        try:
+            payload = queue.get(timeout=1)
+        except Empty as exc:
+            raise DataServiceExecutionError(
+                f'DataService query subprocess exited with code {process.exitcode} without returning a result'
+            ) from exc
+
+    if payload.get('ok'):
+        return payload.get('result')
+
+    error_text = payload.get('traceback') or payload.get('message') or 'Unknown DataService subprocess error'
+    raise DataServiceExecutionError(error_text)
 
 
 def _normalize_alias_result(alias):
@@ -446,6 +533,10 @@ def update_target_dataservice_for_target(target_id, service_name, include_create
 
 
 def _run_service_for_target(target, service_name, service_class, force_all_services=False):
+    from custom_code.data_services.service_utils import configure_data_service_timeouts
+
+    started_at = time.monotonic()
+    job_timeout = getattr(settings, 'DATA_SERVICE_JOB_TIMEOUT', 300)
     service = service_class()
     query_parameters = _build_query_parameters_for_service(
         target,
@@ -455,7 +546,14 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
     )
 
     try:
-        logger.info('Data service "%s" starting for target %s.', service_name, target.name)
+        configure_data_service_timeouts()
+        logger.info(
+            'Data service "%s" starting for target id=%s name="%s" timeout=%ss.',
+            service_name,
+            target.id,
+            target.name,
+            job_timeout,
+        )
         built_parameters = service.build_query_parameters(query_parameters)
         if service_name == 'ASASSN':
             logger.info(
@@ -470,17 +568,29 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
                 built_parameters.get('force'),
             )
         close_old_connections()
-        target_results = service.query_targets(built_parameters)
+        target_results = _run_query_targets_with_timeout(service, built_parameters, job_timeout)
         close_old_connections()
     except Exception as exc:
-        logger.warning('Data service "%s" failed for target %s: %s', service_name, target.name, exc)
+        elapsed = time.monotonic() - started_at
+        logger.exception(
+            'Data service "%s" failed for target id=%s name="%s" elapsed=%.2fs exception=%s: %s',
+            service_name,
+            target.id,
+            target.name,
+            elapsed,
+            exc.__class__.__name__,
+            exc,
+        )
         return
 
     if not target_results:
+        elapsed = time.monotonic() - started_at
         logger.info(
-            'Data service "%s" finished for target %s: no match (results=0, aliases_found=0, aliases_added=0, alias_urls_updated=0, datapoints_returned=0, datapoints_added=0).',
+            'Data service "%s" finished for target id=%s name="%s" elapsed=%.2fs: no match (results=0, aliases_found=0, aliases_added=0, alias_urls_updated=0, datapoints_returned=0, datapoints_added=0).',
             service_name,
+            target.id,
             target.name,
+            elapsed,
         )
         return
 
@@ -531,10 +641,13 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
                     reduced_datums,
                 )
 
+    elapsed = time.monotonic() - started_at
     logger.info(
-        'Data service "%s" finished for target %s: success (results=%s, aliases_found=%s, aliases_added=%s, alias_urls_updated=%s, datapoints_returned=%s, datapoints_added=%s).',
+        'Data service "%s" finished for target id=%s name="%s" elapsed=%.2fs: success (results=%s, aliases_found=%s, aliases_added=%s, alias_urls_updated=%s, datapoints_returned=%s, datapoints_added=%s).',
         service_name,
+        target.id,
         target.name,
+        elapsed,
         len(target_results),
         aliases_found,
         aliases_added,

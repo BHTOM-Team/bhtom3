@@ -16,6 +16,7 @@ from tom_targets.models import Target, TargetName
 
 from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 from custom_code.data_services.forms import GS6dFQueryForm
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 
@@ -71,7 +72,7 @@ class LAMOSTDataService(DataService):
 
         try:
             lamostURL = f"https://www.lamost.org/openapi/dr11/v2.0/get_unique_id_and_related_obsids?ra={ra}&dec={dec}&radius={radius_arcsec/(60*60)}"
-            lamostData = requests.get(lamostURL).json()
+            lamostData = requests.get(lamostURL, timeout=DATA_SERVICE_HTTP_TIMEOUT).json()
             
             if len(lamostData)>0:
                 lamost_info = lamostData
