@@ -79,6 +79,7 @@ class ScheduledStatusWorker:
         dataservices_importance_gt,
         configure_signal_handlers=True,
         worker_name=None,
+        process_tasks=True,
     ):
         self.queue_names = queue_names
         self.process_all_queues = "*" in queue_names
@@ -97,6 +98,7 @@ class ScheduledStatusWorker:
         self.next_stale_recovery_at = 0.0
         self.configure_signal_handlers = configure_signal_handlers
         self.worker_name = worker_name or "worker"
+        self.process_tasks = process_tasks
 
         self.running = True
         self.running_task = False
@@ -246,11 +248,12 @@ class ScheduledStatusWorker:
         if self.configure_signal_handlers:
             self.configure_signals()
         logger.info(
-            "Starting BHTOM %s pid=%s queues=%s backend=%s poll_interval=%s batch=%s heartbeat_interval=%s stale_running_after=%s data_service_timeout=(%s,%s) data_service_job_timeout=%s",
+            "Starting BHTOM %s pid=%s queues=%s backend=%s process_tasks=%s poll_interval=%s batch=%s heartbeat_interval=%s stale_running_after=%s data_service_timeout=(%s,%s) data_service_job_timeout=%s",
             self.worker_name,
             os.getpid(),
             ",".join(self.queue_names),
             self.backend_name,
+            self.process_tasks,
             self.interval,
             self.batch,
             self.heartbeat_interval,
@@ -268,6 +271,11 @@ class ScheduledStatusWorker:
             self.recover_stale_running_tasks()
             self.run_due_status_update()
             self.run_due_dataservices_update()
+
+            if not self.process_tasks:
+                if self.running:
+                    time.sleep(self.interval)
+                continue
 
             tasks = DBTaskResult.objects.ready().filter(backend_name=self.backend_name)
             if not self.process_all_queues:
@@ -497,12 +505,27 @@ class Command(BaseCommand):
                 status_interval=status_interval,
                 dataservices_interval=dataservices_interval,
                 dataservices_importance_gt=dataservices_importance_gt,
+                process_tasks=True,
             )
             worker.start()
 
             if batch:
                 logger.info("No more tasks to run - exiting gracefully.")
             return
+
+        scheduler_worker = ScheduledStatusWorker(
+            queue_names=queue_names,
+            interval=interval,
+            batch=False,
+            backend_name=backend_name,
+            startup_delay=startup_delay,
+            status_interval=status_interval,
+            dataservices_interval=dataservices_interval,
+            dataservices_importance_gt=dataservices_importance_gt,
+            configure_signal_handlers=False,
+            worker_name="scheduler",
+            process_tasks=False,
+        )
 
         workers_list = [
             ScheduledStatusWorker(
@@ -511,14 +534,16 @@ class Command(BaseCommand):
                 batch=batch,
                 backend_name=backend_name,
                 startup_delay=startup_delay,
-                status_interval=status_interval if index == 0 else 0,
-                dataservices_interval=dataservices_interval if index == 0 else 0,
+                status_interval=0,
+                dataservices_interval=0,
                 dataservices_importance_gt=dataservices_importance_gt,
                 configure_signal_handlers=False,
                 worker_name=f"worker-{index + 1}",
+                process_tasks=True,
             )
             for index in range(worker_count)
         ]
+        scheduled_workers = [scheduler_worker] + workers_list
 
         def shutdown(signum: int, frame: Optional[FrameType]) -> None:
             logger.warning(
@@ -526,7 +551,7 @@ class Command(BaseCommand):
                 signal.strsignal(signum),
                 worker_count,
             )
-            for scheduled_worker in workers_list:
+            for scheduled_worker in scheduled_workers:
                 scheduled_worker.stop()
 
         signal.signal(signal.SIGINT, shutdown)
@@ -539,7 +564,7 @@ class Command(BaseCommand):
                 target=scheduled_worker.start,
                 name=scheduled_worker.worker_name,
             )
-            for scheduled_worker in workers_list
+            for scheduled_worker in scheduled_workers
         ]
         for thread in threads:
             thread.start()

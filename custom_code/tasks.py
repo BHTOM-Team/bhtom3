@@ -34,6 +34,14 @@ class DataServiceExecutionError(RuntimeError):
     pass
 
 
+class ObservationStatusTimeout(TimeoutError):
+    pass
+
+
+class ObservationStatusExecutionError(RuntimeError):
+    pass
+
+
 def _query_targets_child(queue, service, built_parameters):
     close_old_connections()
     try:
@@ -107,6 +115,87 @@ def _run_query_targets_with_timeout(service, built_parameters, timeout_seconds):
 
     error_text = payload.get('traceback') or payload.get('message') or 'Unknown DataService subprocess error'
     raise DataServiceExecutionError(error_text)
+
+
+def _observation_status_child(queue, facility_name):
+    close_old_connections()
+    try:
+        instance = facility.get_service_class(facility_name)()
+        instance.set_user(None)
+        result = instance.update_all_observation_statuses(target=None)
+    except BaseException as exc:
+        queue.put({
+            'ok': False,
+            'exception_class': exc.__class__.__name__,
+            'message': str(exc),
+            'traceback': traceback.format_exc(),
+        })
+    else:
+        queue.put({'ok': True, 'result': result})
+    finally:
+        close_old_connections()
+
+
+def _run_observation_status_facility_with_timeout(facility_name, timeout_seconds):
+    if not timeout_seconds or timeout_seconds <= 0:
+        instance = facility.get_service_class(facility_name)()
+        instance.set_user(None)
+        return instance.update_all_observation_statuses(target=None)
+
+    try:
+        context = multiprocessing.get_context('fork')
+    except ValueError:
+        logger.warning(
+            'Fork multiprocessing context is unavailable; running observation status update without hard process cancellation.'
+        )
+        instance = facility.get_service_class(facility_name)()
+        instance.set_user(None)
+        return instance.update_all_observation_statuses(target=None)
+
+    queue = context.Queue(maxsize=1)
+    process = context.Process(
+        target=_observation_status_child,
+        args=(queue, facility_name),
+        daemon=True,
+    )
+    process.start()
+    deadline = time.monotonic() + timeout_seconds
+    payload = None
+    while time.monotonic() < deadline:
+        try:
+            payload = queue.get(timeout=0.2)
+            break
+        except Empty:
+            if not process.is_alive():
+                break
+
+    if payload is None and process.is_alive():
+        process.terminate()
+        process.join(10)
+        if process.is_alive():
+            process.kill()
+            process.join(5)
+        raise ObservationStatusTimeout(
+            f'Observation status update for facility "{facility_name}" exceeded {timeout_seconds} seconds'
+        )
+
+    process.join(10)
+    if process.is_alive():
+        process.terminate()
+        process.join(5)
+    if payload is None:
+        try:
+            payload = queue.get(timeout=1)
+        except Empty as exc:
+            raise ObservationStatusExecutionError(
+                f'Observation status subprocess for facility "{facility_name}" exited with code {process.exitcode} without returning a result'
+            ) from exc
+
+    if payload.get('ok'):
+        return payload.get('result')
+
+    error_text = payload.get('traceback') or payload.get('message') or 'Unknown observation status subprocess error'
+    raise ObservationStatusExecutionError(error_text)
 
 
 def _normalize_alias_result(alias):
@@ -385,19 +474,34 @@ def enqueue_observation_status_update():
 def run_observation_status_update():
     close_old_connections()
     failed_records = {}
+    timeout_seconds = getattr(settings, 'OBSERVATION_STATUS_FACILITY_TIMEOUT', 300)
     for facility_name in facility.get_service_classes():
+        started_at = time.monotonic()
         try:
-            logger.info('Starting observation status update for facility "%s".', facility_name)
-            instance = facility.get_service_class(facility_name)()
-            instance.set_user(None)
-            failed_records[facility_name] = instance.update_all_observation_statuses(target=None)
+            logger.info(
+                'Starting observation status update for facility "%s" timeout=%ss.',
+                facility_name,
+                timeout_seconds,
+            )
+            failed_records[facility_name] = _run_observation_status_facility_with_timeout(
+                facility_name,
+                timeout_seconds,
+            )
         except Exception as exc:
-            logger.exception('Observation status update failed for facility "%s".', facility_name)
+            elapsed = time.monotonic() - started_at
+            logger.exception(
+                'Observation status update failed for facility "%s" elapsed=%.2fs exception=%s.',
+                facility_name,
+                elapsed,
+                exc.__class__.__name__,
+            )
             failed_records[facility_name] = [str(exc)]
             continue
+        elapsed = time.monotonic() - started_at
         logger.info(
-            'Finished observation status update for facility "%s"; failed_records=%s.',
+            'Finished observation status update for facility "%s" elapsed=%.2fs; failed_records=%s.',
             facility_name,
+            elapsed,
             failed_records[facility_name],
         )
     failed_records_with_errors = {
