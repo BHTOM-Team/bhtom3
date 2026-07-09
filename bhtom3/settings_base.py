@@ -350,6 +350,14 @@ TOM_ALERT_CLASSES = [
     #  'tom_alerts.brokers.fink.FinkBroker',
 ]
 
+TNS_SERVICE_CONFIGURATION = {
+    # BHTOM_Bot TNS API
+    'api_key': secret.get('TNS_API_KEY', ''),
+    'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}',
+    'bot_id': 99624,
+    'bot_name': "BHTOM_Bot",
+}
+
 
 def _discover_custom_harvesters():
     discovered = []
@@ -385,16 +393,14 @@ def _discover_custom_harvesters():
 
 
 BROKERS = {
-    'TNS': {
-        # BHTOM_Bot TNS API
-        'api_key': secret.get('TNS_API_KEY', ''),
-        'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}',
-        'bot_id':99624,
-        'bot_name':"BHTOM_Bot"
-    },
+    'TNS': dict(TNS_SERVICE_CONFIGURATION),
     'Lasair': {
         'api_key': '',
     }
+}
+
+DATA_SERVICES = {
+    'TNS': dict(TNS_SERVICE_CONFIGURATION),
 }
 
 _BASE_HARVESTER_CLASSES = [
@@ -424,13 +430,7 @@ TOM_HARVESTER_CLASSES = (
 )
 
 HARVESTERS = {
-    'TNS': {
-        # BHTOM_Bot TNS API
-        'api_key': secret.get('TNS_API_KEY', ''),
-        'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}',
-        'bot_id':99624,
-        'bot_name':"BHTOM_Bot"
-    }
+    'TNS': dict(TNS_SERVICE_CONFIGURATION),
 }
 
 EXTRA_FIELDS = []
