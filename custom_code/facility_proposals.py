@@ -457,6 +457,8 @@ def sync_remote_proposals_for_account(account, owner=None, shared_users=None):
     response.raise_for_status()
     payload = response.json()
     remote_proposals = payload.get('proposals') or []
+    if owner is not None:
+        sync_memberships_for_account(account, owner, shared_users or [])
 
     seen_external_ids = set()
     imported_count = 0

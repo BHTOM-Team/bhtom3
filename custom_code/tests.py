@@ -116,6 +116,11 @@ from custom_code.models import (
     TransitEphemeris,
     UserBhtom2UploadPreference,
 )
+from custom_code.facility_proposals import (
+    get_accessible_proposals,
+    get_proposal_choices_for_user,
+    sync_remote_proposals_for_account,
+)
 from custom_code.orcid import canonicalize_orcid, unique_orcid_username, validate_orcid
 from custom_code.non_sidereal_visibility import get_non_sidereal_visibility
 from custom_code.signals import cleanup_target_relations_on_target_delete
@@ -4000,6 +4005,36 @@ class LCOFacilityAccountRoutingTests(TestCase):
 
         proposal_values = [value for value, label in form.fields['proposal'].choices]
         self.assertIn(str(self.proposal.pk), proposal_values)
+
+    @patch('custom_code.facility_proposals.requests.get')
+    def test_lco_remote_resync_preserves_import_shared_users(self, mock_get):
+        shared_user = get_user_model().objects.create_user(username='fraser.gillan', password='secret')
+        self.facility.supports_remote_proposal_sync = True
+        self.facility.save(update_fields=['supports_remote_proposal_sync'])
+        mock_get.return_value = Mock(
+            raise_for_status=Mock(),
+            json=Mock(return_value={
+                'proposals': [{
+                    'id': 'SUPA2026A-017',
+                    'title': 'Astrophysical transients (continuation)',
+                    'current': True,
+                }],
+            }),
+        )
+
+        sync_remote_proposals_for_account(self.account, owner=self.user, shared_users=[shared_user])
+        imported_proposal = FacilityProposal.objects.get(account=self.account, external_id='SUPA2026A-017')
+        self.assertTrue(imported_proposal.memberships.filter(user=shared_user).exists())
+        shared_account_membership = self.account.memberships.get(user=shared_user)
+        self.assertEqual(shared_account_membership.role, FacilityAccountMembership.Role.VIEWER)
+        self.assertFalse(shared_account_membership.can_view_credentials)
+
+        sync_remote_proposals_for_account(self.account)
+
+        self.assertTrue(imported_proposal.memberships.filter(user=shared_user).exists())
+        self.assertIn(imported_proposal, get_accessible_proposals(shared_user, 'LCO'))
+        proposal_choice_values = [value for value, _label in get_proposal_choices_for_user(shared_user, 'LCO')]
+        self.assertIn(str(imported_proposal.pk), proposal_choice_values)
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_form_builds_etc_context_from_recent_filter_photometry(self, mock_get_instruments):
