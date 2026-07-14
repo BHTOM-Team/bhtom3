@@ -406,7 +406,7 @@ DATA_SERVICES = {
 _BASE_HARVESTER_CLASSES = [
     'custom_code.bhtom_catalogs.harvesters.simbad.SimbadHarvester',
     'tom_catalogs.harvesters.ned.NEDHarvester',
-    'tom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
+    'custom_code.bhtom_catalogs.harvesters.jplhorizons.JPLHorizonsHarvester',
     'tom_catalogs.harvesters.tns.TNSHarvester',
 ]
 _CORE_CUSTOM_HARVESTER_CLASSES = [

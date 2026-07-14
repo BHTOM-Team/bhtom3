@@ -10,6 +10,7 @@ from astropy.time import Time
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
+from astropy.table import Table
 from datetime import timezone
 from django import forms
 from django.core.cache import cache
@@ -76,6 +77,7 @@ from custom_code.bhtom_catalogs.harvesters.crts import CRTSHarvester
 from custom_code.bhtom_catalogs.harvesters.gaia_alerts import GaiaAlertsHarvester
 from custom_code.bhtom_catalogs.harvesters import gaia_dr3 as gaia_dr3_harvester
 from custom_code.bhtom_catalogs.harvesters.gaia_dr3 import GaiaDR3Harvester
+from custom_code.bhtom_catalogs.harvesters.jplhorizons import JPLHorizonsHarvester
 from custom_code.bhtom_catalogs.harvesters.exoclock import ExoClockHarvester
 from custom_code.bhtom_catalogs.harvesters.kmt import KMTHarvester
 from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
@@ -2006,6 +2008,33 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertContains(response, 'WASP-12b')
         self.assertContains(response, 'ExoClock')
 
+    def test_catalog_all_services_keeps_jpl_for_numbered_comet_terms(self):
+        request = RequestFactory().post(
+            reverse('tom_catalogs:query'),
+            data={'service': ALL_DATA_SERVICES_VALUE, 'term': '80P'},
+        )
+        request.user = get_user_model().objects.create_user(username='catalog-all-jpl-comet', password='secret')
+        request.session = {}
+
+        class FakeJPLHarvester:
+            name = 'JPL Horizons'
+
+            def query(self, term):
+                self.term = term
+
+            def to_target(self):
+                return Target(name='80P/Peters-Hartley', type='NON_SIDEREAL', ra=None, dec=None, epoch=2000.0)
+
+        with patch(
+            'custom_code.views.get_service_classes',
+            return_value={'JPL Horizons': FakeJPLHarvester},
+        ), patch('custom_code.views._get_catalog_matches', return_value=[]):
+            response = BhtomCatalogQueryView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '80P/Peters-Hartley')
+        self.assertContains(response, 'JPL Horizons')
+
     def test_ogle_ews_harvester_maps_target_name_and_coordinates(self):
         harvester = OGLEEWSHarvester()
         harvester.catalog_data = {
@@ -2022,6 +2051,51 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertEqual(target.epoch, 2000.0)
         self.assertAlmostEqual(target.ra, 270.123456)
         self.assertAlmostEqual(target.dec, -28.654321)
+
+    def test_jpl_horizons_harvester_resolves_numbered_comet_ambiguity(self):
+        table = Table({
+            'targetname': ['80P/Peters-Hartley'],
+            'M': [1.0],
+            'w': [2.0],
+            'Omega': [3.0],
+            'incl': [4.0],
+            'n': [5.0],
+            'a': [6.0],
+            'e': [0.1],
+            'datetime_jd': [2460000.5],
+            'Tp_jd': [2460100.5],
+            'q': [7.0],
+            'P': [8.0],
+        })
+        ambiguity = ValueError(
+            'Ambiguous target name; provide unique id:\n'
+            '    Record #  Epoch-yr  >MATCH DESIG<  Primary Desig  Name\n'
+            '    --------  --------  -------------  -------------  -------------------------\n'
+            '    90000852    1846    80P            80P             Peters-Hartley\n'
+            '    90000855    2017    80P            80P             Peters-Hartley\n'
+        )
+        calls = []
+
+        class FakeHorizons:
+            def __init__(self, id, id_type=None, location=None, epochs=None):
+                self.id = id
+                self.id_type = id_type
+                calls.append((id, id_type))
+
+            def elements(self):
+                if self.id == '90000855':
+                    return table
+                raise ambiguity
+
+        harvester = JPLHorizonsHarvester()
+        with patch('custom_code.bhtom_catalogs.harvesters.jplhorizons.Horizons', FakeHorizons):
+            harvester.query('80P')
+
+        self.assertIn(('80P', None), calls)
+        self.assertIn(('90000855', None), calls)
+        target = harvester.to_target()
+        self.assertEqual(target.name, '80P/Peters-Hartley')
+        self.assertEqual(target.type, 'NON_SIDEREAL')
 
     def test_moa_harvester_maps_target_name_and_coordinates(self):
         harvester = MOAHarvester()

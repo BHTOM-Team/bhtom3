@@ -350,6 +350,8 @@ def _catalog_query_services_for_input(cleaned_data):
         for prefix in ('wasp-', 'hat-', 'toi-', 'kelt-', 'xo-', 'tres-', 'corot-', 'kepler-', 'hd ')
     )
     is_solar_system_like = bool(re.match(r'^\(?\d+\)?\s*\w*$', term)) or bool(
+        re.match(r'^\d+[pd](?:/|$)', lowered_term)
+    ) or bool(
         re.match(r'^(c/|p/|\d{4}\s+[a-z]{1,2}\d*)', lowered_term)
     )
 
