@@ -3453,6 +3453,14 @@ class GeoTomViewTests(TestCase):
         self.assertContains(response, 'data-live-mode="0"')
         self.assertContains(response, 'name="time_utc" value="2026-04-21T12:34:56"')
 
+    def test_geotom_list_paused_mode_does_not_freeze_refresh_time(self):
+        response = self.client.get(reverse('geotom-list'), {'live': '0'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-live-mode="0"')
+        self.assertContains(response, 'name="live" value="0"')
+        self.assertContains(response, 'id="geotom-filter-time-utc" type="hidden" name="time_utc" value=""')
+
     def test_geotom_live_data_returns_rows_and_map_payload(self):
         sat_payload = {
             'tle_name': 'TEST-SAT',

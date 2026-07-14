@@ -28,6 +28,9 @@
           {% if filter_values.visible_only %}
           <input type="hidden" name="visible_only" value="1">
           {% endif %}
+          {% if geotom_paused_mode %}
+          <input type="hidden" name="live" value="0">
+          {% endif %}
           <input type="hidden" name="observer" value="{{ geotom_observer.key }}">
           <input type="hidden" name="lat" value="{{ geotom_observer.input_lat }}">
           <input type="hidden" name="lon" value="{{ geotom_observer.input_lon }}">
@@ -35,7 +38,7 @@
           <label for="id_time_utc" class="mr-2 mb-0">UTC</label>
           <input id="id_time_utc" type="datetime-local" step="1" name="time_utc" class="form-control form-control-sm mr-2" value="{{ geotom_generated_utc_input|default_if_none:'' }}">
           <button type="submit" class="btn btn-primary btn-sm mr-2">Apply</button>
-          <a href="?name={{ filter_values.name|urlencode }}&norad_id={{ filter_values.norad_id|urlencode }}&object_class={{ filter_values.object_class|urlencode }}{% if filter_values.visible_only %}&visible_only=1{% endif %}&observer={{ geotom_observer.key|urlencode }}&lat={{ geotom_observer.input_lat|urlencode }}&lon={{ geotom_observer.input_lon|urlencode }}&elev={{ geotom_observer.input_elev|urlencode }}" class="btn btn-outline-secondary btn-sm">Now</a>
+          <a href="?name={{ filter_values.name|urlencode }}&norad_id={{ filter_values.norad_id|urlencode }}&object_class={{ filter_values.object_class|urlencode }}{% if filter_values.visible_only %}&visible_only=1{% endif %}&observer={{ geotom_observer.key|urlencode }}&lat={{ geotom_observer.input_lat|urlencode }}&lon={{ geotom_observer.input_lon|urlencode }}&elev={{ geotom_observer.input_elev|urlencode }}{% if geotom_paused_mode %}&live=0{% endif %}" class="btn btn-outline-secondary btn-sm">Now</a>
         </form>
       </div>
     </div>
@@ -71,6 +74,9 @@
           <input type="hidden" name="name" value="{{ filter_values.name }}">
           <input type="hidden" name="norad_id" value="{{ filter_values.norad_id }}">
           <input type="hidden" name="object_class" value="{{ filter_values.object_class }}">
+          {% if geotom_paused_mode %}
+          <input type="hidden" name="live" value="0">
+          {% endif %}
           <div class="form-row">
             <div class="form-group col-md-3">
               <label for="id_observer">Preset</label>
@@ -110,7 +116,10 @@
         <input type="hidden" name="lat" value="{{ geotom_observer.input_lat }}">
         <input type="hidden" name="lon" value="{{ geotom_observer.input_lon }}">
         <input type="hidden" name="elev" value="{{ geotom_observer.input_elev }}">
-        <input id="geotom-filter-time-utc" type="hidden" name="time_utc" value="{% if geotom_live_mode %}{% else %}{{ geotom_generated_utc_input }}{% endif %}">
+        {% if geotom_paused_mode %}
+        <input type="hidden" name="live" value="0">
+        {% endif %}
+        <input id="geotom-filter-time-utc" type="hidden" name="time_utc" value="{% if geotom_live_mode or geotom_paused_mode %}{% else %}{{ geotom_generated_utc_input }}{% endif %}">
         <div class="form-group">
           <label for="id_name">Name</label>
           <input id="id_name" class="form-control" type="text" name="name" value="{{ filter_values.name }}">
@@ -132,7 +141,7 @@
             Visible Only
           </button>
           {% if filter_values.visible_only %}
-          <a href="?name={{ filter_values.name|urlencode }}&norad_id={{ filter_values.norad_id|urlencode }}&object_class={{ filter_values.object_class|urlencode }}&observer={{ geotom_observer.key|urlencode }}&lat={{ geotom_observer.input_lat|urlencode }}&lon={{ geotom_observer.input_lon|urlencode }}&elev={{ geotom_observer.input_elev|urlencode }}{% if not geotom_live_mode %}&time_utc={{ geotom_generated_utc_input|urlencode }}{% endif %}" class="btn btn-outline-secondary">Show All</a>
+          <a href="?name={{ filter_values.name|urlencode }}&norad_id={{ filter_values.norad_id|urlencode }}&object_class={{ filter_values.object_class|urlencode }}&observer={{ geotom_observer.key|urlencode }}&lat={{ geotom_observer.input_lat|urlencode }}&lon={{ geotom_observer.input_lon|urlencode }}&elev={{ geotom_observer.input_elev|urlencode }}{% if geotom_paused_mode %}&live=0{% elif not geotom_live_mode %}&time_utc={{ geotom_generated_utc_input|urlencode }}{% endif %}" class="btn btn-outline-secondary">Show All</a>
           {% endif %}
         </div>
         {% if filter_values.visible_only %}
@@ -587,6 +596,7 @@
 
     var liveDataUrl = generatedTimeElement.getAttribute('data-live-url');
     var liveMode = generatedTimeElement.getAttribute('data-live-mode') === '1';
+    var fixedTimeMode = new URLSearchParams(window.location.search).has('time_utc');
     var pollTimer = null;
     var requestInFlight = false;
     var lastMapRefreshMs = 0;
@@ -608,10 +618,52 @@
       liveToggleButton.title = liveMode ? 'Pause live updates' : 'Resume live updates from current UTC';
     }
 
+    function replaceUrlLiveState(nextLiveMode, nextFixedTimeMode) {
+      if (!window.history || !window.history.replaceState) {
+        return;
+      }
+
+      var url = new URL(window.location.href);
+      if (nextLiveMode) {
+        url.searchParams.delete('live');
+        url.searchParams.delete('time_utc');
+      } else if (nextFixedTimeMode) {
+        url.searchParams.delete('live');
+        url.searchParams.set('time_utc', timeInput.value);
+      } else {
+        url.searchParams.set('live', '0');
+        url.searchParams.delete('time_utc');
+      }
+      window.history.replaceState({}, '', url.toString());
+    }
+
+    function syncStaticForms() {
+      var forms = document.querySelectorAll('.geotom-time-form, .targets-filter-col form');
+      for (var i = 0; i < forms.length; i++) {
+        var form = forms[i];
+        var liveInput = form.querySelector('input[name="live"]');
+        if (!liveMode && !fixedTimeMode) {
+          if (!liveInput) {
+            liveInput = document.createElement('input');
+            liveInput.type = 'hidden';
+            liveInput.name = 'live';
+            form.appendChild(liveInput);
+          }
+          liveInput.value = '0';
+        } else if (liveInput) {
+          liveInput.remove();
+        }
+      }
+
+      filterTimeInput.value = fixedTimeMode ? timeInput.value : '';
+    }
+
     function setLiveMode(nextLiveMode) {
       liveMode = nextLiveMode;
+      fixedTimeMode = false;
       generatedTimeElement.setAttribute('data-live-mode', nextLiveMode ? '1' : '0');
-      filterTimeInput.value = nextLiveMode ? '' : timeInput.value;
+      replaceUrlLiveState(nextLiveMode, false);
+      syncStaticForms();
       updateLiveToggleState();
 
       if (!nextLiveMode) {
@@ -726,6 +778,9 @@
       if (liveMode) {
         setLiveMode(false);
       }
+      fixedTimeMode = true;
+      replaceUrlLiveState(false, true);
+      syncStaticForms();
     }
 
     liveToggleButton.addEventListener('click', function() {
@@ -742,12 +797,10 @@
     timeInput.addEventListener('input', syncLiveStateWithInput);
     timeInput.addEventListener('change', syncLiveStateWithInput);
     updateLiveToggleState();
+    syncStaticForms();
 
     if (liveMode) {
-      filterTimeInput.value = '';
       pollLiveData();
-    } else {
-      filterTimeInput.value = timeInput.value;
     }
   })();
 </script>

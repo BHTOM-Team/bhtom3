@@ -2972,7 +2972,9 @@ class GeoTomTargetListView(ListView):
         context['geotom_generated_utc'] = calculation_time_utc
         context['geotom_generated_utc_input'] = calculation_time_input
         context['geotom_time_error'] = calculation_time_error
-        context['geotom_live_mode'] = not (self.request.GET.get('time_utc') or '').strip()
+        requested_live_mode = (self.request.GET.get('live') or '').strip().lower()
+        context['geotom_live_mode'] = requested_live_mode != '0' and not (self.request.GET.get('time_utc') or '').strip()
+        context['geotom_paused_mode'] = requested_live_mode == '0' and not (self.request.GET.get('time_utc') or '').strip()
         context['filter_values'] = {
             'name': (self.request.GET.get('name') or '').strip(),
             'norad_id': (self.request.GET.get('norad_id') or '').strip(),
