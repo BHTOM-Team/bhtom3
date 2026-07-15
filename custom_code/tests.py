@@ -141,6 +141,8 @@ from custom_code.views import (
     BhtomCatalogQueryView,
     BhtomCreateTargetFromQueryView,
     _annotate_results_with_existing_targets,
+    _build_data_service_result_row,
+    _catalog_target_params,
     _catalog_query_services_for_input,
     _serialize_query_parameters,
     BhtomTargetCreateView,
@@ -1795,6 +1797,20 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertContains(response, 'All Data Services')
         self.assertContains(response, 'Saved Queries')
 
+    def test_dataservices_create_all_values_render_all_services_form(self):
+        user = get_user_model().objects.create_user(username='dataservices-legacy-all', password='secret')
+        self.client.force_login(user)
+
+        for data_service_value in (ALL_DATA_SERVICES_VALUE, '**all**'):
+            with self.subTest(data_service_value=data_service_value):
+                response = self.client.get(reverse('dataservices:create'), {'data_service': data_service_value})
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'All Data Services Query Form')
+                self.assertContains(response, 'Target name')
+                self.assertEqual(response.context['selected_service'], ALL_DATA_SERVICES_VALUE)
+                self.assertTrue(response.context['is_all_data_services'])
+
     def test_dataservices_create_exoclock_renders_advanced_filter_fields(self):
         user = get_user_model().objects.create_user(username='dataservices-exoclock-form', password='secret')
         self.client.force_login(user)
@@ -1807,6 +1823,21 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertContains(response, 'Eclipse depth min')
         self.assertContains(response, 'Compute from date')
         self.assertContains(response, 'Next transit within')
+
+    def test_data_service_first_result_id_remains_createable(self):
+        row = _build_data_service_result_row(
+            {
+                'id': 0,
+                'name': 'NGTS-5b',
+                'ra': 221.058210,
+                'dec': 5.605394,
+                'source_location': 'https://www.exoclock.space/database/planets/NGTS-5b',
+            },
+            'ExoClock',
+        )
+
+        self.assertEqual(row['id'], '0')
+        self.assertTrue(row['id'])
 
     def test_exoclock_catalog_query_redirect_prefills_transit_fields(self):
         exoclock = ExoClockHarvester()
@@ -2082,6 +2113,10 @@ class DataServiceSelectorViewTests(TestCase):
         target = harvester.to_target()
         self.assertEqual(target.name, '80P/Peters-Hartley')
         self.assertEqual(target.type, 'NON_SIDEREAL')
+        self.assertEqual(target.classification, 'SSO')
+        self.assertEqual(target.description, 'Non-sidereal object from JPL')
+        self.assertEqual(_catalog_target_params(target)['classification'], 'SSO')
+        self.assertEqual(_catalog_target_params(target)['description'], 'Non-sidereal object from JPL')
 
     def test_moa_harvester_maps_target_name_and_coordinates(self):
         harvester = MOAHarvester()
@@ -3020,6 +3055,49 @@ class PlanetaryTransitTargetCreateTests(TestCase):
         self.assertIn('pm_dec_error=0.22', location)
         self.assertIn('gaia_variability_type=RR', location)
 
+    def test_create_target_from_query_redirects_with_jpl_solar_system_defaults(self):
+        cache_key = 'result_2'
+        cache_payload = {
+            'name': 'Ceres',
+            'type': Target.NON_SIDEREAL,
+        }
+        cache.set(cache_key, cache_payload, 3600)
+
+        request = RequestFactory().post(
+            reverse('dataservices:create-target'),
+            data={
+                'query_id': '17',
+                'data_service': 'JPL Horizons',
+                'selected_results': ['2'],
+            },
+        )
+        user = get_user_model().objects.create_user(username='jpl-create-query', password='secret')
+        request.user = user
+
+        class StubService:
+            def to_target(self, cached_result):
+                self.cached_result = cached_result
+                return Target(
+                    name='Ceres',
+                    type=Target.NON_SIDEREAL,
+                    scheme='MPC_MINOR_PLANET',
+                    epoch_of_elements=60000.0,
+                    inclination=1.0,
+                    lng_asc_node=2.0,
+                    arg_of_perihelion=3.0,
+                    eccentricity=0.1,
+                    mean_anomaly=4.0,
+                    semimajor_axis=5.0,
+                ), None, None
+
+        with patch('custom_code.views.get_data_service_class', return_value=StubService):
+            response = BhtomCreateTargetFromQueryView.as_view()(request)
+
+        self.assertEqual(response.status_code, 302)
+        location = response['Location']
+        self.assertIn('classification=SSO', location)
+        self.assertIn('description=Non-sidereal+object+from+JPL', location)
+
     def test_create_context_hides_empty_groups_field(self):
         request = RequestFactory().get(reverse('targets:create'), {'type': 'SIDEREAL'})
         user = get_user_model().objects.create_user(username='target-create-layout', password='secret')
@@ -3215,6 +3293,8 @@ class PlanetaryTransitTargetUpdateTests(TestCase):
     def test_non_sidereal_create_form_hides_internal_and_plot_fields(self):
         form = BhtomNonSiderealTargetCreateForm()
 
+        self.assertIn('classification', form.fields)
+        self.assertIn('description', form.fields)
         self.assertNotIn('constellation', form.fields)
         self.assertNotIn('phot_class', form.fields)
         self.assertNotIn('phot_classification_done', form.fields)

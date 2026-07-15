@@ -141,6 +141,10 @@ from custom_code.sun_separation import get_live_target_values
 logger = logging.getLogger(__name__)
 CATALOG_RESULTS_SESSION_KEY = 'catalog_query_results'
 CATALOG_FORM_SESSION_KEY = 'catalog_query_form_data'
+JPL_HORIZONS_SERVICE_NAME = 'JPL Horizons'
+JPL_NON_SIDEREAL_DESCRIPTION = 'Non-sidereal object from JPL'
+SOLAR_SYSTEM_CLASSIFICATION = 'SSO'
+LEGACY_ALL_DATA_SERVICES_VALUE = '**all**'
 TARGET_LIST_OBSERVER_SESSION_KEY = 'target_list_observer'
 TARGET_LIST_TIME_SESSION_KEY = 'target_list_time'
 LIST_OBSERVER_PRESETS = {
@@ -225,6 +229,8 @@ def _summarize_target_query_result(result):
 
 def _build_data_service_result_row(result, data_service_name, query_id=''):
     row = dict(result)
+    if row.get('id') is not None:
+        row['id'] = str(row['id'])
     row['service'] = data_service_name
     row['summary'] = _summarize_target_query_result(row)
     row['url'] = str(row.get('source_location') or '').strip()
@@ -2068,6 +2074,21 @@ def _build_gaia_alerts_catalog_target(row):
     return target
 
 
+def _apply_jpl_non_sidereal_defaults(target):
+    target.classification = SOLAR_SYSTEM_CLASSIFICATION
+    target.description = JPL_NON_SIDEREAL_DESCRIPTION
+    return target
+
+
+def _target_create_params(target):
+    target_params = target.as_dict()
+    for field_name in ('classification', 'description'):
+        value = getattr(target, field_name, None)
+        if value not in (None, ''):
+            target_params[field_name] = value
+    return target_params
+
+
 def _get_catalog_matches(service_name, cleaned_data):
     term = (cleaned_data.get('term') or '').strip()
     if service_name == 'Gaia Alerts':
@@ -2185,7 +2206,7 @@ def _add_transit_target_params(target_params, target):
 
 
 def _catalog_target_params(target):
-    target_params = _add_transit_target_params(target.as_dict(), target)
+    target_params = _add_transit_target_params(_target_create_params(target), target)
     target_params['names'] = ','.join(
         alias['name'] for alias in getattr(target, 'extra_aliases', []) if alias.get('name')
     )
@@ -2697,7 +2718,7 @@ class BhtomCatalogSelectResultView(LoginRequiredMixin, View):
 class BhtomCreateTargetFromQueryView(CreateTargetFromQueryView):
     @staticmethod
     def _build_create_url(target, cached_result):
-        target_params = target.as_dict()
+        target_params = _target_create_params(target)
         for target_key, cache_keys in (
             ('pm_ra', ('pm_ra', 'pmra')),
             ('pm_dec', ('pm_dec', 'pmdec')),
@@ -2789,6 +2810,9 @@ class BhtomCreateTargetFromQueryView(CreateTargetFromQueryView):
                 return redirect(reverse('dataservices:run_saved', kwargs={'pk': query_id}))
             return redirect(reverse('dataservices:run'))
 
+        if data_service_name == JPL_HORIZONS_SERVICE_NAME:
+            _apply_jpl_non_sidereal_defaults(target)
+
         return HttpResponseRedirect(self._build_create_url(target, cached_result))
         if selected_result in (None, ''):
             messages.warning(request, 'Please select one result.')
@@ -2816,6 +2840,12 @@ class BhtomDataServiceQueryCreateView(DataServiceQueryCreateView):
     template_name = 'tom_dataservices/query_form.html'
     success_url = reverse_lazy('dataservices:run')
 
+    def get_data_service_name(self):
+        data_service_name = super().get_data_service_name()
+        if data_service_name == LEGACY_ALL_DATA_SERVICES_VALUE:
+            return ALL_DATA_SERVICES_VALUE
+        return data_service_name
+
     def get_form_class(self):
         data_service_name = self.get_data_service_name()
         if not data_service_name:
@@ -2841,9 +2871,14 @@ class BhtomDataServiceQueryCreateView(DataServiceQueryCreateView):
         return redirect(self.success_url)
 
     def get_context_data(self, *args, **kwargs):
-        context = super().get_context_data(*args, **kwargs) if self.get_data_service_name() else {}
-        installed_services = get_data_service_classes()
         selected_service = self.get_data_service_name()
+        if selected_service == ALL_DATA_SERVICES_VALUE:
+            context = FormView.get_context_data(self, *args, **kwargs)
+        elif selected_service:
+            context = super().get_context_data(*args, **kwargs)
+        else:
+            context = {}
+        installed_services = get_data_service_classes()
         context['installed_services'] = installed_services
         context['selected_service'] = selected_service
         context['service_class'] = installed_services.get(selected_service) if selected_service and selected_service != ALL_DATA_SERVICES_VALUE else None

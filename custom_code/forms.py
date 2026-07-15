@@ -555,6 +555,12 @@ class BhtomNonSiderealTargetCreateForm(NonSiderealTargetCreateForm):
         for field_name in CREATE_FORM_HIDDEN_FIELDS:
             self.fields.pop(field_name, None)
 
+    class Meta(NonSiderealTargetCreateForm.Meta):
+        fields = tuple(dict.fromkeys(
+            tuple(getattr(NonSiderealTargetCreateForm.Meta, 'fields', ()))
+            + ('classification', 'description')
+        ))
+
 
 class NonSiderealTargetVisibilityForm(forms.Form):
     start_time = forms.DateTimeField(

@@ -3,6 +3,9 @@ import re
 from astroquery.jplhorizons import Horizons
 from tom_catalogs.harvester import AbstractHarvester
 
+JPL_NON_SIDEREAL_DESCRIPTION = 'Non-sidereal object from JPL'
+SOLAR_SYSTEM_CLASSIFICATION = 'SSO'
+
 
 def _normalize_query(term):
     normalized = ' '.join(str(term or '').strip().split())
@@ -109,6 +112,8 @@ class JPLHorizonsHarvester(AbstractHarvester):
         target = super().to_target()
         target.type = 'NON_SIDEREAL'
         target.scheme = 'MPC_MINOR_PLANET'
+        target.classification = SOLAR_SYSTEM_CLASSIFICATION
+        target.description = JPL_NON_SIDEREAL_DESCRIPTION
         target.name = str(self.catalog_data['targetname'][0])
         target.mean_anomaly = self.catalog_data['M'][0]
         target.arg_of_perihelion = self.catalog_data['w'][0]
