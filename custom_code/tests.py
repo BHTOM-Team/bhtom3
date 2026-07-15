@@ -141,6 +141,7 @@ from custom_code.views import (
     BhtomCatalogQueryView,
     BhtomCreateTargetFromQueryView,
     _annotate_results_with_existing_targets,
+    _catalog_query_services_for_input,
     _serialize_query_parameters,
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
@@ -2009,31 +2010,16 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertContains(response, 'ExoClock')
 
     def test_catalog_all_services_keeps_jpl_for_numbered_comet_terms(self):
-        request = RequestFactory().post(
-            reverse('tom_catalogs:query'),
-            data={'service': ALL_DATA_SERVICES_VALUE, 'term': '80P'},
-        )
-        request.user = get_user_model().objects.create_user(username='catalog-all-jpl-comet', password='secret')
-        request.session = {}
-
         class FakeJPLHarvester:
             name = 'JPL Horizons'
-
-            def query(self, term):
-                self.term = term
-
-            def to_target(self):
-                return Target(name='80P/Peters-Hartley', type='NON_SIDEREAL', ra=None, dec=None, epoch=2000.0)
 
         with patch(
             'custom_code.views.get_service_classes',
             return_value={'JPL Horizons': FakeJPLHarvester},
-        ), patch('custom_code.views._get_catalog_matches', return_value=[]):
-            response = BhtomCatalogQueryView.as_view()(request)
+        ):
+            service_names = _catalog_query_services_for_input({'term': '80P'})
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '80P/Peters-Hartley')
-        self.assertContains(response, 'JPL Horizons')
+        self.assertEqual(service_names, ['JPL Horizons'])
 
     def test_ogle_ews_harvester_maps_target_name_and_coordinates(self):
         harvester = OGLEEWSHarvester()

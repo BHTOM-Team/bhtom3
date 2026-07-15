@@ -1,0 +1,19 @@
+{% load cache %}
+{% load tom_common_extras targets_extras custom_target_extras %}
+
+<h3>{{ target.name }}
+{% if target.type == 'SIDEREAL' %}
+    {% if target.ra|is_valid_coordinate_number and target.dec|is_valid_coordinate_number %}
+        {% with target.ra|deg_to_sexigesimal:"hms" as ra %}
+            {% with target.dec|deg_to_sexigesimal:"dms" as dec %}
+                {% copy_button ra|addstr:" "|addstr:dec 'Copy Coordinates' %}
+            {% endwith %}
+        {% endwith %}
+    {% endif %}
+{% endif %}
+</h3>
+{% if target.featured_image %}
+{% cache None featured_image target.id %}
+<img src="{{ target.featured_image.get_preview }}" id="featured-image" onerror="this.style.display='none'">
+{% endcache %}
+{% endif %}

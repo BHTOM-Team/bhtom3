@@ -1,6 +1,8 @@
 from django import template
 from django.conf import settings
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
+import math
+from numbers import Number
 
 from custom_code.astrometry import can_compute_current_coordinates
 from custom_code.sun_separation import get_live_target_values
@@ -64,6 +66,16 @@ def truncate_decimals(value, places=4):
         return f'{truncated:.{places}f}'
     except (InvalidOperation, TypeError, ValueError):
         return value
+
+
+@register.filter
+def is_valid_coordinate_number(value):
+    if isinstance(value, bool) or not isinstance(value, Number):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 @register.inclusion_tag('tom_targets/partials/target_data.html', takes_context=True)
