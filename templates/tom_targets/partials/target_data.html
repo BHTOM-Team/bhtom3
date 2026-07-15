@@ -12,9 +12,9 @@
 </dl>
 <dl class="row">
 
-  {% if live.ra and live.dec %}
+  {% if live.ra|is_valid_coordinate_number and live.dec|is_valid_coordinate_number %}
   <dt class="col-sm-6">
-    {{ "Ra,Dec" }}
+    {% if target.type == 'NON_SIDEREAL' %}Computed Ra,Dec{% else %}Ra,Dec{% endif %}
     {% if target.type == 'NON_SIDEREAL' and live.computed_at_utc %}
       <br><small>({{ live.computed_at_utc|date:"Y-m-d H:i:s" }} UT)</small>
     {% endif %}
@@ -22,6 +22,18 @@
   <dd class="col-sm-6">{{ live.ra }} {{ live.dec }}</dd>
   <dt class="col-sm-6">&nbsp;</dt>
   <dd class="col-sm-6">{{ live.ra|deg_to_sexigesimal:"hms" }} {{ live.dec|deg_to_sexigesimal:"dms"}}</dd>
+  {% elif target.type == 'NON_SIDEREAL' %}
+  <dt class="col-sm-6">Computed Ra,Dec</dt>
+  <dd class="col-sm-6 text-muted">Position could not be computed from the stored orbital elements.</dd>
+  {% endif %}
+
+  {% if target.type == 'NON_SIDEREAL' %}
+  <dt class="col-sm-6">Current position</dt>
+  <dd class="col-sm-6">
+    <a href="?{% if request.GET.tab %}tab={{ request.GET.tab|urlencode }}&{% endif %}observer={{ detail_observer.key|urlencode }}&lat={{ detail_observer.input_lat|urlencode }}&lon={{ detail_observer.input_lon|urlencode }}&elev={{ detail_observer.input_elev|urlencode }}" class="btn btn-sm btn-outline-success">
+      Compute current Ra/Dec
+    </a>
+  </dd>
   {% endif %}
 
   {% if target.galactic_lat != None and target.galactic_lng != None %}
