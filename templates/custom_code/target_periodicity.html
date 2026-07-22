@@ -467,8 +467,25 @@ function renderLightCurve(result) {
   if (!lcInitialized) {
     Plotly.newPlot('lc-plot', traces, layout, plotConfig());
     lcInitialized = true;
+    document.getElementById('lc-plot').on('plotly_relayout', onLightCurveZoom);
   } else {
     Plotly.react('lc-plot', traces, layout, plotConfig());
+  }
+}
+
+// Sync the MJD "Time Range" fields to a zoom/drag selection made on the light curve plot.
+function onLightCurveZoom(eventData) {
+  if (eventData['xaxis.range[0]'] !== undefined && eventData['xaxis.range[1]'] !== undefined) {
+    document.getElementById('mjd-min').value = eventData['xaxis.range[0]'].toFixed(1);
+    document.getElementById('mjd-max').value = eventData['xaxis.range[1]'].toFixed(1);
+    onSelectionChange();
+  } else if (Array.isArray(eventData['xaxis.range'])) {
+    document.getElementById('mjd-min').value = eventData['xaxis.range'][0].toFixed(1);
+    document.getElementById('mjd-max').value = eventData['xaxis.range'][1].toFixed(1);
+    onSelectionChange();
+  } else if (eventData['xaxis.autorange']) {
+    // Double-click resets zoom — go back to the full MJD range.
+    resetTime();
   }
 }
 
@@ -679,7 +696,7 @@ function showResults(r) {
   document.getElementById('res-fap1').textContent   = r.fap_1  !== null ? r.fap_1.toFixed(5)  : '—';
   document.getElementById('res-fap01').textContent  = r.fap_01 !== null ? r.fap_01.toFixed(5) : '—';
   if (r.fit) {
-    document.getElementById('res-amplitude').textContent = `${Math.abs(r.fit.amplitude).toFixed(4)} power`;
+    document.getElementById('res-amplitude').textContent = `${Math.abs(r.fit.amplitude).toFixed(4)} mag`;
     document.getElementById('res-offset').textContent    = `${r.fit.offset.toFixed(3)} mag`;
     document.getElementById('res-fit-warn-row').classList.add('d-none');
   } else {

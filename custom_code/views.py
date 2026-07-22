@@ -4074,14 +4074,16 @@ class TargetPeriodicityComputeView(LoginRequiredMixin, View):
             return JsonResponse({'error': f'LSP computation failed: {exc}'}, status=500)
 
         periods = 1.0 / frequency
+
+        # Find the best period on the full-resolution periodogram before downsampling
+        best_idx = int(np.argmax(power))
+        best_period = float(periods[best_idx])
+
         # Downsample to keep response manageable
         if len(periods) > 15000:
             step = len(periods) // 15000
             periods = periods[::step]
             power = power[::step]
-
-        best_idx = int(np.argmax(power))
-        best_period = float(periods[best_idx])
 
         fap_10 = fap_1 = fap_01 = None
         try:
