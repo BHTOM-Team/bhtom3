@@ -358,6 +358,21 @@ TNS_SERVICE_CONFIGURATION = {
     'bot_name': "BHTOM_Bot",
 }
 
+# ATLAS Forced Photometry Server credentials (https://fallingstar-data.com/forcedphot/).
+# Provide either an API token, or a username+password pair (a token is then fetched and cached).
+ATLAS_SERVICE_CONFIGURATION = {
+    'api_key': secret.get('ATLAS_API_TOKEN', os.environ.get('ATLAS_API_TOKEN', '')),
+    'username': secret.get('ATLAS_USERNAME', os.environ.get('ATLAS_USERNAME', '')),
+    'password': secret.get('ATLAS_PASSWORD', os.environ.get('ATLAS_PASSWORD', '')),
+}
+# ATLAS async-queue tuning. Submission and result-fetch are decoupled: a job is submitted
+# during the normal dataservice run, then db_worker polls pending jobs on this cadence and
+# ingests each once the ATLAS queue finishes it.
+ATLAS_POLL_INTERVAL_SECONDS = int(secret.get('ATLAS_POLL_INTERVAL_SECONDS', os.environ.get('ATLAS_POLL_INTERVAL_SECONDS', '300')))
+ATLAS_JOB_MAX_AGE_SECONDS = int(secret.get('ATLAS_JOB_MAX_AGE_SECONDS', os.environ.get('ATLAS_JOB_MAX_AGE_SECONDS', '86400')))
+ATLAS_POLL_BATCH = int(secret.get('ATLAS_POLL_BATCH', os.environ.get('ATLAS_POLL_BATCH', '50')))
+ATLAS_SNR_MIN = float(secret.get('ATLAS_SNR_MIN', os.environ.get('ATLAS_SNR_MIN', '3.0')))
+
 
 def _discover_custom_harvesters():
     discovered = []
@@ -401,6 +416,7 @@ BROKERS = {
 
 DATA_SERVICES = {
     'TNS': dict(TNS_SERVICE_CONFIGURATION),
+    'ATLAS': dict(ATLAS_SERVICE_CONFIGURATION),
 }
 
 _BASE_HARVESTER_CLASSES = [

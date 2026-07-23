@@ -106,7 +106,7 @@ class PanSTARRSDataService(DataService):
         ra = data.get('ra')
         dec = data.get('dec')
         lc_data = data.get('lc_data')
-        if ra is None or dec is None or len(lc_data) < 1:
+        if ra is None or dec is None or lc_data is None:
             return []
 
         alias = _ps1_alias(data.get('ps1_id'))

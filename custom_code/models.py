@@ -490,3 +490,44 @@ class BhtomUserProfile(models.Model):
 
     def __str__(self):
         return f'BHTOM profile for {self.user}'
+
+
+class ATLASForcedPhotJob(models.Model):
+    """A submitted-but-not-yet-retrieved ATLAS Forced Photometry Server job.
+
+    The ATLAS server is an asynchronous queue, so the DataService submits a job and
+    records it here; a periodic poller (in db_worker) later checks each pending job and
+    ingests the photometry once the job finishes. See atlas_dataservice.py.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_DONE = 'done'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_DONE, 'Done'),
+        (STATUS_FAILED, 'Failed'),
+    )
+
+    target = models.ForeignKey(
+        'custom_code.BhtomTarget', on_delete=models.CASCADE, related_name='atlas_forced_phot_jobs'
+    )
+    task_url = models.URLField(max_length=500)
+    result_url = models.URLField(max_length=500, null=True, blank=True)
+    mjd_min = models.FloatField(null=True, blank=True)
+    mjd_max = models.FloatField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    attempts = models.PositiveIntegerField(default=0)
+    datapoints_added = models.IntegerField(default=0)
+    error = models.TextField(null=True, blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'ATLAS forced photometry job'
+        indexes = [
+            models.Index(fields=['status', 'submitted_at']),
+        ]
+
+    def __str__(self):
+        return f'ATLAS job target={self.target_id} status={self.status}'

@@ -77,6 +77,7 @@ class ScheduledStatusWorker:
         status_interval,
         dataservices_interval,
         dataservices_importance_gt,
+        atlas_poll_interval=0,
         configure_signal_handlers=True,
         worker_name=None,
         process_tasks=True,
@@ -90,8 +91,10 @@ class ScheduledStatusWorker:
         self.status_interval = status_interval
         self.dataservices_interval = dataservices_interval
         self.dataservices_importance_gt = dataservices_importance_gt
+        self.atlas_poll_interval = atlas_poll_interval
         self.next_status_enqueue_at = 0.0 if status_interval else None
         self.next_dataservices_enqueue_at = 0.0 if dataservices_interval else None
+        self.next_atlas_poll_at = 0.0 if atlas_poll_interval else None
         self.heartbeat_interval = getattr(settings, "DB_WORKER_HEARTBEAT_INTERVAL", 300)
         self.stale_running_after = getattr(settings, "DB_WORKER_STALE_RUNNING_AFTER", 7200)
         self.next_heartbeat_at = 0.0
@@ -178,6 +181,31 @@ class ScheduledStatusWorker:
             self.dataservices_importance_gt,
             self.dataservices_interval,
         )
+
+    def run_due_atlas_poll(self) -> None:
+        if self.next_atlas_poll_at is None:
+            return
+        now = time.monotonic()
+        if now < self.next_atlas_poll_at:
+            return
+        self.next_atlas_poll_at = now + self.atlas_poll_interval
+
+        try:
+            from custom_code.data_services.atlas_dataservice import poll_pending_atlas_jobs
+            summary = poll_pending_atlas_jobs()
+        except Exception:
+            logger.exception("ATLAS forced-photometry poll failed.")
+            return
+
+        if summary and summary.get("checked"):
+            logger.info(
+                "ATLAS forced-photometry poll: checked=%s completed=%s ingested=%s failed=%s next_poll_in=%s seconds.",
+                summary.get("checked"),
+                summary.get("completed"),
+                summary.get("ingested"),
+                summary.get("failed"),
+                self.atlas_poll_interval,
+            )
 
     def log_heartbeat(self) -> None:
         if not self.heartbeat_interval:
@@ -271,6 +299,7 @@ class ScheduledStatusWorker:
             self.recover_stale_running_tasks()
             self.run_due_status_update()
             self.run_due_dataservices_update()
+            self.run_due_atlas_poll()
 
             if not self.process_tasks:
                 if self.running:
@@ -420,6 +449,12 @@ class Command(BaseCommand):
             help="Refresh only targets with importance greater than this value (default: 0).",
         )
         parser.add_argument(
+            "--atlas-poll-interval",
+            type=int,
+            default=getattr(settings, "ATLAS_POLL_INTERVAL_SECONDS", 300),
+            help="Seconds between ATLAS forced-photometry job polls. Use 0 to disable (default: 300).",
+        )
+        parser.add_argument(
             "--workers",
             type=int,
             default=getattr(settings, "DB_WORKER_THREADS", 4),
@@ -475,6 +510,7 @@ class Command(BaseCommand):
         status_interval: int,
         dataservices_interval: int,
         dataservices_importance_gt: float,
+        atlas_poll_interval: int,
         workers: int,
         **options,
     ) -> None:
@@ -483,6 +519,7 @@ class Command(BaseCommand):
         status_interval = max(0, int(status_interval))
         dataservices_interval = max(0, int(dataservices_interval))
         dataservices_importance_gt = float(dataservices_importance_gt)
+        atlas_poll_interval = max(0, int(atlas_poll_interval))
         queue_names = queue_name.split(",")
         logger.info(
             "Configured BHTOM db_worker workers=%s queues=%s status_interval=%s dataservices_interval=%s dataservices_importance_gt=%s bhtom2_token_configured=%s bhtom2_upload_url_configured=%s",
@@ -505,6 +542,7 @@ class Command(BaseCommand):
                 status_interval=status_interval,
                 dataservices_interval=dataservices_interval,
                 dataservices_importance_gt=dataservices_importance_gt,
+                atlas_poll_interval=atlas_poll_interval,
                 process_tasks=True,
             )
             worker.start()
@@ -522,6 +560,7 @@ class Command(BaseCommand):
             status_interval=status_interval,
             dataservices_interval=dataservices_interval,
             dataservices_importance_gt=dataservices_importance_gt,
+            atlas_poll_interval=atlas_poll_interval,
             configure_signal_handlers=False,
             worker_name="scheduler",
             process_tasks=False,
@@ -537,6 +576,7 @@ class Command(BaseCommand):
                 status_interval=0,
                 dataservices_interval=0,
                 dataservices_importance_gt=dataservices_importance_gt,
+                atlas_poll_interval=0,
                 configure_signal_handlers=False,
                 worker_name=f"worker-{index + 1}",
                 process_tasks=True,
