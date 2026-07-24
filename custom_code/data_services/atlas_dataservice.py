@@ -19,7 +19,8 @@ that is force-killed at ``DATA_SERVICE_JOB_TIMEOUT`` = 300s):
 Efficiency notes: incremental fetch (only request epochs newer than the latest stored
 ATLAS point), one authentication per worker (module-cached token, inherited across the
 fork), total (reduced-image) photometry read straight from ATLAS's own m/dm columns with
-the legacy magnitude/error and outlier cleaning, and dedup on ``(timestamp, value)``
+the legacy magnitude/error and outlier cleaning, non-detections ingested as upper limits at
+the 5-sigma depth (error = -1), and dedup on ``(timestamp, value)``
 so incremental-boundary overlap never duplicates rows.
 """
 
@@ -102,12 +103,20 @@ def _authed_session(token):
 
 
 # --------------------------------------------------------------------- parsing
-def _clean_atlas_table(df):
-    """Turn an ATLAS result table into total-photometry datum dicts using the m/dm columns.
+def _mjd_to_datetime(mjd):
+    return Time(float(mjd), format='mjd', scale='utc').to_datetime(timezone=dt_timezone.utc)
 
-    Applies the legacy bhtom2 cleaning: keep 5 < m <= 22 with dm < 1, then reject |z| >= 5
-    magnitude outliers so a few bad points do not distort the light curve while genuine
-    transients that sit only a few rms above a faint baseline are preserved.
+
+def _clean_atlas_table(df):
+    """Turn an ATLAS result table into total-photometry datum dicts.
+
+    Detections use the m/dm columns with the legacy bhtom2 cleaning (5 < m <= 22, dm < 1,
+    then |z| >= 5 outlier rejection so a few bad points do not distort the light curve while
+    genuine transients only a few rms above a faint baseline are preserved).
+
+    Non-detections -- ATLAS reports these with negative flux, i.e. m < 0 -- are ingested as
+    UPPER LIMITS at the 5-sigma limiting magnitude (mag5sig column) with error = -1, which is
+    how bhtom3 flags a limit (plotting treats error <= 0 as an upper limit).
     """
     required = {'MJD', 'm', 'dm', 'F'}
     if not required.issubset(df.columns):
@@ -115,34 +124,41 @@ def _clean_atlas_table(df):
         return []
 
     work = df.copy()
-    work['MJD'] = pd.to_numeric(work['MJD'], errors='coerce')
-    work['m'] = pd.to_numeric(work['m'], errors='coerce')
-    work['dm'] = pd.to_numeric(work['dm'], errors='coerce')
-
-    # Magnitude range + error cut. NaNs compare False and are dropped; negative-flux
-    # non-detections (m < 0) fall outside the range and are dropped here too.
-    work = work[
-        (work['m'] > _MAG_BRIGHT_LIMIT)
-        & (work['m'] <= _MAG_FAINT_LIMIT)
-        & (work['dm'] < _MAX_MAG_ERR)
-        & np.isfinite(work['MJD'])
-    ]
-    if work.empty:
-        return []
-
-    std = work['m'].std()
-    if len(work) > 2 and std and np.isfinite(std) and std > 0:
-        z = np.abs((work['m'] - work['m'].mean()) / std)
-        work = work[z < _OUTLIER_Z_SCORE]
+    for col in ('MJD', 'm', 'dm'):
+        work[col] = pd.to_numeric(work[col], errors='coerce')
+    work = work[np.isfinite(work['MJD'])]
     if work.empty:
         return []
 
     output = []
-    for row in work.itertuples(index=False):
+
+    # --- detections: valid magnitude range + error cut, then outlier rejection ---
+    det = work[(work['m'] > _MAG_BRIGHT_LIMIT) & (work['m'] <= _MAG_FAINT_LIMIT) & (work['dm'] < _MAX_MAG_ERR)]
+    std = det['m'].std()
+    if len(det) > 2 and std and np.isfinite(std) and std > 0:
+        z = np.abs((det['m'] - det['m'].mean()) / std)
+        det = det[z < _OUTLIER_Z_SCORE]
+    for row in det.itertuples(index=False):
         output.append({
-            'timestamp': Time(float(row.MJD), format='mjd', scale='utc').to_datetime(timezone=dt_timezone.utc),
+            'timestamp': _mjd_to_datetime(row.MJD),
             'value': {'filter': _filter_label(row.F), 'magnitude': float(row.m), 'error': float(row.dm)},
         })
+
+    # --- upper limits: negative-flux non-detections plotted at the 5-sigma depth, error = -1 ---
+    if 'mag5sig' in work.columns:
+        work['mag5sig'] = pd.to_numeric(work['mag5sig'], errors='coerce')
+        lim = work[
+            (work['m'] <= 0)
+            & work['mag5sig'].notna()
+            & (work['mag5sig'] > _MAG_BRIGHT_LIMIT)
+            & (work['mag5sig'] <= _MAG_FAINT_LIMIT)
+        ]
+        for row in lim.itertuples(index=False):
+            output.append({
+                'timestamp': _mjd_to_datetime(row.MJD),
+                'value': {'filter': _filter_label(row.F), 'magnitude': float(row.mag5sig), 'error': -1.0},
+            })
+
     return output
 
 
