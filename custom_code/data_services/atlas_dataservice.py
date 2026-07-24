@@ -14,11 +14,12 @@ that is force-killed at ``DATA_SERVICE_JOB_TIMEOUT`` = 300s):
 * **Phase 2 -- poll & ingest** (:func:`poll_pending_atlas_jobs`, called every
   ``ATLAS_POLL_INTERVAL_SECONDS`` -- default 5 min -- from db_worker's scheduled loop):
   does a *single* non-blocking check per pending job; when a job has finished it downloads
-  the result, converts flux -> AB magnitude, and bulk-inserts the photometry.
+  the result, cleans the ATLAS AB magnitudes, and bulk-inserts the total photometry.
 
 Efficiency notes: incremental fetch (only request epochs newer than the latest stored
 ATLAS point), one authentication per worker (module-cached token, inherited across the
-fork), vectorised flux->mag with a configurable S/N cut, and dedup on ``(timestamp, value)``
+fork), total (reduced-image) photometry read straight from ATLAS's own m/dm columns with
+the legacy magnitude/error and outlier cleaning, and dedup on ``(timestamp, value)``
 so incremental-boundary overlap never duplicates rows.
 """
 
@@ -51,10 +52,17 @@ logger = logging.getLogger(__name__)
 ATLAS_BASE_URL = 'https://fallingstar-data.com/forcedphot'
 ATLAS_INFO_URL = 'https://fallingstar-data.com/forcedphot/'
 
-# AB magnitude zeropoint for fluxes reported in microjansky (m_AB = 23.9 - 2.5*log10(uJy)).
-_UJY_AB_ZEROPOINT = 23.9
 # ATLAS forced photometry only exists in the survey era; MJD floor for a full-history first query.
 _DEFAULT_MJD_FLOOR = 55000.0
+
+# We request TOTAL photometry (use_reduced=True -> reduced images, not difference images), so the
+# reported AB magnitude column m is the source's total brightness. ATLAS defines m = -2.5*log10(uJy)
+# + 23.9, so reading m/dm directly matches its own per-exposure calibration. Cleaning thresholds are
+# ported from the legacy bhtom2 ATLAS broker. Negative-flux points carry m < 0 and the range drops them.
+_MAG_BRIGHT_LIMIT = 5.0    # drop points brighter than this (and negative-flux "magnitudes")
+_MAG_FAINT_LIMIT = 22.0    # drop points fainter than this
+_MAX_MAG_ERR = 1.0         # drop points with magnitude error >= this
+_OUTLIER_Z_SCORE = 5.0     # drop |z| >= 5 outliers; keeps transients only a few rms above baseline
 
 # Process-lived token cache so a worker authenticates at most once per (base_url, username).
 _TOKEN_CACHE = {}
@@ -70,7 +78,6 @@ def _to_float(value):
 def _atlas_tuning():
     """Runtime knobs, all overridable via settings but usable with sane defaults."""
     return {
-        'snr_min': float(getattr(settings, 'ATLAS_SNR_MIN', 3.0)),
         'mjd_floor': float(getattr(settings, 'ATLAS_MJD_FLOOR', _DEFAULT_MJD_FLOOR)),
         'job_max_age': float(getattr(settings, 'ATLAS_JOB_MAX_AGE_SECONDS', 86400.0)),
         'poll_batch': int(getattr(settings, 'ATLAS_POLL_BATCH', 50)),
@@ -95,47 +102,57 @@ def _authed_session(token):
 
 
 # --------------------------------------------------------------------- parsing
-def _flux_to_photometry(df, tuning):
-    """Vectorised conversion of an ATLAS result table to photometry datum dicts."""
-    required = {'MJD', 'uJy', 'duJy', 'F'}
+def _clean_atlas_table(df):
+    """Turn an ATLAS result table into total-photometry datum dicts using the m/dm columns.
+
+    Applies the legacy bhtom2 cleaning: keep 5 < m <= 22 with dm < 1, then reject |z| >= 5
+    magnitude outliers so a few bad points do not distort the light curve while genuine
+    transients that sit only a few rms above a faint baseline are preserved.
+    """
+    required = {'MJD', 'm', 'dm', 'F'}
     if not required.issubset(df.columns):
         logger.warning('ATLAS result missing expected columns; got %s', list(df.columns))
         return []
 
-    mjd = pd.to_numeric(df['MJD'], errors='coerce').to_numpy()
-    flux = pd.to_numeric(df['uJy'], errors='coerce').to_numpy()
-    dflux = pd.to_numeric(df['duJy'], errors='coerce').to_numpy()
-    filt = df['F'].astype(str).to_numpy()
+    work = df.copy()
+    work['MJD'] = pd.to_numeric(work['MJD'], errors='coerce')
+    work['m'] = pd.to_numeric(work['m'], errors='coerce')
+    work['dm'] = pd.to_numeric(work['dm'], errors='coerce')
 
-    with np.errstate(divide='ignore', invalid='ignore'):
-        snr = flux / dflux
-    good = (
-        np.isfinite(mjd) & np.isfinite(flux) & np.isfinite(dflux)
-        & (flux > 0) & (dflux > 0) & (snr >= tuning['snr_min'])
-    )
-    if not good.any():
+    # Magnitude range + error cut. NaNs compare False and are dropped; negative-flux
+    # non-detections (m < 0) fall outside the range and are dropped here too.
+    work = work[
+        (work['m'] > _MAG_BRIGHT_LIMIT)
+        & (work['m'] <= _MAG_FAINT_LIMIT)
+        & (work['dm'] < _MAX_MAG_ERR)
+        & np.isfinite(work['MJD'])
+    ]
+    if work.empty:
         return []
 
-    mjd, flux, dflux, filt = mjd[good], flux[good], dflux[good], filt[good]
-    mag = _UJY_AB_ZEROPOINT - 2.5 * np.log10(flux)
-    magerr = (2.5 / np.log(10.0)) * (dflux / flux)
+    std = work['m'].std()
+    if len(work) > 2 and std and np.isfinite(std) and std > 0:
+        z = np.abs((work['m'] - work['m'].mean()) / std)
+        work = work[z < _OUTLIER_Z_SCORE]
+    if work.empty:
+        return []
 
     output = []
-    for mjd_i, mag_i, err_i, filt_i in zip(mjd, mag, magerr, filt):
+    for row in work.itertuples(index=False):
         output.append({
-            'timestamp': Time(mjd_i, format='mjd', scale='utc').to_datetime(timezone=dt_timezone.utc),
-            'value': {'filter': _filter_label(filt_i), 'magnitude': float(mag_i), 'error': float(err_i)},
+            'timestamp': Time(float(row.MJD), format='mjd', scale='utc').to_datetime(timezone=dt_timezone.utc),
+            'value': {'filter': _filter_label(row.F), 'magnitude': float(row.m), 'error': float(row.dm)},
         })
     return output
 
 
-def _parse_result_text(text, tuning):
+def _parse_result_text(text):
     if not text or not text.strip():
         return []
     # The header line is prefixed with '###'; strip it so the columns parse cleanly.
     df = pd.read_csv(StringIO(text.replace('###', '')), sep=r'\s+')
     df.columns = [str(col).strip().lstrip('#') for col in df.columns]
-    return _flux_to_photometry(df, tuning)
+    return _clean_atlas_table(df)
 
 
 # ------------------------------------------------------------------- ingestion
@@ -253,7 +270,7 @@ def poll_pending_atlas_jobs(limit=None):
             try:
                 result = session.get(result_url, timeout=DATA_SERVICE_HTTP_TIMEOUT)
                 result.raise_for_status()
-                rows = _parse_result_text(result.text, tuning)
+                rows = _parse_result_text(result.text)
                 added = _ingest_photometry(job.target, rows)
             except Exception as exc:
                 job.error = f'Result download/ingest failed: {exc}'
@@ -441,7 +458,8 @@ class ATLASDataService(DataService):
         return self.query_results
 
     def _submit_job(self, session, ra, dec, query_parameters):
-        payload = {'ra': ra, 'dec': dec, 'send_email': False}
+        # use_reduced=True -> total photometry from reduced images (not difference images).
+        payload = {'ra': ra, 'dec': dec, 'send_email': False, 'use_reduced': True}
         mjd_min = _to_float(query_parameters.get('mjd_min'))
         if mjd_min is not None:
             payload['mjd_min'] = mjd_min

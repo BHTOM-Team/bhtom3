@@ -371,7 +371,6 @@ ATLAS_SERVICE_CONFIGURATION = {
 ATLAS_POLL_INTERVAL_SECONDS = int(secret.get('ATLAS_POLL_INTERVAL_SECONDS', os.environ.get('ATLAS_POLL_INTERVAL_SECONDS', '300')))
 ATLAS_JOB_MAX_AGE_SECONDS = int(secret.get('ATLAS_JOB_MAX_AGE_SECONDS', os.environ.get('ATLAS_JOB_MAX_AGE_SECONDS', '86400')))
 ATLAS_POLL_BATCH = int(secret.get('ATLAS_POLL_BATCH', os.environ.get('ATLAS_POLL_BATCH', '50')))
-ATLAS_SNR_MIN = float(secret.get('ATLAS_SNR_MIN', os.environ.get('ATLAS_SNR_MIN', '3.0')))
 
 
 def _discover_custom_harvesters():
