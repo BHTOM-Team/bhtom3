@@ -35,6 +35,42 @@ def _to_float(value):
         return None
 
 
+def _extract_spectrum(dat):
+    """From an open LAMOST FITS, return (flux, wavelength, arm) for the usable coadd spectrum.
+
+    Both LRS (EXTNAME 'COADD') and MRS (EXTNAME 'COADD_B'/'COADD_R') store the final spectrum
+    in a coadd HDU, but the HDU index varies and some files have a header-only / None-data
+    coadd. We scan for the first coadd HDU that actually carries FLUX + WAVELENGTH data, and
+    fall back to the first usable exposure HDU if no coadd is populated. Returns (None, None,
+    None) if nothing usable is found.
+    """
+    usable = []
+    for hdu in dat:
+        cols = getattr(hdu, 'columns', None)
+        names = list(cols.names) if cols is not None else []
+        if 'FLUX' not in names or 'WAVELENGTH' not in names:
+            continue
+        rec = hdu.data
+        if rec is None:
+            continue
+        try:
+            flux = rec['FLUX'][0]
+            wl = rec['WAVELENGTH'][0]
+        except (IndexError, KeyError, TypeError):
+            continue
+        if flux is None or wl is None or len(flux) == 0 or len(wl) == 0:
+            continue
+        extname = str(hdu.header.get('EXTNAME', '') or '')
+        usable.append((extname, flux, wl))
+
+    coadds = [item for item in usable if item[0].upper().startswith('COADD')]
+    chosen = coadds or usable
+    if not chosen:
+        return None, None, None
+    extname, flux, wl = chosen[0]
+    return flux, wl, (extname or None)
+
+
 class LAMOSTDataService(DataService):
     name = 'LAMOST'
     verbose_name = 'LAMOST'
@@ -152,51 +188,48 @@ class LAMOSTDataService(DataService):
 
     def _build_spectroscopy_datums(self, data_spec):
         output = []
-
-        if len(data_spec['obsid-low'])>0:
-            for idnum in data_spec['obsid-low']:
-                fits_url = f'https://www.lamost.org/openapi/dr11/v2.0/lrs/spectrum/fits?obsid={idnum}'
-                dat = fits.open(fits_url)
-                time = dat[0].header['MJD']
-                specdata = dat[1].data
-                flux = specdata['FLUX'][0]
-                wl = specdata['WAVELENGTH'][0]
-                serializer = SpectrumSerializer()
-                spectrum = Spectrum1D(
-                                flux=flux * u.erg / u.s / u.cm**2 / u.AA,
-                                spectral_axis=wl * u.AA,)
-                serialized = serializer.serialize(spectrum)
-                serialized.update({
-                'filter': 'LAMOST',
-                'source_id': str(dat[0].header['DESIG']),
-                'spectrum_type': 'LAMOST_LRS_spectrum',
-                 })
-                output.append({
-                'timestamp': Time(time, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                'value': serialized,
-                })
-
-        if len(data_spec['obsid-medium'])>0:
-            for idnum in data_spec['obsid-medium']:
-                fits_url = f'https://www.lamost.org/openapi/dr11/v2.0/mrs/spectrum/fits?obsid={idnum}'
-                dat = fits.open(fits_url)
-                time = dat[0].header['MJD']
-                specdata = dat[1].data
-                flux = specdata['FLUX'][0]
-                wl = specdata['WAVELENGTH'][0]
-                serializer = SpectrumSerializer()
-                spectrum = Spectrum1D(
-                                flux=flux * u.erg / u.s / u.cm**2 / u.AA,
-                                spectral_axis=wl * u.AA,)
-                serialized = serializer.serialize(spectrum)
-                serialized.update({
-                'filter': 'LAMOST',
-                'source_id': str(dat[0].header['DESIG']),
-                'spectrum_type': 'LAMOST_LRS_spectrum',
-                 })
-                output.append({
-                'timestamp': Time(time, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                'value': serialized,
-                })
-
+        for idnum in (data_spec.get('obsid-low') or []):
+            url = f'https://www.lamost.org/openapi/dr11/v2.0/lrs/spectrum/fits?obsid={idnum}'
+            datum = self._datum_from_fits(url, 'LAMOST_LRS_spectrum', idnum)
+            if datum:
+                output.append(datum)
+        for idnum in (data_spec.get('obsid-medium') or []):
+            url = f'https://www.lamost.org/openapi/dr11/v2.0/mrs/spectrum/fits?obsid={idnum}'
+            datum = self._datum_from_fits(url, 'LAMOST_MRS_spectrum', idnum)
+            if datum:
+                output.append(datum)
         return output
+
+    def _datum_from_fits(self, fits_url, spectrum_type, obsid):
+        """Download one LAMOST spectrum and build a datum, or return None.
+
+        Never raises: a spectrum that is missing, malformed, or has a None-data coadd HDU is
+        logged and skipped so it cannot discard the rest of the batch.
+        """
+        try:
+            with fits.open(fits_url) as dat:
+                mjd = dat[0].header.get('MJD')
+                desig = str(dat[0].header.get('DESIG', ''))
+                flux, wl, arm = _extract_spectrum(dat)
+            if mjd is None or flux is None or wl is None:
+                logger.warning('LAMOST: no usable spectrum for obsid=%s (%s); skipping.', obsid, spectrum_type)
+                return None
+            spectrum = Spectrum1D(
+                flux=flux * u.erg / u.s / u.cm**2 / u.AA,
+                spectral_axis=wl * u.AA,
+            )
+            serialized = SpectrumSerializer().serialize(spectrum)
+            serialized.update({
+                'filter': 'LAMOST',
+                'source_id': desig,
+                'spectrum_type': spectrum_type,
+            })
+            if arm:
+                serialized['arm'] = arm
+            return {
+                'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
+                'value': serialized,
+            }
+        except Exception as exc:
+            logger.warning('LAMOST: failed to process obsid=%s (%s): %s', obsid, spectrum_type, exc)
+            return None
