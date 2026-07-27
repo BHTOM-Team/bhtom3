@@ -253,6 +253,20 @@ class CRTSQueryForm(BaseQueryForm):
             cleaned['radius_arcmin'] = 0.1
         return cleaned
     
+class AAVSOQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, label='Match radius (arcsec)')
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        return cleaned
+
+
 class ATLASQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()
