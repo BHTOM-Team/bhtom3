@@ -29,6 +29,15 @@ ORCID OAuth credentials must not be committed. In production, use HTTPS callback
 URLs and keep `ORCID_CLIENT_SECRET` in deployment configuration only.
 Currently under development!
 
+## ATLAS setup
+add env variable
+```
+ATLAS_API_TOKEN=<your token>
+ — or —
+ATLAS_USERNAME=<user>
+ATLAS_PASSWORD=<pass>
+```
+
 **_Note_: The latest update of tomtoolkit (12 March 2026) updates Django to v5.2.11. Now, some of the older Django modules may not work!**
 
 ## How to install it on a new machine.
