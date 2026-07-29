@@ -40,7 +40,8 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.lamost_dataservice.LAMOSTDataService'},
             {'class': f'{self.name}.data_services.galah_dataservice.GALAHDataService'},
             {'class': f'{self.name}.data_services.atlas_dataservice.ATLASDataService'},
-            {'class': f'{self.name}.data_services.aavso_dataservice.AAVSODataService'}
+            {'class': f'{self.name}.data_services.aavso_dataservice.AAVSODataService'},
+            {'class': f'{self.name}.data_services.gemini_spectra_dataservice.GeminiSpectraDataService'}
         ]
 
     def ready(self):
