@@ -5,7 +5,6 @@ import os
 import re
 import requests
 import csv
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta, timezone
 from io import StringIO
@@ -18,6 +17,8 @@ from astropy.time import Time
 from astropy.timeseries import LombScargle
 from astroquery.jplhorizons import Horizons
 from astroquery.mpc import MPC
+from plotly import graph_objs as go
+from plotly import offline
 from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth import logout
@@ -874,244 +875,243 @@ class BhtomPallasVisibleView(BhtomPallasBaseMixin, TemplateView):
 class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     template_name = 'tom_common/bhtom_pallas_photometry.html'
     bhtom_pallas_active_tab = 'photometry'
-    ATLAS_BASE_URL = 'https://fallingstar-data.com/forcedphot'
-    ATLAS_RESULT_POLL_SECONDS = 45
+    MPC_OBSERVATIONS_URL = 'https://data.minorplanetcenter.net/api/get-obs'
+    MPC_OBSERVATIONS_TIMEOUT = 30
+    MPC_PLOT_OBSERVATORY_CODES = {'T05', 'T08', 'W68', 'M22', 'R17', 'I41', 'G96', '703', 'C51', 'F51', 'F52'}
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        target_query = (self.request.GET.get('target') or '').strip()
         context.update({
-            'atlas_object_input': '',
-            'atlas_error': '',
-            'atlas_results': [],
-            'atlas_result_rows': [],
-            'atlas_result_columns': [],
-            'atlas_result_count': 0,
-            'atlas_task_url': '',
-            'atlas_result_url': '',
-            'atlas_plot_points': [],
+            'target_query': target_query,
+            'photometry_mpc_error': '',
+            'photometry_mpc_success': '',
+            'photometry_mpc_total_observation_count': 0,
+            'photometry_mpc_magnitude_observation_count': 0,
+            'photometry_mpc_magnitude_error_observation_count': 0,
+            'photometry_mpc_plot_observation_count': 0,
+            'photometry_mpc_band_plot': '',
+            'photometry_mpc_observatory_plot': '',
+        })
+
+        if 'target' not in self.request.GET:
+            return context
+
+        if not target_query:
+            context['photometry_mpc_error'] = 'Enter a target name or designation.'
+            return context
+
+        try:
+            observation_counts = self._fetch_mpc_observation_counts(target_query)
+        except ValueError as exc:
+            context['photometry_mpc_error'] = str(exc)
+            return context
+
+        context.update({
+            'photometry_mpc_success': (
+                f'MPC returned {observation_counts["total"]} total observation record'
+                f'{"s" if observation_counts["total"] != 1 else ""} for "{target_query}", '
+                f'with {observation_counts["with_magnitude"]} usable reported magnitude value'
+                f'{"s" if observation_counts["with_magnitude"] != 1 else ""}, '
+                f'and {observation_counts["with_magnitude_error"]} record'
+                f'{"s" if observation_counts["with_magnitude_error"] != 1 else ""} with both usable '
+                f'magnitude and magnitude error values. Plotting '
+                f'{observation_counts["plotted"]} observation record'
+                f'{"s" if observation_counts["plotted"] != 1 else ""} from the selected observatories.'
+            ),
+            'photometry_mpc_total_observation_count': observation_counts['total'],
+            'photometry_mpc_magnitude_observation_count': observation_counts['with_magnitude'],
+            'photometry_mpc_magnitude_error_observation_count': observation_counts['with_magnitude_error'],
+            'photometry_mpc_plot_observation_count': observation_counts['plotted'],
+            'photometry_mpc_band_plot': observation_counts['band_plot'],
+            'photometry_mpc_observatory_plot': observation_counts['observatory_plot'],
         })
         return context
 
-    def post(self, request, *args, **kwargs):
-        context = self.get_context_data(**kwargs)
-        atlas_object_input = (request.POST.get('atlas_object_name') or '').strip()
-        context['atlas_object_input'] = atlas_object_input
-
-        if not atlas_object_input:
-            context['atlas_error'] = 'Enter an MPC-recognised moving-object identifier.'
-            return self.render_to_response(context)
-
+    @classmethod
+    def _fetch_mpc_observation_counts(cls, target_query):
         try:
-            token = self._get_atlas_token()
-            task_url = self._submit_atlas_moving_object_request(token, atlas_object_input)
-            result_url = self._poll_atlas_result_url(token, task_url)
-            rows, columns = self._fetch_atlas_result_table(token, result_url)
-        except Exception as exc:
-            context['atlas_error'] = str(exc)
-            return self.render_to_response(context)
-
-        context.update({
-            'atlas_task_url': task_url,
-            'atlas_result_url': result_url,
-            'atlas_results': rows,
-            'atlas_result_rows': [[row.get(column, '') for column in columns] for row in rows],
-            'atlas_result_columns': columns,
-            'atlas_result_count': len(rows),
-            'atlas_plot_points': self._build_atlas_plot_points(rows),
-        })
-        return self.render_to_response(context)
-
-    def _get_atlas_token(self):
-        token = (
-            os.environ.get('ATLASFORCED_SECRET_KEY')
-            or getattr(settings, 'ATLASFORCED_SECRET_KEY', '')
-            or getattr(settings, 'ATLAS_FORCED_SECRET_KEY', '')
-        )
-        if token:
-            return token.strip()
-
-        username = (
-            os.environ.get('ATLASFORCED_USERNAME')
-            or getattr(settings, 'ATLASFORCED_USERNAME', '')
-            or getattr(settings, 'ATLAS_FORCED_USERNAME', '')
-        )
-        password = (
-            os.environ.get('ATLASFORCED_PASSWORD')
-            or getattr(settings, 'ATLASFORCED_PASSWORD', '')
-            or getattr(settings, 'ATLAS_FORCED_PASSWORD', '')
-        )
-        if not username or not password:
-            raise ValueError(
-                'ATLAS credentials are not configured. Set ATLASFORCED_SECRET_KEY or '
-                'ATLASFORCED_USERNAME and ATLASFORCED_PASSWORD on the server.'
-            )
-
-        response = requests.post(
-            f'{self.ATLAS_BASE_URL}/api-token-auth/',
-            data={'username': username, 'password': password},
-            headers={'Accept': 'application/json'},
-            timeout=30,
-        )
-        if response.status_code != 200:
-            raise ValueError(f'ATLAS token request failed with status {response.status_code}.')
-
-        payload = response.json()
-        token = (payload.get('token') or '').strip()
-        if not token:
-            raise ValueError('ATLAS token request succeeded, but no token was returned.')
-        return token
-
-    def _atlas_headers(self, token):
-        return {'Authorization': f'Token {token}', 'Accept': 'application/json'}
-
-    def _submit_atlas_moving_object_request(self, token, atlas_object_input):
-        headers = self._atlas_headers(token)
-        task_url = None
-        deadline = time.monotonic() + 60
-
-        while not task_url:
-            if time.monotonic() > deadline:
-                raise ValueError('ATLAS request could not be queued within 60 seconds.')
-
-            response = requests.post(
-                f'{self.ATLAS_BASE_URL}/queue/',
-                headers=headers,
-                data={
-                    'ra': f'mpc {atlas_object_input}',
-                    'dec': '',
+            response = requests.get(
+                cls.MPC_OBSERVATIONS_URL,
+                headers={
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
                 },
-                timeout=30,
+                json={
+                    'desigs': [target_query],
+                    'output_format': ['ADES_DF'],
+                },
+                timeout=cls.MPC_OBSERVATIONS_TIMEOUT,
             )
-            if response.status_code == 201:
-                task_url = response.json().get('url', '').strip()
-                break
-            if response.status_code == 429:
-                waittime = self._extract_atlas_wait_seconds(response.json().get('detail', ''))
-                time.sleep(waittime)
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise ValueError(f'MPC observations request failed: {exc}') from exc
+
+        try:
+            response_json = response.json()
+        except ValueError as exc:
+            raise ValueError('MPC observations response was not valid JSON.') from exc
+
+        if not isinstance(response_json, list) or not response_json:
+            raise ValueError('MPC observations response had an unexpected format.')
+
+        first_result = response_json[0]
+        if not isinstance(first_result, dict) or 'ADES_DF' not in first_result:
+            raise ValueError('MPC observations response did not include ADES_DF records.')
+
+        records = first_result['ADES_DF']
+        if not isinstance(records, list):
+            raise ValueError('MPC observations ADES_DF records had an unexpected format.')
+
+        total_observation_count = len(records)
+        if total_observation_count <= 0:
+            raise ValueError(f'MPC returned no observation records for "{target_query}".')
+
+        records_with_magnitude = [
+            record
+            for record in records
+            if isinstance(record, dict) and _is_finite_number(record.get('mag'))
+        ]
+        magnitude_observation_count = len(records_with_magnitude)
+        if magnitude_observation_count <= 0:
+            raise ValueError(
+                f'MPC returned {total_observation_count} observation records for "{target_query}", '
+                'but none had a usable reported magnitude value.'
+            )
+
+        records_with_magnitude_error = []
+        for record in records_with_magnitude:
+            magnitude_error = record.get('rmsmag')
+            if not _is_finite_number(magnitude_error):
+                continue
+            records_with_magnitude_error.append(record)
+
+        magnitude_error_observation_count = len(records_with_magnitude_error)
+        if magnitude_error_observation_count <= 0:
+            raise ValueError(
+                f'MPC returned {total_observation_count} observation records for "{target_query}", '
+                f'including {magnitude_observation_count} with usable reported magnitude values, '
+                'but none had both usable magnitude and magnitude error values.'
+            )
+
+        plot_records = []
+        for record in records_with_magnitude_error:
+            observatory_code = str(record.get('stn') or '').strip()
+            if observatory_code not in cls.MPC_PLOT_OBSERVATORY_CODES:
                 continue
 
-            detail = self._extract_atlas_error_detail(response)
-            raise ValueError(f'ATLAS queue submission failed: {detail}')
+            observed_at = cls._parse_mpc_obstime(record.get('obstime'))
+            if observed_at is None:
+                continue
 
-        if not task_url:
-            raise ValueError('ATLAS did not return a task URL for the queued request.')
-        return task_url
+            plot_records.append({
+                'observed_at': observed_at,
+                'magnitude': float(record.get('mag')),
+                'magnitude_error': float(record.get('rmsmag')),
+                'band': str(record.get('band') or 'Unknown').strip() or 'Unknown',
+                'observatory_code': observatory_code,
+            })
 
-    def _poll_atlas_result_url(self, token, task_url):
-        headers = self._atlas_headers(token)
-        deadline = time.monotonic() + self.ATLAS_RESULT_POLL_SECONDS
-        last_state = ''
+        plot_records.sort(key=lambda item: item['observed_at'])
+        if not plot_records:
+            raise ValueError(
+                f'MPC returned {magnitude_error_observation_count} records for "{target_query}" with both usable '
+                'magnitude and magnitude error values, but none matched the selected observatory codes.'
+            )
 
-        while time.monotonic() <= deadline:
-            response = requests.get(task_url, headers=headers, timeout=30)
-            if response.status_code != 200:
-                detail = self._extract_atlas_error_detail(response)
-                raise ValueError(f'ATLAS task polling failed: {detail}')
-
-            payload = response.json()
-            result_url = (payload.get('result_url') or '').strip()
-            if payload.get('finishtimestamp') and result_url:
-                return result_url
-
-            if payload.get('error_msg'):
-                raise ValueError(f"ATLAS task failed: {payload['error_msg']}")
-
-            if payload.get('starttimestamp'):
-                last_state = 'running'
-                time.sleep(2)
-            else:
-                last_state = 'queued'
-                time.sleep(4)
-
-        raise ValueError(
-            f'ATLAS request is still {last_state or "queued"} after '
-            f'{self.ATLAS_RESULT_POLL_SECONDS} seconds. Try again later.'
+        band_plot = cls._build_mpc_photometry_plot(
+            target_query=target_query,
+            records=plot_records,
+            group_key='band',
+            title=f'{target_query} reported magnitude by filter/band',
+        )
+        observatory_plot = cls._build_mpc_photometry_plot(
+            target_query=target_query,
+            records=plot_records,
+            group_key='observatory_code',
+            title=f'{target_query} reported magnitude by observatory code',
         )
 
-    def _fetch_atlas_result_table(self, token, result_url):
-        response = requests.get(result_url, headers=self._atlas_headers(token), timeout=60)
-        if response.status_code != 200:
-            detail = self._extract_atlas_error_detail(response)
-            raise ValueError(f'ATLAS result download failed: {detail}')
+        return {
+            'total': total_observation_count,
+            'with_magnitude': magnitude_observation_count,
+            'with_magnitude_error': magnitude_error_observation_count,
+            'plotted': len(plot_records),
+            'band_plot': band_plot,
+            'observatory_plot': observatory_plot,
+        }
 
-        textdata = response.text.strip()
-        if not textdata:
-            raise ValueError('ATLAS returned an empty forced-photometry result.')
-
-        rows = self._parse_atlas_result_text(textdata)
-        columns = list(rows[0].keys()) if rows else []
-        return rows, columns
-
-    def _parse_atlas_result_text(self, textdata):
-        lines = [line.strip() for line in textdata.splitlines() if line.strip()]
-        if not lines:
-            return []
-
-        header_line = lines[0].replace('###', '')
-        reader = csv.reader([header_line] + lines[1:], delimiter=' ', skipinitialspace=True)
-        parsed_rows = list(reader)
-        if not parsed_rows:
-            return []
-
-        headers = parsed_rows[0]
-        rows = []
-        for values in parsed_rows[1:]:
-            if len(values) != len(headers):
-                continue
-            row = dict(zip(headers, values))
-            rows.append(row)
-        return rows
-
-    def _build_atlas_plot_points(self, rows):
-        plot_rows = []
-        for row in rows:
-            mjd = _parse_float(row.get('MJD'))
-            mag = _parse_float(row.get('m'))
-            if not all(_is_finite_number(value) for value in [mjd, mag]):
-                continue
-            plot_rows.append({'mjd': mjd, 'mag': mag, 'filter': row.get('F', '')})
-
-        if not plot_rows:
-            return []
-
-        plot_rows.sort(key=lambda item: item['mjd'])
-        mjd_values = [row['mjd'] for row in plot_rows]
-        mag_values = [row['mag'] for row in plot_rows]
-        min_mjd, max_mjd = min(mjd_values), max(mjd_values)
-        min_mag, max_mag = min(mag_values), max(mag_values)
-        mjd_span = max(max_mjd - min_mjd, 1e-9)
-        mag_span = max(max_mag - min_mag, 1e-9)
-
-        points = []
-        for row in plot_rows:
-            x = 40 + ((row['mjd'] - min_mjd) / mjd_span) * 720
-            y = 240 - ((row['mag'] - min_mag) / mag_span) * 180
-            points.append({
-                'x': round(x, 2),
-                'y': round(y, 2),
-                'label': f"MJD {row['mjd']:.5f}, m={row['mag']:.3f}, F={row['filter']}",
-                'filter': row['filter'],
-            })
-        return points
-
-    def _extract_atlas_wait_seconds(self, message):
-        t_sec = re.findall(r'available in (\d+) seconds', message or '')
-        t_min = re.findall(r'available in (\d+) minutes', message or '')
-        if t_sec:
-            return max(int(t_sec[0]), 1)
-        if t_min:
-            return max(int(t_min[0]) * 60, 1)
-        return 10
-
-    def _extract_atlas_error_detail(self, response):
+    @staticmethod
+    def _parse_mpc_obstime(value):
+        raw_value = str(value or '').strip()
+        if not raw_value:
+            return None
+        if raw_value.endswith('Z'):
+            raw_value = raw_value[:-1] + '+00:00'
         try:
-            payload = response.json()
+            parsed = datetime.fromisoformat(raw_value)
         except ValueError:
-            return f'HTTP {response.status_code}'
+            return None
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
 
-        if isinstance(payload, dict):
-            return payload.get('detail') or payload.get('error') or str(payload)
-        return str(payload)
+    @classmethod
+    def _build_mpc_photometry_plot(cls, target_query, records, group_key, title):
+        traces = []
+        group_values = sorted({record[group_key] for record in records})
+        for group_value in group_values:
+            group_records = [record for record in records if record[group_key] == group_value]
+            traces.append(go.Scatter(
+                x=[record['observed_at'] for record in group_records],
+                y=[record['magnitude'] for record in group_records],
+                error_y={
+                    'type': 'data',
+                    'array': [record['magnitude_error'] for record in group_records],
+                    'visible': True,
+                    'thickness': 1,
+                    'width': 2,
+                },
+                mode='markers',
+                name=group_value,
+                marker={'size': 6},
+            ))
+
+        figure = go.Figure(
+            data=traces,
+            layout=go.Layout(
+                title={'text': title},
+                xaxis={
+                    'title': 'Observation date',
+                    'showgrid': True,
+                    'gridcolor': 'rgba(0,0,0,0.12)',
+                },
+                yaxis={
+                    'title': 'Reported magnitude',
+                    'autorange': 'reversed',
+                    'showgrid': True,
+                    'gridcolor': 'rgba(0,0,0,0.12)',
+                },
+                legend={
+                    'orientation': 'h',
+                    'x': 0.5,
+                    'xanchor': 'center',
+                    'y': -0.28,
+                    'yanchor': 'top',
+                },
+                margin={'l': 70, 'r': 30, 't': 70, 'b': 115},
+                height=520,
+                paper_bgcolor='#ffffff',
+                plot_bgcolor='#ffffff',
+            ),
+        )
+        return offline.plot(
+            figure,
+            output_type='div',
+            show_link=False,
+            include_plotlyjs=False,
+            config={'responsive': True},
+        )
 
 
 class BhtomPallasAView(BhtomPallasBaseMixin, TemplateView):
