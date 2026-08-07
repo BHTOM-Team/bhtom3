@@ -881,18 +881,26 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     SSODNET_TIMEOUT = 30
     SSODNET_ATTRIBUTION = "Object name search and designation resolution use LTE's SsODNet VO service (https://ssp.imcce.fr/webservices/ssodnet/)."
     MPC_PLOT_OBSERVATORY_CODES = {'T05', 'T08', 'W68', 'M22', 'R17', 'I41', 'G96', '703', 'C51', 'F51', 'F52'}
-    MPC_OBSERVATORY_LABELS = {
-        'T05': 'ATLAS-MLO (T05)',
-        'T08': 'ATLAS-HKO (T08)',
-        'W68': 'ATLAS-CHL (W68)',
-        'M22': 'ATLAS-SAAO (M22)',
-        'R17': 'ATLAS-TDO (R17)',
-        'I41': 'ZTF, Palomar (I41)',
-        'G96': 'Mt. Lemmon Survey (G96)',
-        '703': 'Catalina Sky Survey, Mt. Bigelow (703)',
-        'C51': 'NEOWISE (C51)',
-        'F51': 'Pan-STARRS 1 (F51)',
-        'F52': 'Pan-STARRS 2 (F52)',
+    MPC_OBSERVATORY_GROUP_ORDER = {
+        'ATLAS': 1,
+        'Catalina': 2,
+        'NEOWISE': 3,
+        'Pan-STARRS': 4,
+        'ZTF': 5,
+        'Other': 6,
+    }
+    MPC_OBSERVATORY_METADATA = {
+        'T05': {'label': 'ATLAS-HKO (T05)', 'group': 'ATLAS', 'group_sort_order': 1},
+        'T08': {'label': 'ATLAS-MLO (T08)', 'group': 'ATLAS', 'group_sort_order': 1},
+        'W68': {'label': 'ATLAS-CHL (W68)', 'group': 'ATLAS', 'group_sort_order': 1},
+        'M22': {'label': 'ATLAS-SAAO (M22)', 'group': 'ATLAS', 'group_sort_order': 1},
+        'R17': {'label': 'ATLAS-TDO (R17)', 'group': 'ATLAS', 'group_sort_order': 1},
+        'I41': {'label': 'ZTF (I41)', 'group': 'ZTF', 'group_sort_order': 5},
+        'G96': {'label': 'Mt. Lemmon Survey (G96)', 'group': 'Catalina', 'group_sort_order': 2},
+        '703': {'label': 'Catalina Sky Survey (703)', 'group': 'Catalina', 'group_sort_order': 2},
+        'C51': {'label': 'NEOWISE (C51)', 'group': 'NEOWISE', 'group_sort_order': 3},
+        'F51': {'label': 'Pan-STARRS 1 (F51)', 'group': 'Pan-STARRS', 'group_sort_order': 4},
+        'F52': {'label': 'Pan-STARRS 2 (F52)', 'group': 'Pan-STARRS', 'group_sort_order': 4},
     }
     MPC_BAND_COLORS = {
         'c': '#00bcd4',
@@ -909,6 +917,23 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         'Ao': '#f28e2b',
         'Pw': '#7b3294',
         'Pi': '#b2182b',
+    }
+    MPC_BAND_LABELS = {
+        'c': 'ATLAS c',
+        'o': 'ATLAS o',
+        'Ac': 'ATLAS c',
+        'Ao': 'ATLAS o',
+        'G': 'Gaia G',
+        'g': 'ZTF/Pan-STARRS g',
+        'r': 'ZTF/Pan-STARRS r',
+        'i': 'ZTF/Pan-STARRS i',
+        'z': 'Pan-STARRS z',
+        'y': 'Pan-STARRS y',
+        'w': 'Pan-STARRS w',
+        'V': 'V',
+        'R': 'R',
+        'Pi': 'Pan-STARRS i',
+        'Pw': 'Pan-STARRS w',
     }
 
     def get_context_data(self, **kwargs):
@@ -1308,14 +1333,45 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         return parsed
 
     @classmethod
+    def _mpc_observatory_metadata(cls, observatory_code):
+        code = str(observatory_code or '').strip()
+        return cls.MPC_OBSERVATORY_METADATA.get(code, {
+            'label': code,
+            'group': 'Other',
+            'group_sort_order': cls.MPC_OBSERVATORY_GROUP_ORDER['Other'],
+        })
+
+    @classmethod
+    def _mpc_observatory_label(cls, observatory_code):
+        return cls._mpc_observatory_metadata(observatory_code)['label']
+
+    @classmethod
+    def _mpc_band_label(cls, band):
+        band_code = str(band or '').strip()
+        return cls.MPC_BAND_LABELS.get(band_code, band_code)
+
+    @classmethod
+    def _mpc_observatory_sort_key(cls, observatory_code):
+        metadata = cls._mpc_observatory_metadata(observatory_code)
+        return (
+            metadata['group_sort_order'],
+            metadata['label'].casefold(),
+            str(observatory_code or '').casefold(),
+        )
+
+    @classmethod
     def _build_mpc_photometry_plot(cls, target_query, records, group_key, title):
         traces = []
         group_values = sorted({record[group_key] for record in records})
+        if group_key == 'observatory_code':
+            group_values = sorted(group_values, key=cls._mpc_observatory_sort_key)
         for group_value in group_values:
             group_records = [record for record in records if record[group_key] == group_value]
             trace_name = group_value
             if group_key == 'observatory_code':
-                trace_name = cls.MPC_OBSERVATORY_LABELS.get(group_value, group_value)
+                trace_name = cls._mpc_observatory_label(group_value)
+            elif group_key == 'band':
+                trace_name = cls._mpc_band_label(group_value)
             marker = {'size': 6}
             if group_key == 'band' and group_value in cls.MPC_BAND_COLORS:
                 marker['color'] = cls.MPC_BAND_COLORS[group_value]
@@ -1323,8 +1379,8 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 '<br>'.join([
                     f"Date: {record['observed_at'].strftime('%Y-%m-%d %H:%M:%S')}",
                     f"Magnitude: {record['magnitude']:.3f} +/- {record['magnitude_error']:.3f}",
-                    f"Filter: {record['band']}",
-                    f"Observatory: {cls.MPC_OBSERVATORY_LABELS.get(record['observatory_code'], record['observatory_code'])}",
+                    f"Filter: {cls._mpc_band_label(record['band']) if group_key == 'band' else record['band']}",
+                    f"Observatory: {cls._mpc_observatory_label(record['observatory_code'])}",
                 ])
                 for record in group_records
             ]
