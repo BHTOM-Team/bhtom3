@@ -8,7 +8,7 @@ import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta, timezone
 from io import StringIO
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import numpy as np
 from astropy import units as u
@@ -877,7 +877,39 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     bhtom_pallas_active_tab = 'photometry'
     MPC_OBSERVATIONS_URL = 'https://data.minorplanetcenter.net/api/get-obs'
     MPC_OBSERVATIONS_TIMEOUT = 30
+    SSODNET_BASE_URL = 'https://api.ssodnet.imcce.fr/quaero/1/sso'
+    SSODNET_TIMEOUT = 30
+    SSODNET_ATTRIBUTION = "Object name search and designation resolution use LTE's SsODNet VO service (https://ssp.imcce.fr/webservices/ssodnet/)."
     MPC_PLOT_OBSERVATORY_CODES = {'T05', 'T08', 'W68', 'M22', 'R17', 'I41', 'G96', '703', 'C51', 'F51', 'F52'}
+    MPC_OBSERVATORY_LABELS = {
+        'T05': 'ATLAS-MLO (T05)',
+        'T08': 'ATLAS-HKO (T08)',
+        'W68': 'ATLAS-CHL (W68)',
+        'M22': 'ATLAS-SAAO (M22)',
+        'R17': 'ATLAS-TDO (R17)',
+        'I41': 'ZTF, Palomar (I41)',
+        'G96': 'Mt. Lemmon Survey (G96)',
+        '703': 'Catalina Sky Survey, Mt. Bigelow (703)',
+        'C51': 'NEOWISE (C51)',
+        'F51': 'Pan-STARRS 1 (F51)',
+        'F52': 'Pan-STARRS 2 (F52)',
+    }
+    MPC_BAND_COLORS = {
+        'c': '#00bcd4',
+        'o': '#f28e2b',
+        'G': '#2ca02c',
+        'g': '#2ca02c',
+        'r': '#d62728',
+        'i': '#7f1d1d',
+        'z': '#5e2ca5',
+        'y': '#3b0f70',
+        'V': '#8bc34a',
+        'R': '#d62728',
+        'Ac': '#00bcd4',
+        'Ao': '#f28e2b',
+        'Pw': '#7b3294',
+        'Pi': '#b2182b',
+    }
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -892,6 +924,10 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'photometry_mpc_plot_observation_count': 0,
             'photometry_mpc_band_plot': '',
             'photometry_mpc_observatory_plot': '',
+            'photometry_ssodnet_candidates': [],
+            'photometry_ssodnet_suggestion': None,
+            'photometry_ssodnet_identity': None,
+            'photometry_ssodnet_attribution': self.SSODNET_ATTRIBUTION,
         })
 
         if 'target' not in self.request.GET:
@@ -901,8 +937,34 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             context['photometry_mpc_error'] = 'Enter a target name or designation.'
             return context
 
+        selected_ssodnet_id = (self.request.GET.get('ssodnet_id') or '').strip()
+        if selected_ssodnet_id:
+            try:
+                ssodnet_object = self._fetch_ssodnet_object_by_id(selected_ssodnet_id)
+            except ValueError as exc:
+                context['photometry_mpc_error'] = str(exc)
+                return context
+            mpc_query = self._best_mpc_query_from_ssodnet_object(ssodnet_object, target_query)
+            context['photometry_ssodnet_identity'] = self._build_ssodnet_identity(ssodnet_object)
+        else:
+            try:
+                ssodnet_candidates = self._resolve_ssodnet_candidates(target_query)
+            except ValueError as exc:
+                context['photometry_mpc_error'] = str(exc)
+                return context
+
+            if not ssodnet_candidates:
+                context['photometry_mpc_error'] = f'SsODNet / IMCCE found no Solar System object matching "{target_query}".'
+                return context
+
+            if len(ssodnet_candidates) == 1:
+                context['photometry_ssodnet_suggestion'] = ssodnet_candidates[0]
+            else:
+                context['photometry_ssodnet_candidates'] = ssodnet_candidates
+            return context
+
         try:
-            observation_counts = self._fetch_mpc_observation_counts(target_query)
+            observation_counts = self._fetch_mpc_observation_counts(mpc_query)
         except ValueError as exc:
             context['photometry_mpc_error'] = str(exc)
             return context
@@ -910,7 +972,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         context.update({
             'photometry_mpc_success': (
                 f'MPC returned {observation_counts["total"]} total observation record'
-                f'{"s" if observation_counts["total"] != 1 else ""} for "{target_query}", '
+                f'{"s" if observation_counts["total"] != 1 else ""} for "{observation_counts["resolved_target_label"]}", '
                 f'with {observation_counts["with_magnitude"]} usable reported magnitude value'
                 f'{"s" if observation_counts["with_magnitude"] != 1 else ""}, '
                 f'and {observation_counts["with_magnitude_error"]} record'
@@ -927,6 +989,127 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'photometry_mpc_observatory_plot': observation_counts['observatory_plot'],
         })
         return context
+
+    @classmethod
+    def _resolve_ssodnet_candidates(cls, target_query):
+        exact_candidates = cls._query_ssodnet_candidates('', target_query)
+        if exact_candidates:
+            return exact_candidates
+        return cls._query_ssodnet_candidates('/search', f'{target_query}~')
+
+    @classmethod
+    def _query_ssodnet_candidates(cls, path, query):
+        try:
+            response = requests.get(
+                f'{cls.SSODNET_BASE_URL}{path}',
+                params={'q': query, 'limit': 5},
+                headers={'Accept': 'application/json'},
+                timeout=cls.SSODNET_TIMEOUT,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise ValueError(f'SsODNet / IMCCE target lookup failed: {exc}') from exc
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ValueError('SsODNet / IMCCE target lookup response was not valid JSON.') from exc
+
+        data = payload.get('data') if isinstance(payload, dict) else None
+        if not isinstance(data, list):
+            raise ValueError('SsODNet / IMCCE target lookup response had an unexpected format.')
+
+        candidates = []
+        for item in data:
+            if not cls._is_supported_ssodnet_candidate(item):
+                continue
+            candidates.append(cls._build_ssodnet_candidate(item))
+        return candidates
+
+    @classmethod
+    def _fetch_ssodnet_object_by_id(cls, object_id):
+        try:
+            response = requests.get(
+                f'{cls.SSODNET_BASE_URL}/{quote(object_id, safe="")}',
+                headers={'Accept': 'application/json'},
+                timeout=cls.SSODNET_TIMEOUT,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise ValueError(f'SsODNet / IMCCE target selection failed: {exc}') from exc
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ValueError('SsODNet / IMCCE target selection response was not valid JSON.') from exc
+
+        if not cls._is_supported_ssodnet_candidate(payload):
+            raise ValueError('The selected SsODNet / IMCCE object is not supported for MPC photometry.')
+        return payload
+
+    @staticmethod
+    def _is_supported_ssodnet_candidate(item):
+        if not isinstance(item, dict):
+            return False
+        object_type = str(item.get('type') or '').strip().lower()
+        return bool(item.get('ephemeris')) and object_type in {'asteroid', 'comet'}
+
+    @classmethod
+    def _build_ssodnet_candidate(cls, item):
+        identity = cls._build_ssodnet_identity(item)
+        return {
+            'id': str(item.get('id') or '').strip(),
+            'label': identity['label'],
+            'type': str(item.get('type') or '').strip(),
+            'aliases': identity['aliases'],
+            'aliases_display': ', '.join(identity['aliases']),
+            'mpc_query': cls._best_mpc_query_from_ssodnet_object(item, identity['label']),
+        }
+
+    @staticmethod
+    def _build_ssodnet_identity(item):
+        label = str(item.get('title') or item.get('name') or item.get('id') or '').strip()
+        aliases = []
+        for value in [item.get('id'), item.get('name'), item.get('title')]:
+            value = str(value or '').strip()
+            if value and value not in aliases:
+                aliases.append(value)
+        for value in item.get('aliases') or []:
+            value = str(value or '').strip()
+            if value and value not in aliases:
+                aliases.append(value)
+        return {
+            'label': label,
+            'aliases': aliases,
+            'aliases_display': ', '.join(aliases),
+            'attribution': BhtomPallasPhotometryView.SSODNET_ATTRIBUTION,
+        }
+
+    @staticmethod
+    def _best_mpc_query_from_ssodnet_object(item, fallback):
+        aliases = [str(value or '').strip() for value in item.get('aliases') or []]
+        object_id = str(item.get('id') or '').strip()
+        name = str(item.get('name') or '').strip()
+
+        for value in [object_id, name]:
+            if re.match(r'^\d+[PDCXA]?$', value, re.IGNORECASE):
+                return value
+
+        numeric_aliases = []
+        for alias in aliases:
+            if alias.isdigit():
+                numeric_aliases.append(alias)
+        if numeric_aliases:
+            return str(int(sorted(numeric_aliases, key=len)[0]))
+
+        for alias in aliases:
+            if re.match(r'^\d+[PDCXA]?$', alias, re.IGNORECASE):
+                return alias
+
+        for value in [object_id, name] + aliases:
+            if value:
+                return value
+        return fallback
 
     @classmethod
     def _fetch_mpc_observation_counts(cls, target_query):
@@ -963,6 +1146,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         if not isinstance(records, list):
             raise ValueError('MPC observations ADES_DF records had an unexpected format.')
 
+        resolved_target_label = cls._resolve_horizons_target_label(target_query)
         total_observation_count = len(records)
         if total_observation_count <= 0:
             raise ValueError(f'MPC returned no observation records for "{target_query}".')
@@ -1020,19 +1204,20 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             )
 
         band_plot = cls._build_mpc_photometry_plot(
-            target_query=target_query,
+            target_query=resolved_target_label,
             records=plot_records,
             group_key='band',
-            title=f'{target_query} reported magnitude by filter/band',
+            title=f'{resolved_target_label} reported magnitude by filter/band',
         )
         observatory_plot = cls._build_mpc_photometry_plot(
-            target_query=target_query,
+            target_query=resolved_target_label,
             records=plot_records,
             group_key='observatory_code',
-            title=f'{target_query} reported magnitude by observatory code',
+            title=f'{resolved_target_label} reported magnitude by observatory code',
         )
 
         return {
+            'resolved_target_label': resolved_target_label,
             'total': total_observation_count,
             'with_magnitude': magnitude_observation_count,
             'with_magnitude_error': magnitude_error_observation_count,
@@ -1040,6 +1225,72 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'band_plot': band_plot,
             'observatory_plot': observatory_plot,
         }
+
+    @classmethod
+    def _resolve_horizons_target_label(cls, target_query):
+        now = datetime.now(timezone.utc)
+        epochs = {
+            'start': now.strftime('%Y-%m-%d %H:%M:%S'),
+            'stop': (now + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S'),
+            'step': '1h',
+        }
+        try:
+            table = BhtomPallasEphemerisView._query_horizons_ephemerides(
+                target_query=target_query,
+                location='500',
+                epochs=epochs,
+                quantities='1',
+            )
+        except Exception as exc:
+            table = cls._resolve_ambiguous_horizons_target(target_query, epochs, exc)
+            if table is None:
+                logger.warning('BHTOM-PALLAS Horizons name resolution failed for target %s: %s', target_query, exc)
+                return target_query
+
+        if len(table) and 'targetname' in table.colnames:
+            target_name = str(table[0]['targetname']).strip()
+            if target_name:
+                return cls._format_horizons_target_name(target_name)
+        return target_query
+
+    @classmethod
+    def _resolve_ambiguous_horizons_target(cls, target_query, epochs, exc):
+        message = str(exc).strip()
+        if not message.startswith('{'):
+            return None
+
+        try:
+            payload = json.loads(message)
+        except ValueError:
+            return None
+
+        if payload.get('kind') != 'ambiguity':
+            return None
+
+        matches = payload.get('matches') or []
+        for match in reversed(matches):
+            record_id = str(match.get('record_id') or '').strip()
+            if not record_id:
+                continue
+            try:
+                return BhtomPallasEphemerisView._query_horizons_ephemerides(
+                    target_query=target_query,
+                    location='500',
+                    epochs=epochs,
+                    quantities='1',
+                    target_record=record_id,
+                )
+            except Exception:
+                continue
+        return None
+
+    @staticmethod
+    def _format_horizons_target_name(target_name):
+        normalized = ' '.join(str(target_name or '').strip().split())
+        numbered_name = re.match(r'^(\d+)\s+(.+?)(?:\s+\([^)]+\))?$', normalized)
+        if numbered_name:
+            return f'({numbered_name.group(1)}) {numbered_name.group(2).strip()}'
+        return normalized
 
     @staticmethod
     def _parse_mpc_obstime(value):
@@ -1062,6 +1313,21 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         group_values = sorted({record[group_key] for record in records})
         for group_value in group_values:
             group_records = [record for record in records if record[group_key] == group_value]
+            trace_name = group_value
+            if group_key == 'observatory_code':
+                trace_name = cls.MPC_OBSERVATORY_LABELS.get(group_value, group_value)
+            marker = {'size': 6}
+            if group_key == 'band' and group_value in cls.MPC_BAND_COLORS:
+                marker['color'] = cls.MPC_BAND_COLORS[group_value]
+            hover_text = [
+                '<br>'.join([
+                    f"Date: {record['observed_at'].strftime('%Y-%m-%d %H:%M:%S')}",
+                    f"Magnitude: {record['magnitude']:.3f} +/- {record['magnitude_error']:.3f}",
+                    f"Filter: {record['band']}",
+                    f"Observatory: {cls.MPC_OBSERVATORY_LABELS.get(record['observatory_code'], record['observatory_code'])}",
+                ])
+                for record in group_records
+            ]
             traces.append(go.Scatter(
                 x=[record['observed_at'] for record in group_records],
                 y=[record['magnitude'] for record in group_records],
@@ -1073,8 +1339,10 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                     'width': 2,
                 },
                 mode='markers',
-                name=group_value,
-                marker={'size': 6},
+                name=trace_name,
+                marker=marker,
+                text=hover_text,
+                hovertemplate='%{text}<extra></extra>',
             ))
 
         figure = go.Figure(

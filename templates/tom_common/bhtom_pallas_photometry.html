@@ -62,8 +62,54 @@
           {% if photometry_mpc_error %}
           <div class="alert alert-warning mt-3 mb-0" role="alert">{{ photometry_mpc_error }}</div>
           {% endif %}
+          {% if photometry_ssodnet_suggestion %}
+          <div class="mt-3 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem;">
+            <div class="mb-2">Did you mean: {{ photometry_ssodnet_suggestion.label }}?</div>
+            {% if photometry_ssodnet_suggestion.aliases_display %}
+            <div class="mb-3" style="color: rgba(255,255,255,0.72); font-size: 0.9rem;">Aliases/designations: {{ photometry_ssodnet_suggestion.aliases_display }}</div>
+            {% endif %}
+            <form method="get" class="mb-0">
+              <input type="hidden" name="target" value="{{ target_query }}">
+              <input type="hidden" name="ssodnet_id" value="{{ photometry_ssodnet_suggestion.id }}">
+              <button type="submit" class="btn btn-light">Use this object</button>
+            </form>
+            <div class="mt-2" style="color: rgba(255,255,255,0.62); font-size: 0.86rem;">{{ photometry_ssodnet_attribution }}</div>
+          </div>
+          {% endif %}
+          {% if photometry_ssodnet_candidates %}
+          <div class="mt-3 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem;">
+            <div class="mb-3">SsODNet / IMCCE returned multiple possible Solar System objects. Choose one to continue.</div>
+            {% for candidate in photometry_ssodnet_candidates %}
+            <form method="get" class="mb-2 p-2" style="background-color: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.12); border-radius: 0.35rem;">
+              <input type="hidden" name="target" value="{{ target_query }}">
+              <input type="hidden" name="ssodnet_id" value="{{ candidate.id }}">
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) 10rem; gap: 1rem; align-items: center;">
+                <div style="min-width: 0;">
+                  <div style="font-weight: 600;">{{ candidate.label }}</div>
+                  {% if candidate.aliases_display %}
+                  <div style="color: rgba(255,255,255,0.72); font-size: 0.9rem;">Aliases/designations: {{ candidate.aliases_display }}</div>
+                  {% endif %}
+                </div>
+                <div style="text-align: right;">
+                  <button type="submit" class="btn btn-light btn-sm">Use this object</button>
+                </div>
+              </div>
+            </form>
+            {% endfor %}
+            <div class="mt-2" style="color: rgba(255,255,255,0.62); font-size: 0.86rem;">{{ photometry_ssodnet_attribution }}</div>
+          </div>
+          {% endif %}
         </div>
         {% if photometry_mpc_band_plot and photometry_mpc_observatory_plot %}
+        {% if photometry_ssodnet_identity %}
+        <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
+          <div style="font-weight: 600;">{{ photometry_ssodnet_identity.label }}</div>
+          {% if photometry_ssodnet_identity.aliases_display %}
+          <div class="mt-2" style="color: rgba(255,255,255,0.78);">Aliases/designations: {{ photometry_ssodnet_identity.aliases_display }}</div>
+          {% endif %}
+          <div class="mt-2" style="color: rgba(255,255,255,0.62); font-size: 0.86rem;">{{ photometry_ssodnet_identity.attribution }}</div>
+        </div>
+        {% endif %}
         <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
         <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
           {{ photometry_mpc_band_plot|safe }}
