@@ -37,24 +37,21 @@
   </div>
   <div class="row mx-0">
     <div class="col-12 px-4" style="max-width: 100%; margin: 0 auto;">
-      <ul class="nav nav-tabs border-0 mb-4">
-        <li class="nav-item">
-          <a class="nav-link {% if bhtom_pallas_active_tab == 'photometry' %}active{% endif %}" href="{% url 'bhtom-pallas-photometry' %}" style="background-color: {% if bhtom_pallas_active_tab == 'photometry' %}rgba(255,255,255,0.14){% else %}transparent{% endif %}; color: #fff; border-color: rgba(255,255,255,0.18);">Overview</a>
-        </li>
-      </ul>
       <div class="pb-4" style="width: 100%; max-width: none; margin: 0 auto;">
         <h2 class="h4 mb-3">Photometry</h2>
-        <div class="p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; max-width: 58rem;">
-          <p class="mb-3">Standard BHTOM photometry assumes that the target position is fixed on the sky, so the same location can be measured consistently from image to image.</p>
-          <p class="mb-3">For moving targets such as comets and asteroids, that assumption breaks down because the target position changes between frames as the object moves across the detector.</p>
-          <p class="mb-0">The intended PALLAS approach is therefore to use the image timestamp together with an ephemeris to determine the target position separately for each frame before measuring the photometry.</p>
+        <div class="mb-4" style="max-width: 58rem; color: rgba(255,255,255,0.78); line-height: 1.55;">
+          <p class="mb-2">Search for a comet or asteroid target and resolve names, aliases, designations, and possible typos through SsODNet / IMCCE.</p>
+          <p class="mb-0">PALLAS then queries MPC observations for reported photometry and plots reported magnitude over time, grouped by filter and observatory.</p>
         </div>
-        <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
+        <div class="p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
           <h3 class="h5 mb-3">Photometry workflow</h3>
-          <form method="get" class="form-inline mb-0">
-            <label for="id_target" class="mr-2">Target name</label>
-            <input id="id_target" type="text" name="target" class="form-control mr-2 mb-2 mb-sm-0" value="{{ target_query }}" placeholder="e.g. Ceres, 67P, 411 Xanthe" style="width: 240px;">
-            <button type="submit" class="btn btn-light">Continue</button>
+          <form method="get" class="mb-0" style="display: flex; align-items: center; justify-content: space-between; gap: 0.85rem; flex-wrap: wrap;">
+            <div class="form-inline">
+              <label for="id_target" class="mr-2">Target name</label>
+              <input id="id_target" type="text" name="target" class="form-control mr-2 mb-2 mb-sm-0" value="{{ target_query }}" placeholder="e.g. Ceres, 67P, 411 Xanthe" style="width: 240px;">
+              <button type="submit" class="btn btn-light">Continue</button>
+            </div>
+            <div style="color: rgba(255,255,255,0.68); font-size: 0.75rem; white-space: nowrap; align-self: flex-end; padding-bottom: 0.2rem;">Name resolution provided by SsODNet / IMCCE</div>
           </form>
           {% if photometry_mpc_success %}
           <div class="alert alert-success mt-3 mb-0" role="alert">{{ photometry_mpc_success }}</div>
@@ -73,7 +70,7 @@
               <input type="hidden" name="ssodnet_id" value="{{ photometry_ssodnet_suggestion.id }}">
               <button type="submit" class="btn btn-light">Use this object</button>
             </form>
-            <div class="mt-2" style="color: rgba(255,255,255,0.62); font-size: 0.86rem;">{{ photometry_ssodnet_attribution }}</div>
+            <div class="mt-2" style="color: #ff6b6b; font-size: 0.86rem; font-weight: 700;">{{ photometry_ssodnet_attribution }}</div>
           </div>
           {% endif %}
           {% if photometry_ssodnet_candidates %}
@@ -96,7 +93,7 @@
               </div>
             </form>
             {% endfor %}
-            <div class="mt-2" style="color: rgba(255,255,255,0.62); font-size: 0.86rem;">{{ photometry_ssodnet_attribution }}</div>
+            <div class="mt-2" style="color: #ff6b6b; font-size: 0.86rem; font-weight: 700;">{{ photometry_ssodnet_attribution }}</div>
           </div>
           {% endif %}
         </div>
@@ -107,7 +104,7 @@
           {% if photometry_ssodnet_identity.aliases_display %}
           <div class="mt-2" style="color: rgba(255,255,255,0.78);">Aliases/designations: {{ photometry_ssodnet_identity.aliases_display }}</div>
           {% endif %}
-          <div class="mt-2" style="color: rgba(255,255,255,0.62); font-size: 0.86rem;">{{ photometry_ssodnet_identity.attribution }}</div>
+          <div class="mt-2" style="color: #ff6b6b; font-size: 0.86rem; font-weight: 700;">{{ photometry_ssodnet_identity.attribution }}</div>
         </div>
         {% endif %}
         <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
