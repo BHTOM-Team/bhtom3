@@ -880,7 +880,10 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     SSODNET_BASE_URL = 'https://api.ssodnet.imcce.fr/quaero/1/sso'
     SSODNET_TIMEOUT = 30
     SSODNET_ATTRIBUTION = "Object name search and designation resolution use LTE's SsODNet VO service (https://ssp.imcce.fr/webservices/ssodnet/)."
-    MPC_PLOT_OBSERVATORY_CODES = {'T05', 'T08', 'W68', 'M22', 'R17', 'I41', 'G96', '703', 'C51', 'F51', 'F52'}
+    MPC_PLOT_OBSERVATORY_CODES = {
+        'T05', 'T08', 'W68', 'M22', 'R17', 'I41', 'G96', '703', 'C51', 'F51', 'F52', '258',
+        '704', '699', '691', '645', 'C57', 'C55',
+    }
     MPC_OBSERVATORY_GROUP_ORDER = {
         'ATLAS': 1,
         'Catalina': 2,
@@ -898,9 +901,16 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         'I41': {'label': 'ZTF (I41)', 'group': 'ZTF', 'group_sort_order': 5},
         'G96': {'label': 'Mt. Lemmon Survey (G96)', 'group': 'Catalina', 'group_sort_order': 2},
         '703': {'label': 'Catalina Sky Survey (703)', 'group': 'Catalina', 'group_sort_order': 2},
+        '258': {'label': 'Gaia (258)', 'group': 'Other', 'group_sort_order': 6},
         'C51': {'label': 'NEOWISE (C51)', 'group': 'NEOWISE', 'group_sort_order': 3},
         'F51': {'label': 'Pan-STARRS 1 (F51)', 'group': 'Pan-STARRS', 'group_sort_order': 4},
         'F52': {'label': 'Pan-STARRS 2 (F52)', 'group': 'Pan-STARRS', 'group_sort_order': 4},
+        '704': {'label': 'LINEAR (704)', 'group': 'Other', 'group_sort_order': 6},
+        '699': {'label': 'LONEOS (699)', 'group': 'Other', 'group_sort_order': 6},
+        '691': {'label': 'Spacewatch (691)', 'group': 'Other', 'group_sort_order': 6},
+        '645': {'label': 'Apache Point-Sloan Digital Sky Survey (645)', 'group': 'Other', 'group_sort_order': 6},
+        'C57': {'label': 'TESS (C57)', 'group': 'Other', 'group_sort_order': 6},
+        'C55': {'label': 'Kepler (C55)', 'group': 'Other', 'group_sort_order': 6},
     }
     MPC_BAND_COLORS = {
         'c': '#00bcd4',
@@ -970,7 +980,8 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 context['photometry_mpc_error'] = str(exc)
                 return context
             mpc_query = self._best_mpc_query_from_ssodnet_object(ssodnet_object, target_query)
-            context['photometry_ssodnet_identity'] = self._build_ssodnet_identity(ssodnet_object)
+            ssodnet_identity = self._build_ssodnet_identity(ssodnet_object)
+            context['photometry_ssodnet_identity'] = ssodnet_identity
         else:
             try:
                 ssodnet_candidates = self._resolve_ssodnet_candidates(target_query)
@@ -983,13 +994,28 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 return context
 
             if len(ssodnet_candidates) == 1:
-                context['photometry_ssodnet_suggestion'] = ssodnet_candidates[0]
+                ssodnet_candidate = ssodnet_candidates[0]
+                if self._normalize_ssodnet_match_text(target_query) == self._normalize_ssodnet_match_text(ssodnet_candidate['label']):
+                    mpc_query = ssodnet_candidate['mpc_query']
+                    ssodnet_identity = {
+                        'label': ssodnet_candidate['label'],
+                        'aliases': ssodnet_candidate['aliases'],
+                        'aliases_display': ssodnet_candidate['aliases_display'],
+                        'attribution': self.SSODNET_ATTRIBUTION,
+                    }
+                    context['photometry_ssodnet_identity'] = ssodnet_identity
+                else:
+                    context['photometry_ssodnet_suggestion'] = ssodnet_candidate
+                    return context
             else:
                 context['photometry_ssodnet_candidates'] = ssodnet_candidates
-            return context
+                return context
 
         try:
-            observation_counts = self._fetch_mpc_observation_counts(mpc_query)
+            observation_counts = self._fetch_mpc_observation_counts(
+                mpc_query,
+                resolved_display_label=ssodnet_identity['label'],
+            )
         except ValueError as exc:
             context['photometry_mpc_error'] = str(exc)
             return context
@@ -1092,6 +1118,10 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         }
 
     @staticmethod
+    def _normalize_ssodnet_match_text(value):
+        return ' '.join(str(value or '').split()).casefold()
+
+    @staticmethod
     def _build_ssodnet_identity(item):
         label = str(item.get('title') or item.get('name') or item.get('id') or '').strip()
         aliases = []
@@ -1137,7 +1167,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         return fallback
 
     @classmethod
-    def _fetch_mpc_observation_counts(cls, target_query):
+    def _fetch_mpc_observation_counts(cls, target_query, resolved_display_label=''):
         try:
             response = requests.get(
                 cls.MPC_OBSERVATIONS_URL,
@@ -1171,7 +1201,9 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         if not isinstance(records, list):
             raise ValueError('MPC observations ADES_DF records had an unexpected format.')
 
-        resolved_target_label = cls._resolve_horizons_target_label(target_query)
+        resolved_target_label = str(resolved_display_label or '').strip()
+        if not resolved_target_label:
+            resolved_target_label = cls._resolve_horizons_target_label(target_query)
         total_observation_count = len(records)
         if total_observation_count <= 0:
             raise ValueError(f'MPC returned no observation records for "{target_query}".')
