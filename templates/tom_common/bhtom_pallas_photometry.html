@@ -110,9 +110,19 @@
         <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
         <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
           {{ photometry_mpc_band_plot|safe }}
+          {% if photometry_mpc_band_csv_url %}
+          <div class="mt-3" style="display: flex; justify-content: flex-end;">
+            <a href="{{ photometry_mpc_band_csv_url }}" class="btn btn-light">Download filter plot CSV</a>
+          </div>
+          {% endif %}
         </div>
         <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
           {{ photometry_mpc_observatory_plot|safe }}
+          {% if photometry_mpc_observatory_csv_url %}
+          <div class="mt-3" style="display: flex; justify-content: flex-end;">
+            <a href="{{ photometry_mpc_observatory_csv_url }}" class="btn btn-light">Download observatory plot CSV</a>
+          </div>
+          {% endif %}
         </div>
         {% endif %}
       </div>

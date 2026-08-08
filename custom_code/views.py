@@ -882,7 +882,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     SSODNET_ATTRIBUTION = "Object name search and designation resolution use LTE's SsODNet VO service (https://ssp.imcce.fr/webservices/ssodnet/)."
     MPC_PLOT_OBSERVATORY_CODES = {
         'T05', 'T08', 'W68', 'M22', 'R17', 'I41', 'G96', '703', 'C51', 'F51', 'F52', '258',
-        '704', '699', '691', '645', 'C57', 'C55',
+        '704', '699', '691', '645', 'C57', 'C55', 'X05',
     }
     MPC_OBSERVATORY_GROUP_ORDER = {
         'ATLAS': 1,
@@ -911,6 +911,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         '645': {'label': 'Apache Point-Sloan Digital Sky Survey (645)', 'group': 'Other', 'group_sort_order': 6},
         'C57': {'label': 'TESS (C57)', 'group': 'Other', 'group_sort_order': 6},
         'C55': {'label': 'Kepler (C55)', 'group': 'Other', 'group_sort_order': 6},
+        'X05': {'label': 'LSST (X05)', 'group': 'Other', 'group_sort_order': 6},
     }
     MPC_BAND_COLORS = {
         'c': '#00bcd4',
@@ -946,6 +947,30 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         'Pw': 'Pan-STARRS w',
     }
 
+    def get(self, request, *args, **kwargs):
+        csv_plot_kind = request.GET.get('download')
+        if csv_plot_kind in {'filter_plot_csv', 'observatory_plot_csv'}:
+            try:
+                resolved_target = self._resolve_photometry_target_from_request(request)
+                if resolved_target.get('suggestion') or resolved_target.get('candidates'):
+                    raise ValueError('Choose a resolved SsODNet / IMCCE object before downloading CSV.')
+                mpc_query = resolved_target['mpc_query']
+                ssodnet_identity = resolved_target['ssodnet_identity']
+                observation_counts = self._fetch_mpc_observation_counts(
+                    mpc_query,
+                    resolved_display_label=ssodnet_identity['label'],
+                )
+            except ValueError as exc:
+                return HttpResponse(str(exc), status=400, content_type='text/plain')
+            return self._build_mpc_photometry_csv_response(
+                observation_counts[
+                    'band_plot_records' if csv_plot_kind == 'filter_plot_csv' else 'observatory_plot_records'
+                ],
+                observation_counts['resolved_target_label'],
+                'filter' if csv_plot_kind == 'filter_plot_csv' else 'observatory',
+            )
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         target_query = (self.request.GET.get('target') or '').strip()
@@ -959,6 +984,8 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'photometry_mpc_plot_observation_count': 0,
             'photometry_mpc_band_plot': '',
             'photometry_mpc_observatory_plot': '',
+            'photometry_mpc_band_csv_url': '',
+            'photometry_mpc_observatory_csv_url': '',
             'photometry_ssodnet_candidates': [],
             'photometry_ssodnet_suggestion': None,
             'photometry_ssodnet_identity': None,
@@ -972,44 +999,23 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             context['photometry_mpc_error'] = 'Enter a target name or designation.'
             return context
 
-        selected_ssodnet_id = (self.request.GET.get('ssodnet_id') or '').strip()
-        if selected_ssodnet_id:
-            try:
-                ssodnet_object = self._fetch_ssodnet_object_by_id(selected_ssodnet_id)
-            except ValueError as exc:
-                context['photometry_mpc_error'] = str(exc)
-                return context
-            mpc_query = self._best_mpc_query_from_ssodnet_object(ssodnet_object, target_query)
-            ssodnet_identity = self._build_ssodnet_identity(ssodnet_object)
-            context['photometry_ssodnet_identity'] = ssodnet_identity
-        else:
-            try:
-                ssodnet_candidates = self._resolve_ssodnet_candidates(target_query)
-            except ValueError as exc:
-                context['photometry_mpc_error'] = str(exc)
-                return context
+        try:
+            resolved_target = self._resolve_photometry_target_from_request(self.request)
+        except ValueError as exc:
+            context['photometry_mpc_error'] = str(exc)
+            return context
 
-            if not ssodnet_candidates:
-                context['photometry_mpc_error'] = f'SsODNet / IMCCE found no Solar System object matching "{target_query}".'
-                return context
+        if resolved_target.get('suggestion'):
+            context['photometry_ssodnet_suggestion'] = resolved_target['suggestion']
+            return context
 
-            if len(ssodnet_candidates) == 1:
-                ssodnet_candidate = ssodnet_candidates[0]
-                if self._normalize_ssodnet_match_text(target_query) == self._normalize_ssodnet_match_text(ssodnet_candidate['label']):
-                    mpc_query = ssodnet_candidate['mpc_query']
-                    ssodnet_identity = {
-                        'label': ssodnet_candidate['label'],
-                        'aliases': ssodnet_candidate['aliases'],
-                        'aliases_display': ssodnet_candidate['aliases_display'],
-                        'attribution': self.SSODNET_ATTRIBUTION,
-                    }
-                    context['photometry_ssodnet_identity'] = ssodnet_identity
-                else:
-                    context['photometry_ssodnet_suggestion'] = ssodnet_candidate
-                    return context
-            else:
-                context['photometry_ssodnet_candidates'] = ssodnet_candidates
-                return context
+        if resolved_target.get('candidates'):
+            context['photometry_ssodnet_candidates'] = resolved_target['candidates']
+            return context
+
+        mpc_query = resolved_target['mpc_query']
+        ssodnet_identity = resolved_target['ssodnet_identity']
+        context['photometry_ssodnet_identity'] = ssodnet_identity
 
         try:
             observation_counts = self._fetch_mpc_observation_counts(
@@ -1038,8 +1044,52 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'photometry_mpc_plot_observation_count': observation_counts['plotted'],
             'photometry_mpc_band_plot': observation_counts['band_plot'],
             'photometry_mpc_observatory_plot': observation_counts['observatory_plot'],
+            'photometry_mpc_band_csv_url': self._build_mpc_photometry_csv_url('filter_plot_csv'),
+            'photometry_mpc_observatory_csv_url': self._build_mpc_photometry_csv_url('observatory_plot_csv'),
         })
         return context
+
+    def _resolve_photometry_target_from_request(self, request):
+        target_query = (request.GET.get('target') or '').strip()
+        if not target_query:
+            raise ValueError('Enter a target name or designation.')
+
+        selected_ssodnet_id = (request.GET.get('ssodnet_id') or '').strip()
+        if selected_ssodnet_id:
+            ssodnet_object = self._fetch_ssodnet_object_by_id(selected_ssodnet_id)
+            return {
+                'mpc_query': self._best_mpc_query_from_ssodnet_object(ssodnet_object, target_query),
+                'ssodnet_identity': self._build_ssodnet_identity(ssodnet_object),
+            }
+
+        ssodnet_candidates = self._resolve_ssodnet_candidates(target_query)
+        if not ssodnet_candidates:
+            raise ValueError(f'SsODNet / IMCCE found no Solar System object matching "{target_query}".')
+
+        if len(ssodnet_candidates) == 1:
+            ssodnet_candidate = ssodnet_candidates[0]
+            if self._normalize_ssodnet_match_text(target_query) == self._normalize_ssodnet_match_text(ssodnet_candidate['label']):
+                return {
+                    'mpc_query': ssodnet_candidate['mpc_query'],
+                    'ssodnet_identity': {
+                        'label': ssodnet_candidate['label'],
+                        'aliases': ssodnet_candidate['aliases'],
+                        'aliases_display': ssodnet_candidate['aliases_display'],
+                        'attribution': self.SSODNET_ATTRIBUTION,
+                    },
+                }
+            return {'suggestion': ssodnet_candidate}
+
+        return {'candidates': ssodnet_candidates}
+
+    def _build_mpc_photometry_csv_url(self, plot_kind):
+        query_items = []
+        for key in ('target', 'ssodnet_id'):
+            value = (self.request.GET.get(key) or '').strip()
+            if value:
+                query_items.append((key, value))
+        query_items.append(('download', plot_kind))
+        return f'?{urlencode(query_items)}'
 
     @classmethod
     def _resolve_ssodnet_candidates(cls, target_query):
@@ -1140,31 +1190,70 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'attribution': BhtomPallasPhotometryView.SSODNET_ATTRIBUTION,
         }
 
-    @staticmethod
-    def _best_mpc_query_from_ssodnet_object(item, fallback):
+    @classmethod
+    def _best_mpc_query_from_ssodnet_object(cls, item, fallback):
         aliases = [str(value or '').strip() for value in item.get('aliases') or []]
-        object_id = str(item.get('id') or '').strip()
-        name = str(item.get('name') or '').strip()
+        values = [
+            str(item.get('id') or '').strip(),
+            str(item.get('name') or '').strip(),
+            str(item.get('title') or '').strip(),
+            *aliases,
+        ]
+        candidates = []
+        for value in values:
+            for candidate in cls._mpc_query_candidates_from_value(value):
+                if candidate and candidate not in candidates:
+                    candidates.append(candidate)
 
-        for value in [object_id, name]:
-            if re.match(r'^\d+[PDCXA]?$', value, re.IGNORECASE):
-                return value
+        for predicate in (
+            cls._is_unpacked_comet_designation,
+            cls._is_packed_comet_designation,
+            cls._is_periodic_comet_designation,
+            cls._is_unpacked_minor_planet_designation,
+            cls._is_numbered_minor_planet_designation,
+        ):
+            for candidate in candidates:
+                if predicate(candidate):
+                    return candidate
 
-        numeric_aliases = []
-        for alias in aliases:
-            if alias.isdigit():
-                numeric_aliases.append(alias)
-        if numeric_aliases:
-            return str(int(sorted(numeric_aliases, key=len)[0]))
-
-        for alias in aliases:
-            if re.match(r'^\d+[PDCXA]?$', alias, re.IGNORECASE):
-                return alias
-
-        for value in [object_id, name] + aliases:
-            if value:
-                return value
+        for candidate in candidates:
+            if candidate:
+                return candidate
         return fallback
+
+    @classmethod
+    def _mpc_query_candidates_from_value(cls, value):
+        value = str(value or '').strip()
+        if not value:
+            return []
+        candidates = [value]
+        parenthesized_match = re.match(r'^\((\d+)\)\s+.+$', value)
+        if parenthesized_match:
+            candidates.append(parenthesized_match.group(1))
+        trailing_name_match = re.match(r'^(.+?)\s+\([^()]+\)$', value)
+        if trailing_name_match:
+            candidates.append(trailing_name_match.group(1).strip())
+        return candidates
+
+    @staticmethod
+    def _is_unpacked_comet_designation(value):
+        return bool(re.match(r'^[CPDXA]/\d{4}\s+[A-Z]{1,2}\d+[A-Z0-9-]*$', value, re.IGNORECASE))
+
+    @staticmethod
+    def _is_packed_comet_designation(value):
+        return bool(re.match(r'^[CPDXA][A-Z]\d{2}[A-Z]\d{3}[A-Z0-9]?$', value, re.IGNORECASE))
+
+    @staticmethod
+    def _is_periodic_comet_designation(value):
+        return bool(re.match(r'^\d+[PDCXA]$', value, re.IGNORECASE))
+
+    @staticmethod
+    def _is_unpacked_minor_planet_designation(value):
+        return bool(re.match(r'^\d{4}\s+[A-Z]{1,2}\d+[A-Z0-9]*$', value, re.IGNORECASE))
+
+    @staticmethod
+    def _is_numbered_minor_planet_designation(value):
+        return bool(re.match(r'^\d+$', value))
 
     @classmethod
     def _fetch_mpc_observation_counts(cls, target_query, resolved_display_label=''):
@@ -1247,10 +1336,13 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
 
             plot_records.append({
                 'observed_at': observed_at,
+                'obstime': str(record.get('obstime') or '').strip(),
                 'magnitude': float(record.get('mag')),
                 'magnitude_error': float(record.get('rmsmag')),
                 'band': str(record.get('band') or 'Unknown').strip() or 'Unknown',
                 'observatory_code': observatory_code,
+                'ra': str(record.get('ra') or '').strip(),
+                'dec': str(record.get('dec') or '').strip(),
             })
 
         plot_records.sort(key=lambda item: item['observed_at'])
@@ -1281,7 +1373,48 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'plotted': len(plot_records),
             'band_plot': band_plot,
             'observatory_plot': observatory_plot,
+            'plot_records': plot_records,
+            'band_plot_records': plot_records,
+            'observatory_plot_records': plot_records,
         }
+
+    @classmethod
+    def _build_mpc_photometry_csv_response(cls, plot_records, resolved_target_label, plot_kind):
+        output = StringIO()
+        writer = csv.DictWriter(output, fieldnames=[
+            'observation_time',
+            'mag',
+            'rmsmag',
+            'band',
+            'observatory_code',
+            'observatory_label',
+            'ra',
+            'dec',
+        ])
+        writer.writeheader()
+        for record in plot_records:
+            writer.writerow({
+                'observation_time': record['observed_at'].strftime('%Y-%m-%d %H:%M:%S'),
+                'mag': record['magnitude'],
+                'rmsmag': record['magnitude_error'],
+                'band': record['band'],
+                'observatory_code': record['observatory_code'],
+                'observatory_label': cls._mpc_observatory_label(record['observatory_code']),
+                'ra': record['ra'],
+                'dec': record['dec'],
+            })
+
+        filename = cls._safe_mpc_photometry_csv_filename(resolved_target_label, plot_kind)
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    @staticmethod
+    def _safe_mpc_photometry_csv_filename(resolved_target_label, plot_kind):
+        filename_stem = re.sub(r'[^A-Za-z0-9]+', '_', str(resolved_target_label or 'MPC_photometry')).strip('_')
+        if not filename_stem:
+            filename_stem = 'MPC_photometry'
+        return f'{filename_stem}_MPC_{plot_kind}_plot_photometry.csv'
 
     @classmethod
     def _resolve_horizons_target_label(cls, target_query):
