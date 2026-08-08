@@ -18,7 +18,7 @@ from astropy.timeseries import LombScargle
 from astroquery.jplhorizons import Horizons
 from astroquery.mpc import MPC
 from plotly import graph_objs as go
-from plotly import offline
+from plotly import io as plotly_io
 from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth import logout
@@ -986,6 +986,8 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'photometry_mpc_observatory_plot': '',
             'photometry_mpc_band_csv_url': '',
             'photometry_mpc_observatory_csv_url': '',
+            'photometry_mpc_band_download_base': '',
+            'photometry_mpc_observatory_download_base': '',
             'photometry_ssodnet_candidates': [],
             'photometry_ssodnet_suggestion': None,
             'photometry_ssodnet_identity': None,
@@ -1046,6 +1048,14 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'photometry_mpc_observatory_plot': observation_counts['observatory_plot'],
             'photometry_mpc_band_csv_url': self._build_mpc_photometry_csv_url('filter_plot_csv'),
             'photometry_mpc_observatory_csv_url': self._build_mpc_photometry_csv_url('observatory_plot_csv'),
+            'photometry_mpc_band_download_base': self._safe_mpc_photometry_image_filename_base(
+                observation_counts['resolved_target_label'],
+                'filter',
+            ),
+            'photometry_mpc_observatory_download_base': self._safe_mpc_photometry_image_filename_base(
+                observation_counts['resolved_target_label'],
+                'observatory',
+            ),
         })
         return context
 
@@ -1357,12 +1367,14 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             records=plot_records,
             group_key='band',
             title=f'{resolved_target_label} reported magnitude by filter/band',
+            div_id='bhtom-pallas-photometry-filter-plot',
         )
         observatory_plot = cls._build_mpc_photometry_plot(
             target_query=resolved_target_label,
             records=plot_records,
             group_key='observatory_code',
             title=f'{resolved_target_label} reported magnitude by observatory code',
+            div_id='bhtom-pallas-photometry-observatory-plot',
         )
 
         return {
@@ -1415,6 +1427,13 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         if not filename_stem:
             filename_stem = 'MPC_photometry'
         return f'{filename_stem}_MPC_{plot_kind}_plot_photometry.csv'
+
+    @staticmethod
+    def _safe_mpc_photometry_image_filename_base(resolved_target_label, plot_kind):
+        filename_stem = re.sub(r'[^A-Za-z0-9]+', '_', str(resolved_target_label or 'MPC_photometry')).strip('_')
+        if not filename_stem:
+            filename_stem = 'MPC_photometry'
+        return f'{filename_stem}_{plot_kind}_photometry'
 
     @classmethod
     def _resolve_horizons_target_label(cls, target_query):
@@ -1525,7 +1544,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         )
 
     @classmethod
-    def _build_mpc_photometry_plot(cls, target_query, records, group_key, title):
+    def _build_mpc_photometry_plot(cls, target_query, records, group_key, title, div_id):
         traces = []
         group_values = sorted({record[group_key] for record in records})
         if group_key == 'observatory_code':
@@ -1594,12 +1613,12 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 plot_bgcolor='#ffffff',
             ),
         )
-        return offline.plot(
+        return plotly_io.to_html(
             figure,
-            output_type='div',
-            show_link=False,
             include_plotlyjs=False,
             config={'responsive': True},
+            full_html=False,
+            div_id=div_id,
         )
 
 

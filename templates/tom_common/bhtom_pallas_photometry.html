@@ -108,19 +108,59 @@
         </div>
         {% endif %}
         <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+        <script>
+          async function downloadPallasPhotometryPlot(plotId, format, filenameBase) {
+            const plotElement = document.getElementById(plotId);
+            if (!plotElement || !window.Plotly) {
+              return;
+            }
+
+            const imageOptions = {
+              filename: filenameBase,
+              format: 'png',
+              width: 1600,
+              height: 1000,
+              scale: 2
+            };
+
+            if (format === 'png') {
+              Plotly.downloadImage(plotElement, imageOptions);
+              return;
+            }
+
+            if (format === 'pdf') {
+              if (!window.jspdf || !window.jspdf.jsPDF) {
+                return;
+              }
+              const imageData = await Plotly.toImage(plotElement, imageOptions);
+              const pdf = new window.jspdf.jsPDF({
+                orientation: 'landscape',
+                unit: 'pt',
+                format: [1600, 1000]
+              });
+              pdf.addImage(imageData, 'PNG', 0, 0, 1600, 1000);
+              pdf.save(filenameBase + '.pdf');
+            }
+          }
+        </script>
         <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
           {{ photometry_mpc_band_plot|safe }}
           {% if photometry_mpc_band_csv_url %}
-          <div class="mt-3" style="display: flex; justify-content: flex-end;">
-            <a href="{{ photometry_mpc_band_csv_url }}" class="btn btn-light">Download filter plot CSV</a>
+          <div class="mt-3" style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap;">
+            <a href="{{ photometry_mpc_band_csv_url }}" class="btn btn-light">Download CSV</a>
+            <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-filter-plot', 'png', '{{ photometry_mpc_band_download_base|escapejs }}')">Download PNG</button>
+            <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-filter-plot', 'pdf', '{{ photometry_mpc_band_download_base|escapejs }}')">Download PDF</button>
           </div>
           {% endif %}
         </div>
         <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
           {{ photometry_mpc_observatory_plot|safe }}
           {% if photometry_mpc_observatory_csv_url %}
-          <div class="mt-3" style="display: flex; justify-content: flex-end;">
-            <a href="{{ photometry_mpc_observatory_csv_url }}" class="btn btn-light">Download observatory plot CSV</a>
+          <div class="mt-3" style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap;">
+            <a href="{{ photometry_mpc_observatory_csv_url }}" class="btn btn-light">Download CSV</a>
+            <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-observatory-plot', 'png', '{{ photometry_mpc_observatory_download_base|escapejs }}')">Download PNG</button>
+            <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-observatory-plot', 'pdf', '{{ photometry_mpc_observatory_download_base|escapejs }}')">Download PDF</button>
           </div>
           {% endif %}
         </div>
