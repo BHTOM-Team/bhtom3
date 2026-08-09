@@ -946,6 +946,10 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         'Pi': 'Pan-STARRS i',
         'Pw': 'Pan-STARRS w',
     }
+    MPC_PLOTLY_COLORWAY = [
+        '#636efa', '#EF553B', '#00cc96', '#ab63fa', '#FFA15A',
+        '#19d3f3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52',
+    ]
 
     def get(self, request, *args, **kwargs):
         csv_plot_kind = request.GET.get('download')
@@ -1033,16 +1037,15 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 f'MPC returned {observation_counts["total"]} total observation record'
                 f'{"s" if observation_counts["total"] != 1 else ""} for "{observation_counts["resolved_target_label"]}", '
                 f'with {observation_counts["with_magnitude"]} usable reported magnitude value'
-                f'{"s" if observation_counts["with_magnitude"] != 1 else ""}, '
-                f'and {observation_counts["with_magnitude_error"]} record'
-                f'{"s" if observation_counts["with_magnitude_error"] != 1 else ""} with both usable '
-                f'magnitude and magnitude error values. Plotting '
+                f'{"s" if observation_counts["with_magnitude"] != 1 else ""}. Plotting '
                 f'{observation_counts["plotted"]} observation record'
-                f'{"s" if observation_counts["plotted"] != 1 else ""} from the selected observatories.'
+                f'{"s" if observation_counts["plotted"] != 1 else ""} from the selected observatories, '
+                f'including {observation_counts["plotted_with_magnitude_error"]} with reported magnitude error'
+                f'{"s" if observation_counts["plotted_with_magnitude_error"] != 1 else ""}.'
             ),
             'photometry_mpc_total_observation_count': observation_counts['total'],
             'photometry_mpc_magnitude_observation_count': observation_counts['with_magnitude'],
-            'photometry_mpc_magnitude_error_observation_count': observation_counts['with_magnitude_error'],
+            'photometry_mpc_magnitude_error_observation_count': observation_counts['plotted_with_magnitude_error'],
             'photometry_mpc_plot_observation_count': observation_counts['plotted'],
             'photometry_mpc_band_plot': observation_counts['band_plot'],
             'photometry_mpc_observatory_plot': observation_counts['observatory_plot'],
@@ -1319,23 +1322,8 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 'but none had a usable reported magnitude value.'
             )
 
-        records_with_magnitude_error = []
-        for record in records_with_magnitude:
-            magnitude_error = record.get('rmsmag')
-            if not _is_finite_number(magnitude_error):
-                continue
-            records_with_magnitude_error.append(record)
-
-        magnitude_error_observation_count = len(records_with_magnitude_error)
-        if magnitude_error_observation_count <= 0:
-            raise ValueError(
-                f'MPC returned {total_observation_count} observation records for "{target_query}", '
-                f'including {magnitude_observation_count} with usable reported magnitude values, '
-                'but none had both usable magnitude and magnitude error values.'
-            )
-
         plot_records = []
-        for record in records_with_magnitude_error:
+        for record in records_with_magnitude:
             observatory_code = str(record.get('stn') or '').strip()
             if observatory_code not in cls.MPC_PLOT_OBSERVATORY_CODES:
                 continue
@@ -1344,11 +1332,15 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             if observed_at is None:
                 continue
 
+            magnitude_error = None
+            if _is_finite_number(record.get('rmsmag')):
+                magnitude_error = float(record.get('rmsmag'))
+
             plot_records.append({
                 'observed_at': observed_at,
                 'obstime': str(record.get('obstime') or '').strip(),
                 'magnitude': float(record.get('mag')),
-                'magnitude_error': float(record.get('rmsmag')),
+                'magnitude_error': magnitude_error,
                 'band': str(record.get('band') or 'Unknown').strip() or 'Unknown',
                 'observatory_code': observatory_code,
                 'ra': str(record.get('ra') or '').strip(),
@@ -1358,9 +1350,13 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         plot_records.sort(key=lambda item: item['observed_at'])
         if not plot_records:
             raise ValueError(
-                f'MPC returned {magnitude_error_observation_count} records for "{target_query}" with both usable '
-                'magnitude and magnitude error values, but none matched the selected observatory codes.'
+                f'MPC returned {magnitude_observation_count} records for "{target_query}" with usable '
+                'reported magnitude values, but none matched the selected observatory codes with parseable '
+                'observation times.'
             )
+        plotted_magnitude_error_count = sum(
+            1 for record in plot_records if record['magnitude_error'] is not None
+        )
 
         band_plot = cls._build_mpc_photometry_plot(
             target_query=resolved_target_label,
@@ -1381,7 +1377,8 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'resolved_target_label': resolved_target_label,
             'total': total_observation_count,
             'with_magnitude': magnitude_observation_count,
-            'with_magnitude_error': magnitude_error_observation_count,
+            'with_magnitude_error': plotted_magnitude_error_count,
+            'plotted_with_magnitude_error': plotted_magnitude_error_count,
             'plotted': len(plot_records),
             'band_plot': band_plot,
             'observatory_plot': observatory_plot,
@@ -1408,7 +1405,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             writer.writerow({
                 'observation_time': record['observed_at'].strftime('%Y-%m-%d %H:%M:%S'),
                 'mag': record['magnitude'],
-                'rmsmag': record['magnitude_error'],
+                'rmsmag': record['magnitude_error'] if record['magnitude_error'] is not None else 'NaN',
                 'band': record['band'],
                 'observatory_code': record['observatory_code'],
                 'observatory_label': cls._mpc_observatory_label(record['observatory_code']),
@@ -1549,7 +1546,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         group_values = sorted({record[group_key] for record in records})
         if group_key == 'observatory_code':
             group_values = sorted(group_values, key=cls._mpc_observatory_sort_key)
-        for group_value in group_values:
+        for group_index, group_value in enumerate(group_values):
             group_records = [record for record in records if record[group_key] == group_value]
             trace_name = group_value
             if group_key == 'observatory_code':
@@ -1559,31 +1556,69 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             marker = {'size': 6}
             if group_key == 'band' and group_value in cls.MPC_BAND_COLORS:
                 marker['color'] = cls.MPC_BAND_COLORS[group_value]
-            hover_text = [
-                '<br>'.join([
-                    f"Date: {record['observed_at'].strftime('%Y-%m-%d %H:%M:%S')}",
-                    f"Magnitude: {record['magnitude']:.3f} +/- {record['magnitude_error']:.3f}",
-                    f"Filter: {cls._mpc_band_label(record['band']) if group_key == 'band' else record['band']}",
-                    f"Observatory: {cls._mpc_observatory_label(record['observatory_code'])}",
-                ])
-                for record in group_records
+            elif cls.MPC_PLOTLY_COLORWAY:
+                marker['color'] = cls.MPC_PLOTLY_COLORWAY[group_index % len(cls.MPC_PLOTLY_COLORWAY)]
+
+            records_with_errors = [
+                record for record in group_records if record['magnitude_error'] is not None
             ]
-            traces.append(go.Scatter(
-                x=[record['observed_at'] for record in group_records],
-                y=[record['magnitude'] for record in group_records],
-                error_y={
-                    'type': 'data',
-                    'array': [record['magnitude_error'] for record in group_records],
-                    'visible': True,
-                    'thickness': 1,
-                    'width': 2,
-                },
-                mode='markers',
-                name=trace_name,
-                marker=marker,
-                text=hover_text,
-                hovertemplate='%{text}<extra></extra>',
-            ))
+            records_without_errors = [
+                record for record in group_records if record['magnitude_error'] is None
+            ]
+
+            def _hover_text(records_for_trace):
+                return [
+                    '<br>'.join([
+                        f"Date: {record['observed_at'].strftime('%Y-%m-%d %H:%M:%S')}",
+                        f"Magnitude: {record['magnitude']:.3f}",
+                        (
+                            f"Magnitude error: +/- {record['magnitude_error']:.3f}"
+                            if record['magnitude_error'] is not None
+                            else 'Magnitude error: not reported'
+                        ),
+                        f"Filter: {cls._mpc_band_label(record['band']) if group_key == 'band' else record['band']}",
+                        f"Observatory: {cls._mpc_observatory_label(record['observatory_code'])}",
+                    ])
+                    for record in records_for_trace
+                ]
+
+            def _append_trace(records_for_trace, *, with_errors, showlegend):
+                if not records_for_trace:
+                    return
+                trace_marker = marker.copy()
+                if not with_errors:
+                    trace_marker['opacity'] = 0.1
+                trace_kwargs = {
+                    'x': [record['observed_at'] for record in records_for_trace],
+                    'y': [record['magnitude'] for record in records_for_trace],
+                    'mode': 'markers',
+                    'name': trace_name,
+                    'legendgroup': str(group_value),
+                    'showlegend': showlegend,
+                    'marker': trace_marker,
+                    'text': _hover_text(records_for_trace),
+                    'hovertemplate': '%{text}<extra></extra>',
+                }
+                if with_errors:
+                    trace_kwargs['error_y'] = {
+                        'type': 'data',
+                        'array': [record['magnitude_error'] for record in records_for_trace],
+                        'visible': True,
+                        'thickness': 1,
+                        'width': 2,
+                    }
+                traces.append(go.Scatter(**trace_kwargs))
+
+            _append_trace(
+                records_with_errors,
+                with_errors=True,
+                showlegend=bool(records_with_errors),
+            )
+            _append_trace(
+                records_without_errors,
+                with_errors=False,
+                showlegend=not records_with_errors,
+            )
 
         figure = go.Figure(
             data=traces,
