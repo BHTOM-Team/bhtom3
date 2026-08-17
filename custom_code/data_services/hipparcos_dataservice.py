@@ -12,9 +12,8 @@ here are three real calibrated measurements per star, each the mission mean over
 1989-1993, which is still worth having: it extends a target's light curve back
 three decades before ZTF/ATLAS/ASAS-SN.
 
-The Variability Annex (periodic and unsolved variables) is attached to the Hp
-datum, so a target still carries its Hipparcos variability type, period and
-amplitude even though the underlying light curve cannot be downloaded.
+Each datum stores only the filter, magnitude and error, matching the rest of the
+BHTOM photometry services.
 
 Band warning
 ------------
@@ -46,8 +45,6 @@ HIPPARCOS_PAGE_URL = 'https://vizier.cds.unistra.fr/viz-bin/VizieR-3?-source=I/2
 
 HIP_MAIN = 'I/239/hip_main'
 TYC_MAIN = 'I/239/tyc_main'
-HIP_VA_1 = 'I/239/hip_va_1'  # Variability Annex: periodic variables
-HIP_VA_2 = 'I/239/hip_va_2'  # Variability Annex: unsolved variables
 
 # The catalogue epoch, J1991.25 = JD 2448349.0625 (TT). Every mean magnitude is
 # a mission average over 1989-1993 conventionally attributed to this epoch.
@@ -161,26 +158,12 @@ def _nearest_row(table, ra, dec):
 
 
 HIP_COLUMNS = (
-    'HIP', '_RA.icrs', '_DE.icrs', 'Hpmag', 'e_Hpmag', 'Hpscat', 'o_Hpmag',
-    'BTmag', 'e_BTmag', 'VTmag', 'e_VTmag', 'B-V', 'Vmag',
-    'HvarType', 'Period', 'morePhoto', 'Hpmax', 'HPmin',
+    'HIP', '_RA.icrs', '_DE.icrs', 'Hpmag', 'e_Hpmag',
+    'BTmag', 'e_BTmag', 'VTmag', 'e_VTmag',
 )
 TYC_COLUMNS = (
-    'TYC', 'HIP', '_RA.icrs', '_DE.icrs', 'BTmag', 'e_BTmag',
-    'VTmag', 'e_VTmag', 'VTscat', 'Nphoto', 'morePhoto',
+    'TYC', 'HIP', '_RA.icrs', '_DE.icrs', 'BTmag', 'e_BTmag', 'VTmag', 'e_VTmag',
 )
-# 'VarType' is listed in TAP_SCHEMA but is not actually resolvable on the VizieR
-# TAP endpoint, so the GCVS-style type comes from VarName/SpType instead.
-VA_COLUMNS = ('HIP', 'HvarType', 'VarName', 'SpType', 'Period', 'maxMag', 'minMag', 'Band')
-
-HVAR_TYPE_LABELS = {
-    'C': 'constant',
-    'D': 'duplicity-induced',
-    'M': 'micro-variable',
-    'P': 'periodic',
-    'R': 'revised colour index',
-    'U': 'unsolved',
-}
 
 
 class HipparcosDataService(DataService):
@@ -190,7 +173,7 @@ class HipparcosDataService(DataService):
     info_url = HIPPARCOS_PAGE_URL
     service_notes = (
         'Query Hipparcos/Tycho (VizieR I/239) mean mission photometry by coordinates. '
-        'Ingests Hp, BT and VT at epoch J1991.25 plus Variability Annex metadata. '
+        'Ingests Hp, BT and VT at epoch J1991.25. '
         'Hp is a broad unfiltered band, not Johnson V, and needs a colour term to convert.'
     )
 
@@ -220,7 +203,7 @@ class HipparcosDataService(DataService):
             return self.query_results
 
         radius_deg = radius_arcsec / 3600.0
-        hip_row = tyc_row = variability = None
+        hip_row = tyc_row = None
         hip_sep = tyc_sep = None
 
         try:
@@ -238,10 +221,6 @@ class HipparcosDataService(DataService):
             except Exception as exc:
                 logger.debug('Hipparcos tyc_main query failed for RA=%s Dec=%s: %s', ra, dec, exc)
 
-            hip_id = _to_float(hip_row['HIP']) if hip_row is not None else None
-            if hip_id is not None:
-                variability = self._query_variability(tap, int(hip_id))
-
             if hip_row is None and tyc_row is None:
                 logger.debug('Hipparcos/Tycho returned no match for RA=%s Dec=%s', ra, dec)
         except Exception as exc:
@@ -253,35 +232,11 @@ class HipparcosDataService(DataService):
             'tyc_row': tyc_row,
             'hip_sep_arcsec': hip_sep,
             'tyc_sep_arcsec': tyc_sep,
-            'variability': variability,
             'source_location': _hip_source_location(hip_id) if hip_id else HIPPARCOS_PAGE_URL,
             'ra': ra,
             'dec': dec,
         }
         return self.query_results
-
-    def _query_variability(self, tap, hip):
-        """Look the star up in both Variability Annex tables; periodic wins if both hit."""
-        for table, solved in ((HIP_VA_1, True), (HIP_VA_2, False)):
-            columns = ', '.join(f'"{c}"' for c in VA_COLUMNS)
-            try:
-                result = _run_tap(tap, f'SELECT TOP 1 {columns} FROM "{table}" WHERE "HIP" = {hip}', maxrec=1)
-            except Exception as exc:
-                logger.debug('Hipparcos %s lookup failed for HIP %s: %s', table, hip, exc)
-                continue
-            if len(result):
-                row = result[0]
-                return {
-                    'annex': 'periodic' if solved else 'unsolved',
-                    'var_name': _to_text(row['VarName']),
-                    'spectral_type': _to_text(row['SpType']),
-                    'hvar_type': _to_text(row['HvarType']),
-                    'period': _to_float(row['Period']),
-                    'mag_max': _to_float(row['maxMag']),
-                    'mag_min': _to_float(row['minMag']),
-                    'band': _to_text(row['Band']),
-                }
-        return None
 
     def query_targets(self, query_parameters, **kwargs):
         data = self.query_service(query_parameters, **kwargs)
@@ -306,7 +261,7 @@ class HipparcosDataService(DataService):
                 if name is None:
                     name = tyc_name
 
-        datums = self._build_photometry_datums(hip_row, tyc_row, data.get('variability'))
+        datums = self._build_photometry_datums(hip_row, tyc_row)
         if not datums:
             return []
 
@@ -358,7 +313,7 @@ class HipparcosDataService(DataService):
                 source_location=self.query_results.get('source_location') or self.info_url,
             )
 
-    def _build_photometry_datums(self, hip_row, tyc_row, variability):
+    def _build_photometry_datums(self, hip_row, tyc_row):
         """Three mean magnitudes at J1991.25: Hp from Hipparcos, BT/VT from Tycho.
 
         hip_main repeats the Tycho BT/VT for stars that have both, so it is preferred
@@ -367,17 +322,16 @@ class HipparcosDataService(DataService):
         timestamp = Time(J1991_25_MJD, format='mjd', scale='utc').to_datetime(timezone=timezone.utc)
         output = []
 
-        def add(filter_name, magnitude, error, extras=None):
+        def add(filter_name, magnitude, error):
             if magnitude is None:
                 return
-            value = {'filter': filter_name, 'magnitude': magnitude, 'error': error}
-            if extras:
-                value.update(extras)
-            output.append({'timestamp': timestamp, 'value': value})
+            output.append({
+                'timestamp': timestamp,
+                'value': {'filter': filter_name, 'magnitude': magnitude, 'error': error},
+            })
 
         if hip_row is not None:
-            add('Hp', _to_float(hip_row['Hpmag']), _to_float(hip_row['e_Hpmag']),
-                self._hp_extras(hip_row, variability))
+            add('Hp', _to_float(hip_row['Hpmag']), _to_float(hip_row['e_Hpmag']))
             # Bright stars (Vega, say) can have BT/VT masked in hip_main while their
             # own Tycho entry carries them. Only fall back when tyc_main names the
             # same HIP, so a close neighbour can never be blended in.
@@ -402,35 +356,3 @@ class HipparcosDataService(DataService):
         hip_id = _to_float(hip_row['HIP'])
         tyc_hip_id = _to_float(tyc_row['HIP'])
         return hip_id is not None and tyc_hip_id is not None and int(hip_id) == int(tyc_hip_id)
-
-    def _hp_extras(self, hip_row, variability):
-        """Variability metadata, carried on the Hp point since the Annex light curve is gone."""
-        hvar = _to_text(hip_row['HvarType'])
-        extras = {
-            'n_observations': _to_float(hip_row['o_Hpmag']),
-            'scatter': _to_float(hip_row['Hpscat']),
-            'mag_max': _to_float(hip_row['Hpmax']),
-            'mag_min': _to_float(hip_row['HPmin']),
-        }
-        if hvar:
-            extras['variability_type'] = HVAR_TYPE_LABELS.get(hvar, hvar)
-        period = _to_float(hip_row['Period'])
-        if period is not None:
-            extras['period'] = period
-        # 'A'/'B'/'C' means the Epoch Photometry Annex holds a light curve for this
-        # star. It is recorded so the information is not lost, but the Annex itself
-        # is no longer downloadable from VizieR or ESA.
-        more_photo = _to_text(hip_row['morePhoto'])
-        if more_photo:
-            extras['epoch_photometry_annex'] = more_photo
-
-        if variability:
-            if variability.get('var_name'):
-                extras['var_name'] = variability['var_name']
-            if variability.get('period') is not None:
-                extras['period'] = variability['period']
-            if variability.get('spectral_type'):
-                extras['spectral_type'] = variability['spectral_type']
-            extras['variability_annex'] = variability['annex']
-
-        return {k: v for k, v in extras.items() if v is not None}

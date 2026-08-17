@@ -158,6 +158,15 @@ PHOTOMETRY_COLOR_MAP = {
     'FRAM(N)': ['#111827', 'hexagon', 4],
     'FRAM(UNK)': ['#9ca3af', 'hexagon', 4],
     'FRAM(unknown)': ['#9ca3af', 'hexagon', 4],
+    # TESS: 600-1000 nm, so a deep red. A sector is ~15000 unbinned cadences, so
+    # the marker is deliberately tiny -- anything larger renders as a solid bar.
+    'TESS(T)': ['#a4133c', 'circle', 1],
+    # Hipparcos/Tycho: one mean point per band at J1991.25, so these are large and
+    # share the bowtie shape as a family. Hp is coloured violet rather than green
+    # on purpose: it is a broad unfiltered band, not V, and must not read as VT.
+    'Hp': ['#7048e8', 'bowtie', 9],
+    'BT': ['#3b5bdb', 'bowtie', 9],
+    'VT': ['#2f9e44', 'bowtie', 9],
 }
 
 # Color map for limits (non-detections).

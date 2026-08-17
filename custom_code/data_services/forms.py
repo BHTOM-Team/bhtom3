@@ -529,6 +529,42 @@ class ESOSpectraQueryForm(BaseQueryForm):
             cleaned['radius_arcsec'] = 5.0
         return cleaned
 
+class TESSQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(
+        required=False, initial=21.0, min_value=0.1, max_value=300.0,
+        label='Search radius (arcsec)',
+        help_text='One TESS pixel is 21 arcsec; the nearest TIC in the cone is used.',
+    )
+    flux_type = forms.ChoiceField(
+        required=False,
+        choices=(('sap', 'SAP (raw aperture)'), ('pdcsap', 'PDCSAP (systematics removed)')),
+        initial='sap',
+        label='Flux column',
+    )
+    max_sectors = forms.IntegerField(
+        required=False, initial=12, min_value=1, max_value=100,
+        label='Maximum sectors',
+        help_text='Every cadence is stored unbinned, ~15000 rows per sector. '
+                  'Most recent sectors are kept when a target has more.',
+    )
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 21.0
+        if cleaned.get('max_sectors') is None:
+            cleaned['max_sectors'] = 12
+        if not cleaned.get('flux_type'):
+            cleaned['flux_type'] = 'sap'
+        return cleaned
+
+
 class HipparcosQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()
