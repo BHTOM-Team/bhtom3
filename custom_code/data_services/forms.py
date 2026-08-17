@@ -529,6 +529,23 @@ class ESOSpectraQueryForm(BaseQueryForm):
             cleaned['radius_arcsec'] = 5.0
         return cleaned
 
+class HipparcosQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, max_value=300.0,
+                                     label='Search radius (arcsec)')
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 5.0
+        return cleaned
+
+
 class GeminiSpectraQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()
