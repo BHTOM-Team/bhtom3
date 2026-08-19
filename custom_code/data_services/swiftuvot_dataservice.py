@@ -14,8 +14,8 @@ from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
-SWIFTUVOT_START_URL = 'http://193.0.88.218:8892/api/start'
-SWIFTUVOT_RESULT_URL = 'http://193.0.88.218:8892/api/result'
+SWIFTUVOT_START_URL = 'http://uvot.astrodot.tech/api/start'
+SWIFTUVOT_RESULT_URL = 'http://uvot.astrodot.tech/api/result'
 
 def _swift_alias(ra, dec):
     return f'SWIFT+J{ra}_{dec}'
