@@ -14,6 +14,7 @@ from astropy.table import Table
 from datetime import timezone
 from django import forms
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
 from django.http import QueryDict
@@ -3509,6 +3510,32 @@ class TargetListViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '2026-04-21 12:34:56')
 
+    def test_inaccessible_target_detail_tells_anonymous_user_to_log_in(self):
+        target = Target.objects.create(
+            name='PrivateTarget',
+            type=Target.SIDEREAL,
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+            permissions=Target.Permissions.PRIVATE,
+        )
+
+        response = self.client.get(
+            reverse('targets:detail', kwargs={'pk': target.pk}),
+            {'tab': 'photometry'},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(response, 'You need to log in to view this target', status_code=403)
+
+    def test_missing_target_detail_remains_404(self):
+        response = self.client.get(
+            reverse('targets:detail', kwargs={'pk': 999999}),
+            {'tab': 'photometry'},
+        )
+
+        self.assertEqual(response.status_code, 404)
+
     def test_target_list_sorting_applies_to_filtered_queryset(self):
         user = get_user_model().objects.create_user(username='tester5', password='pass')
         self.client.force_login(user)
@@ -3886,6 +3913,57 @@ class LCOFacilityAccountRoutingTests(TestCase):
 
         self.assertEqual(settings.get_setting('api_key'), 'account-api-key')
         self.assertEqual(settings.get_setting('portal_url'), 'https://observe.lco.global')
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BaseLCOFacility.all_data_products', autospec=True)
+    def test_observation_detail_data_products_use_proposal_account_credentials(self, mock_all_data_products):
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            parameters={'proposal': str(self.proposal.pk)},
+            observation_id='4205507',
+            status='PENDING',
+        )
+
+        def fake_all_data_products(facility_instance, observation_record):
+            self.assertEqual(observation_record, record)
+            self.assertEqual(facility_instance.user, self.user)
+            self.assertEqual(
+                facility_instance.facility_settings.get_setting('api_key'),
+                'account-api-key',
+            )
+            return {'saved': [], 'unsaved': []}
+
+        mock_all_data_products.side_effect = fake_all_data_products
+        facility = LCOFacility()
+        facility.set_user(self.user)
+
+        result = facility.all_data_products(record)
+
+        self.assertEqual(result, {'saved': [], 'unsaved': []})
+        mock_all_data_products.assert_called_once()
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.BaseLCOFacility.all_data_products', autospec=True)
+    def test_observation_detail_handles_lco_archive_authentication_error(self, mock_all_data_products):
+        mock_all_data_products.side_effect = ValidationError(
+            'OCS: Large limit not allowed for anonymous users.'
+        )
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            parameters={'proposal': str(self.proposal.pk)},
+            observation_id='4205507',
+            status='PENDING',
+        )
+        facility = LCOFacility()
+        facility.set_user(self.user)
+
+        result = facility.all_data_products(record)
+
+        self.assertEqual(result['saved'], [])
+        self.assertEqual(result['unsaved'], [])
+        self.assertIn('Check the API key', result['error'])
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BaseLCOFacility.get_observation_status', autospec=True)
     def test_update_status_uses_proposal_account_credentials(self, mock_get_observation_status):

@@ -1,0 +1,12 @@
+{% extends 'tom_common/base.html' %}
+
+{% block title %}Target unavailable{% endblock %}
+
+{% block content %}
+<div class="alert alert-warning" role="alert">
+  <h1 class="h4">Target unavailable</h1>
+  <p class="mb-0">
+    {{ exception|default:"You need to log in to view this target." }}
+  </p>
+</div>
+{% endblock %}

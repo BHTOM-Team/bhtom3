@@ -28,10 +28,10 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import redirect_to_login
 from django.contrib.sites.shortcuts import get_current_site
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management import call_command
 from django.core.serializers.json import DjangoJSONEncoder
-from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import redirect
 from django.shortcuts import get_object_or_404
 from django.shortcuts import resolve_url
@@ -3144,9 +3144,20 @@ class BhtomTargetUpdateView(TargetUpdateView):
 
 
 class BhtomTargetDetailView(TargetDetailView):
+    def get_object(self, queryset=None):
+        try:
+            return super().get_object(queryset=queryset)
+        except (Http404, PermissionDenied):
+            target_pk = self.kwargs.get('pk')
+            if Target.objects.filter(pk=target_pk).exists():
+                if not self.request.user.is_authenticated:
+                    raise PermissionDenied('You need to log in to view this target.')
+                raise PermissionDenied('You do not have permission to view this target.')
+            raise
+
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs)
-        target = self.get_object()
+        target = self.object
         if target.type == Target.NON_SIDEREAL:
             calculation_time_utc, calculation_time_input, calculation_time_error = _resolve_list_calculation_time(self.request)
             observer = _resolve_list_observer(
@@ -4112,6 +4123,9 @@ class BhtomObservationRecordDetailView(TomObservationRecordDetailView):
     def get_context_data(self, *args, **kwargs):
         context = super().get_context_data(*args, **kwargs)
         context['group_form'] = context.get('form') or AddProductToGroupForm()
+        data_products_error = context.get('data_products', {}).get('error')
+        if data_products_error:
+            messages.warning(self.request, data_products_error)
         return context
 
 

@@ -14,6 +14,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import (
     LCOFacility as BaseLCOFacility,
     LCOSettings,
@@ -1363,6 +1364,24 @@ class LCOFacility(BaseLCOFacility):
         if proposal:
             return proposal, BaseLCOFacility(facility_settings=AccountLCOSettings(account=proposal.account))
         return None, BaseLCOFacility()
+
+    def all_data_products(self, observation_record):
+        """Fetch archive products with the credentials used to submit the observation."""
+        _, facility = self._record_account_facility(observation_record)
+        facility.set_user(self.user)
+        try:
+            return facility.all_data_products(observation_record)
+        except (ImproperCredentialsException, ValidationError, requests.RequestException) as exc:
+            logger.warning(
+                'Could not load remote LCO data products for observation %s: %s',
+                observation_record.observation_id,
+                exc,
+            )
+            return {
+                'saved': list(DataProduct.objects.filter(observation_record=observation_record)),
+                'unsaved': [],
+                'error': 'LCO data products could not be loaded. Check the API key for this observation account.',
+            }
 
     def submit_observation(self, observation_payload):
         proposal, facility = self._proposal_account_facility(observation_payload)
