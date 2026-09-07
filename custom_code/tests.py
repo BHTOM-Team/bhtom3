@@ -48,6 +48,14 @@ from custom_code.data_services.ogle_ews_dataservice import (
     _parse_photometry_rows,
     _ra_to_decimal,
 )
+from custom_code.data_services.ogle_ocvs_dataservice import (
+    OGLEOCVSDataService,
+    _coordinates_url as _ogle_ocvs_coordinates_url,
+    _extract_page_links as _extract_ogle_ocvs_page_links,
+    _normalize_target_name as _normalize_ogle_ocvs_name,
+    _parse_coordinate_rows as _parse_ogle_ocvs_coordinate_rows,
+    _parse_photometry_rows as _parse_ogle_ocvs_photometry_rows,
+)
 from custom_code.data_services.moa_dataservice import (
     MOADataService,
     _event_suffix_candidates,
@@ -84,6 +92,7 @@ from custom_code.bhtom_catalogs.harvesters.kmt import KMTHarvester
 from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
 from custom_code.bhtom_catalogs.harvesters.moa import MOAHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
+from custom_code.bhtom_catalogs.harvesters.ogle_ocvs import OGLEOCVSHarvester
 from custom_code.data_services.forms import (
     ExoClockQueryForm,
     GaiaDR3QueryForm,
@@ -358,6 +367,72 @@ class OGLEEWSDataServiceTests(TestCase):
 
     def test_ogle_years_probes_one_year_ahead(self):
         self.assertIn(2026, _ogle_years(current_year=2025))
+
+
+class OGLEOCVSDataServiceTests(TestCase):
+    def test_name_and_coordinate_response_are_normalized(self):
+        self.assertEqual(_normalize_ogle_ocvs_name('LMC-ECL-01000'), 'OGLE-LMC-ECL-01000')
+        self.assertEqual(_normalize_ogle_ocvs_name('OGLE LMC ECL 01000'), 'OGLE-LMC-ECL-01000')
+        self.assertEqual(
+            _ogle_ocvs_coordinates_url('LMC-ECL-01000'),
+            'https://ogledb.astrouw.edu.pl/~ogle/OCVS/radec.php?OGLE-LMC-ECL-01000&decimal=1',
+        )
+        self.assertEqual(
+            _parse_ogle_ocvs_coordinate_rows('OGLE-LMC-ECL-01000 72.034708 -69.853944\n'),
+            [{'name': 'OGLE-LMC-ECL-01000', 'ra': 72.034708, 'dec': -69.853944}],
+        )
+
+    def test_page_links_and_reduced_jd_photometry_are_parsed(self):
+        page_url = 'https://ogledb.astrouw.edu.pl/~ogle/OCVS/?OGLE-LMC-ECL-01000'
+        html = '''
+          <a href="data/I/00/OGLE-LMC-ECL-01000.dat">I-band</a>
+          <a href="data/V/00/OGLE-LMC-ECL-01000.dat">V-band</a>
+          <a href="../CVS/o.php?OGLE-LMC-ECL-01000">OGLE-III</a>
+        '''
+        links = _extract_ogle_ocvs_page_links(html, 'OGLE-LMC-ECL-01000', page_url)
+
+        self.assertEqual(links['I'], 'https://ogledb.astrouw.edu.pl/~ogle/OCVS/data/I/00/OGLE-LMC-ECL-01000.dat')
+        self.assertEqual(links['V'], 'https://ogledb.astrouw.edu.pl/~ogle/OCVS/data/V/00/OGLE-LMC-ECL-01000.dat')
+        self.assertEqual(links['cvs'], 'https://ogledb.astrouw.edu.pl/~ogle/CVS/o.php?OGLE-LMC-ECL-01000')
+        self.assertEqual(
+            _parse_ogle_ocvs_photometry_rows('5261.55766 18.697 0.033\n'),
+            [{'hjd': 2455261.55766, 'mag': 18.697, 'magerr': 0.033}],
+        )
+
+    @patch.object(OGLEOCVSDataService, '_request_text')
+    def test_query_targets_ingests_i_and_v_photometry(self, request_text):
+        request_text.side_effect = [
+            'OGLE-LMC-ECL-01000 72.034708 -69.853944\n',
+            '<a href="data/I/00/OGLE-LMC-ECL-01000.dat">I</a>'
+            '<a href="data/V/00/OGLE-LMC-ECL-01000.dat">V</a>',
+            '5261.55766 18.697 0.033\n',
+            '5275.53339 19.124 0.016\n',
+        ]
+
+        service = OGLEOCVSDataService()
+        parameters = service.build_query_parameters({'target_name': 'LMC-ECL-01000'})
+        results = service.query_targets(parameters)
+
+        self.assertEqual(results[0]['name'], 'OGLE-LMC-ECL-01000')
+        self.assertEqual(results[0]['aliases'], ['OGLE-LMC-ECL-01000'])
+        photometry = results[0]['reduced_datums']['photometry']
+        self.assertEqual([datum['value']['filter'] for datum in photometry], ['OGLE(I)', 'OGLE(V)'])
+
+    def test_harvester_maps_ocvs_target_metadata(self):
+        harvester = OGLEOCVSHarvester()
+        harvester.catalog_data = {
+            'name': 'OGLE-LMC-T2CEP-005',
+            'ra': 72.034708,
+            'dec': -69.853944,
+        }
+
+        target = harvester.to_target()
+
+        self.assertEqual(target.name, 'OGLE-LMC-T2CEP-005')
+        self.assertEqual(target.type, 'SIDEREAL')
+        self.assertEqual(target.epoch, 2000.0)
+        self.assertEqual(target.classification, 'Variable star-other')
+        self.assertEqual(target.description, 'OGLE variable star')
 
 
 class ExoClockDataServiceTests(TestCase):
@@ -1754,6 +1829,13 @@ class CatalogServiceRegistrationTests(TestCase):
         from tom_catalogs.harvester import get_service_classes
 
         self.assertIn('OGLE EWS', get_service_classes())
+
+    def test_ogle_ocvs_is_listed_in_both_service_selectors(self):
+        from tom_catalogs.harvester import get_service_classes
+        from custom_code.tasks import _get_data_service_classes
+
+        self.assertIn('OGLE OCVS', get_service_classes())
+        self.assertIn('OGLEOCVS', _get_data_service_classes())
 
     def test_moa_is_listed_in_catalog_services(self):
         from tom_catalogs.harvester import get_service_classes
