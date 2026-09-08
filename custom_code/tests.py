@@ -1494,6 +1494,7 @@ class ASASSNDataServiceTests(TestCase):
         self.assertEqual(params['radius_arcsec'], 7.0)
 
     def test_query_targets_handles_missing_lightcurve_tables(self):
+        """A catalogue match with no photometry still yields the ASAS-SN id as an alias."""
         service = ASASSNDataService()
 
         with patch.object(service, 'query_service', return_value={
@@ -1503,6 +1504,24 @@ class ASASSNDataServiceTests(TestCase):
             'source_location': 'https://example.invalid/asassn/123',
             'ra': 12.3,
             'dec': -45.6,
+        }):
+            results = service.query_targets({'ra': 12.3, 'dec': -45.6})
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['aliases'], ['123'])
+        self.assertEqual(results[0]['reduced_datums'], {'photometry': []})
+
+    def test_query_targets_returns_nothing_without_any_match(self):
+        service = ASASSNDataService()
+
+        with patch.object(service, 'query_service', return_value={
+            'asassn_id': None,
+            'lc_filtered': None,
+            'lc_limits': None,
+            'source_location': None,
+            'ra': 12.3,
+            'dec': -45.6,
+            'transient': None,
         }):
             results = service.query_targets({'ra': 12.3, 'dec': -45.6})
 
@@ -1593,6 +1612,91 @@ class ASASSNDataServiceTests(TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['name'], 'ASASSN-17cf')
         self.assertEqual(results[0]['aliases'], ['661428703026/ASASSN-17cf'])
+
+    def test_query_service_ingests_non_detections_as_upper_limits(self):
+        """ASAS-SN flags non-detections with mag_err=99.999, not a negative error."""
+        import pandas as pd
+
+        service = ASASSNDataService()
+        lc_data = pd.DataFrame([
+            {'jd': 2458000.5, 'mag': 15.0, 'mag_err': 0.05, 'limit': 17.0, 'phot_filter': 'g'},
+            {'jd': 2458001.5, 'mag': 16.5, 'mag_err': 99.999, 'limit': 16.5, 'phot_filter': 'g'},
+        ])
+
+        client = Mock()
+        client.cone_search.side_effect = [
+            pd.DataFrame([{'asas_sn_id': 661428703026, 'ra_deg': 12.3, 'dec_deg': -45.6}]),
+            {661428703026: Mock(data=lc_data)},
+        ]
+
+        with patch('custom_code.data_services.asassn_dataservice._fetch_transient_rows', return_value=[]), patch(
+            'custom_code.data_services.asassn_dataservice.SkyPatrolClient',
+            return_value=client,
+        ):
+            results = service.query_service({'ra': 12.3, 'dec': -45.6, 'radius_arcsec': 7.0})
+
+        self.assertEqual(len(results['lc_filtered']), 1)
+        self.assertEqual(len(results['lc_limits']), 1)
+
+        datums = service._build_photometry_datums(results['lc_filtered'], results['lc_limits'])
+        self.assertEqual(len(datums), 2)
+        limit_datums = [d for d in datums if d['value']['error'] < 0]
+        self.assertEqual(len(limit_datums), 1)
+        self.assertEqual(limit_datums[0]['value']['magnitude'], 16.5)
+        self.assertEqual(limit_datums[0]['value']['filter'], 'ASASSN(g)')
+
+    def test_query_service_keeps_asassn_id_integral(self):
+        """A numeric-only result row must not upcast the catalogue id to a float."""
+        import pandas as pd
+
+        service = ASASSNDataService()
+        client = Mock()
+        client.cone_search.return_value = pd.DataFrame([
+            {'asas_sn_id': 661428703026, 'ra_deg': 12.3, 'dec_deg': -45.6},
+        ])
+
+        with patch('custom_code.data_services.asassn_dataservice._fetch_transient_rows', return_value=[]), patch(
+            'custom_code.data_services.asassn_dataservice.SkyPatrolClient',
+            return_value=client,
+        ):
+            results = service.query_service({
+                'ra': 12.3, 'dec': -45.6, 'radius_arcsec': 7.0, 'include_photometry': False,
+            })
+
+        self.assertEqual(results['asassn_id'], 661428703026)
+        self.assertEqual(
+            results['source_location'],
+            'http://asas-sn.ifa.hawaii.edu/skypatrol/objects/661428703026',
+        )
+
+    def test_allow_child_processes_unblocks_daemonic_download(self):
+        """pyasassn uses multiprocessing.Pool, which a daemon worker may not start."""
+        import multiprocessing
+
+        from custom_code.data_services.asassn_dataservice import _allow_child_processes
+
+        config = multiprocessing.current_process()._config
+        original = config.get('daemon')
+        config['daemon'] = True
+        try:
+            with _allow_child_processes():
+                self.assertFalse(config['daemon'])
+            self.assertTrue(config['daemon'])
+        finally:
+            if original is None:
+                config.pop('daemon', None)
+            else:
+                config['daemon'] = original
+
+    def test_find_transient_by_cone_respects_radius(self):
+        from custom_code.data_services.asassn_dataservice import _find_transient_by_cone
+
+        rows = [{'name': 'ASASSN-25ab', 'ra': 12.3, 'dec': -45.6}]
+        self.assertIsNone(_find_transient_by_cone(rows, 12.3, -45.6 + 2.0 / 1000, 5.0))
+        self.assertEqual(
+            _find_transient_by_cone(rows, 12.3, -45.6 + 2.0 / 1000, 10.0)['name'],
+            'ASASSN-25ab',
+        )
 
     def test_query_targets_does_not_emit_other_id_as_asassn_alias(self):
         service = ASASSNDataService()

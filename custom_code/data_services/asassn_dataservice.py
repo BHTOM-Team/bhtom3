@@ -1,6 +1,7 @@
 import logging
+import multiprocessing
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from io import StringIO
 import re
 from django.core.cache import cache
@@ -35,6 +36,7 @@ ASASSN_TRANSIENTS_CACHE_KEY = 'asassn_transient_rows'
 ASASSN_TRANSIENTS_CACHE_TIMEOUT = 3600
 ASASSN_TRANSIENT_SEARCH_RADIUS_ARCSEC = 7.0
 ASASSN_SKYPATROL_TIMEOUT_SECONDS = 60
+ASASSN_NON_DETECTION_MAG_ERR = 99.0
 
 
 def _to_float(value):
@@ -42,6 +44,13 @@ def _to_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _to_asassn_id(value):
+    number = _to_float(value)
+    if number is None:
+        return None
+    return int(number)
 
 
 def _asassn_alias(id):
@@ -197,9 +206,10 @@ def _find_transient_by_cone(rows, ra_deg, dec_deg, radius_arcsec):
     if ra is None or dec is None or radius is None or radius <= 0:
         return None
 
-    center = SkyCoord(ra=ra * u.deg, dec=dec * u.deg)
-    best_row = None
-    best_sep = None
+    # Only rows carrying an ASAS-SN designation can contribute an ASAS-SN alias.
+    candidates = []
+    candidate_ra = []
+    candidate_dec = []
     for row in rows:
         if not row.get('name'):
             continue
@@ -207,12 +217,36 @@ def _find_transient_by_cone(rows, ra_deg, dec_deg, radius_arcsec):
         row_dec = _to_float(row.get('dec'))
         if row_ra is None or row_dec is None:
             continue
-        candidate = SkyCoord(ra=row_ra * u.deg, dec=row_dec * u.deg)
-        separation = center.separation(candidate)
-        if separation <= radius * u.arcsec and (best_sep is None or separation < best_sep):
-            best_row = row
-            best_sep = separation
-    return best_row
+        candidates.append(row)
+        candidate_ra.append(row_ra)
+        candidate_dec.append(row_dec)
+    if not candidates:
+        return None
+
+    # Vectorised: the transient table holds ~10k rows and this runs for every target.
+    center = SkyCoord(ra=ra * u.deg, dec=dec * u.deg)
+    separations = center.separation(
+        SkyCoord(ra=np.asarray(candidate_ra) * u.deg, dec=np.asarray(candidate_dec) * u.deg)
+    ).arcsec
+    best_index = int(np.argmin(separations))
+    if separations[best_index] > radius:
+        return None
+    return candidates[best_index]
+
+
+@contextmanager
+def _allow_child_processes():
+
+    process = multiprocessing.current_process()
+    config = getattr(process, '_config', None)
+    if not isinstance(config, dict) or not config.get('daemon'):
+        yield
+        return
+    config['daemon'] = False
+    try:
+        yield
+    finally:
+        config['daemon'] = True
 
 
 def _run_with_timeout(label, func, timeout_seconds=ASASSN_SKYPATROL_TIMEOUT_SECONDS):
@@ -276,7 +310,7 @@ class ASASSNDataService(DataService):
                         transient_rows,
                         ra,
                         dec,
-                        ASASSN_TRANSIENT_SEARCH_RADIUS_ARCSEC,
+                        max(radius_arcsec, ASASSN_TRANSIENT_SEARCH_RADIUS_ARCSEC),
                     )
                 logger.info(
                     'ASAS-SN transient lookup finished: match=%s',
@@ -327,26 +361,33 @@ class ASASSNDataService(DataService):
                 t = SkyCoord(ra=ra, dec=dec, unit='deg')
                 separations = t.separation(SkyCoord(ra=query['ra_deg']*u.degree, dec=query['dec_deg']*u.degree, unit=(u.deg, u.deg)))
                 min_index = np.argmin(separations)
-                asassn_id = query.iloc[min_index]['asas_sn_id']
+                asassn_id = _to_asassn_id(query['asas_sn_id'].iloc[min_index])
                 source_location = f"http://asas-sn.ifa.hawaii.edu/skypatrol/objects/{asassn_id}"
                 logger.info('ASAS-SN Sky Patrol master-list query finished: asassn_id=%s', asassn_id)
                 if query_parameters.get('include_photometry', True):
                     logger.info('ASAS-SN Sky Patrol photometry download starting: asassn_id=%s', asassn_id)
 
                     def _download_lightcurves():
-                        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                        # pyasassn splits the download into chunks of 1000 ids; a single-target
+                        # cone search is always one chunk, so extra pool workers only add
+                        # processes to tear down.
+                        with redirect_stdout(StringIO()), redirect_stderr(StringIO()), _allow_child_processes():
                             return client.cone_search(
                                 ra_deg=ra,
                                 dec_deg=dec,
                                 radius=radius_arcsec / 3600.0,
                                 download=True,
-                                threads=8,
+                                threads=1,
                             )
 
                     lcs = _run_with_timeout('ASAS-SN Sky Patrol photometry download', _download_lightcurves)
                     lc = lcs[asassn_id]
-                    lc_filtered = lc.data[(lc.data['mag_err'] < 0.5) & (lc.data['mag'] <= 99) & (lc.data['mag_err'] > 0)]
-                    lc_limits = lc.data[(lc.data['mag_err'] < 0) & (lc.data['mag'] <= 99)]
+                    mag_err = lc.data['mag_err']
+                    # ASAS-SN marks non-detections with mag_err = 99.999 (mag holds the limiting
+                    # magnitude). Older exports used a negative mag_err, so accept both conventions.
+                    is_limit = (mag_err >= ASASSN_NON_DETECTION_MAG_ERR) | (mag_err < 0)
+                    lc_filtered = lc.data[~is_limit & (mag_err > 0) & (mag_err < 0.5) & (lc.data['mag'] <= 99)]
+                    lc_limits = lc.data[is_limit & (lc.data['limit'] <= 99)]
                     logger.info(
                         'ASAS-SN Sky Patrol photometry download finished: asassn_id=%s detections=%s limits=%s',
                         asassn_id,
