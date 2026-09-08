@@ -98,7 +98,7 @@ class OGLEEWSQueryForm(BaseQueryForm):
     target_name = forms.CharField(
         required=False,
         label='OGLE EWS name',
-        help_text='You can enter 2011-BLG-0001 or OGLE-2011-BLG-0001.',
+        help_text='Enter an OGLE EWS, OGLE3-ULENS, GD, LMC, or SMC microlensing name, or use RA+Dec.',
     )
     ra = ra_field()
     dec = dec_field()

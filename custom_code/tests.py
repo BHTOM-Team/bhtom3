@@ -38,12 +38,16 @@ from bhtom3.bhtom_observations.facilities.lco import (
     resolve_lco_bhtom2_observatory_oname,
 )
 from custom_code.data_services.ogle_ews_dataservice import (
+    OGLE_ARCHIVE_SOURCES,
     OGLEEWSDataService,
     _dec_to_decimal,
+    _is_archive_target_name,
+    _legacy_magellanic_rows,
     _normalize_target_name,
     _ogle_event_url,
     _ogle_phot_url,
     _ogle_years,
+    _parse_archive_catalog_rows,
     _parse_lenses_rows,
     _parse_photometry_rows,
     _ra_to_decimal,
@@ -320,6 +324,8 @@ class OGLEEWSDataServiceTests(TestCase):
         ]
 
         with patch.object(service, '_fetch_alert_rows', return_value=alert_rows), patch.object(
+            service, '_fetch_archive_catalog_rows', return_value=[]
+        ), patch.object(
             service,
             '_fetch_photometry_rows',
             return_value=photometry_rows,
@@ -353,8 +359,109 @@ class OGLEEWSDataServiceTests(TestCase):
         )
         self.assertEqual(
             _parse_photometry_rows('2455260.85336 17.131 0.015 5.94 1033.0\n')[0],
-            {'hjd': 2455260.85336, 'mag': 17.131, 'magerr': 0.015},
+            {'hjd': 2455260.85336, 'mag': 17.131, 'magerr': 0.015, 'band': 'I'},
         )
+
+    def test_parse_published_microlensing_catalogues(self):
+        sources = {source['key']: source for source in OGLE_ARCHIVE_SOURCES}
+        ogle2_bulge = _parse_archive_catalog_rows(
+            'BUL_SC2 65831 1999-BUL-44 18:04:06.85 -29:01:17.2 1.97 -3.54\n',
+            sources['ogle2_bulge'],
+        )[0]
+        bulge = _parse_archive_catalog_rows(
+            '0001 17:51:44.00 -30:17:20.7 BLG100.1 27898 2007-BLG-258 -\n',
+            sources['ogle3_bulge_a'],
+        )[0]
+        ogle4_bulge = _parse_archive_catalog_rows(
+            'BLG617.24.41328 BLG617.24 41328 17:13:54.30 -29:36:35.5 '
+            '258.47625 -29.60986 0 0 2457462 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 '
+            'OGLE-2016-BLG-0231\n',
+            sources['ogle4_bulge'],
+        )[0]
+        disk = _parse_archive_catalog_rows(
+            'GD1793.08.3677 GD1793.08 3677 06:37:40.01 +13:57:18.5 '
+            '99.416704 13.955137 0 0 2457686 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 '
+            'ASASSN-16li\n',
+            sources['ogle4_disk'],
+        )[0]
+        lmc = _parse_archive_catalog_rows(
+            'OGLE-LMC-15 05:33:05.32 -69:30:31.2 15.82 1.50\n',
+            sources['ogle_lmc'],
+        )[0]
+        smc = _parse_archive_catalog_rows(
+            'OGLE-SMC-02 00:40:28.12 -73:44:46.5 SMC713.01.1243 18.427\n',
+            sources['ogle_smc'],
+        )[0]
+
+        self.assertEqual(ogle2_bulge['name'], 'BUL_SC2.65831')
+        self.assertEqual(ogle2_bulge['aliases'], ['OGLE-1999-BUL-44'])
+        self.assertTrue(ogle2_bulge['photometry'][0]['url'].endswith('/2.65831.dat'))
+        self.assertEqual(ogle2_bulge['photometry'][0]['hjd_offset'], 2450000.0)
+        self.assertEqual(bulge['name'], 'OGLE3-ULENS-0001')
+        self.assertEqual(bulge['aliases'], ['OGLE-2007-BLG-258'])
+        self.assertEqual(bulge['photometry'][0]['hjd_offset'], 2450000.0)
+        self.assertEqual(ogle4_bulge['aliases'], ['OGLE-2016-BLG-0231'])
+        self.assertEqual(disk['name'], 'GD1793.08.3677')
+        self.assertEqual(disk['aliases'], ['ASASSN-16li'])
+        self.assertEqual(lmc['name'], 'LMC-15')
+        self.assertAlmostEqual(lmc['ra'], 83.2721666667)
+        self.assertEqual(smc['name'], 'SMC-02')
+
+    def test_legacy_magellanic_events_include_i_and_v_photometry(self):
+        rows = {row['name']: row for row in _legacy_magellanic_rows()}
+
+        self.assertIn('LMC-01', rows)
+        self.assertIn('LMC-03', rows)
+        self.assertIn('LMC-20', rows)
+        self.assertIn('SMC-01', rows)
+        self.assertEqual({item['band'] for item in rows['LMC-03']['photometry']}, {'I', 'V'})
+        self.assertTrue(all(item['hjd_offset'] == 2450000.0 for item in rows['LMC-03']['photometry']))
+        self.assertEqual(rows['LMC-03']['aliases'], ['OGLE-2007-LMC-01'])
+
+    def test_ogle3_photometry_offset_is_converted_to_full_hjd(self):
+        rows = _parse_photometry_rows('2072.760422 18.085031 0.005950\n', hjd_offset=2450000.0)
+        self.assertAlmostEqual(rows[0]['hjd'], 2452072.760422)
+
+    def test_gaia18cta_matches_lmc_catalogue_and_returns_i_photometry(self):
+        service = OGLEEWSDataService()
+        lmc_row = {
+            'name': 'LMC-15',
+            'ra': 83.2721666667,
+            'dec': -69.5086666667,
+            'aliases': [],
+            'photometry': [{
+                'url': 'https://ftp.astrouw.edu.pl/ogle/ogle4/LMC_OPTICAL_DEPTH/phot/OGLE-LMC-15.dat',
+                'band': 'I',
+            }],
+            'source_location': 'https://ftp.astrouw.edu.pl/ogle/ogle4/LMC_OPTICAL_DEPTH/',
+        }
+
+        with patch.object(service, '_fetch_alert_rows', return_value=[]), patch.object(
+            service, '_fetch_archive_catalog_rows', return_value=[lmc_row]
+        ), patch.object(
+            service,
+            '_fetch_photometry_rows',
+            return_value=[{'hjd': 2458383.5, 'mag': 15.82, 'magerr': 0.02, 'band': 'I'}],
+        ):
+            results = service.query_targets({
+                'target_name': 'Gaia18cta',
+                'ra': 83.2721666667,
+                'dec': -69.5086666667,
+                'radius_arcsec': 5.0,
+                'include_photometry': True,
+            })
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'OGLE-LMC-15')
+        self.assertEqual(results[0]['aliases'], ['OGLE-LMC-15'])
+        datum = results[0]['reduced_datums']['photometry'][0]
+        self.assertEqual(datum['value']['filter'], 'OGLE(I)')
+        self.assertEqual(datum['value']['magnitude'], 15.82)
+
+    def test_build_photometry_datums_preserves_v_band(self):
+        rows = _parse_photometry_rows('2455260.85336 17.131 0.015\n', band='V')
+        datum = OGLEEWSDataService()._build_photometry_datums(rows)[0]
+        self.assertEqual(datum['value']['filter'], 'OGLE(V)')
 
     def test_ogle_2026_helpers_use_new_ews_layout(self):
         self.assertEqual(
@@ -368,6 +475,22 @@ class OGLEEWSDataServiceTests(TestCase):
 
     def test_ogle_years_probes_one_year_ahead(self):
         self.assertIn(2026, _ogle_years(current_year=2025))
+
+    def test_gaia_name_limits_ews_lookup_to_its_year(self):
+        with patch('custom_code.data_services.ogle_ews_dataservice.requests.get') as get:
+            get.return_value.status_code = 404
+            OGLEEWSDataService()._fetch_alert_rows(target_name='Gaia18cta')
+
+        get.assert_called_once()
+        self.assertIn('/ews/2018/lenses.par', get.call_args.args[0])
+
+    def test_archive_name_skips_yearly_ews_catalogues(self):
+        self.assertTrue(_is_archive_target_name('OGLE-LMC-15'))
+        with patch('custom_code.data_services.ogle_ews_dataservice.requests.get') as get:
+            rows = OGLEEWSDataService()._fetch_alert_rows(target_name='OGLE-LMC-15')
+
+        self.assertEqual(rows, [])
+        get.assert_not_called()
 
 
 class OGLEOCVSDataServiceTests(TestCase):
@@ -1121,6 +1244,33 @@ class DataServicePersistenceTests(TestCase):
         self.assertEqual(params['ra'], 97.63665)
         self.assertEqual(params['dec'], 29.672296)
         self.assertEqual(params['radius_arcsec'], 30.0)
+
+    def test_build_query_parameters_for_ogle_ews_keeps_generic_target_name(self):
+        target = Target.objects.create(
+            name='Gaia18cta',
+            type=Target.SIDEREAL,
+            ra=83.2721666667,
+            dec=-69.5086666667,
+            epoch=2000.0,
+        )
+
+        params = _build_query_parameters_for_service(target, 'OGLEEWS', OGLEEWSDataService())
+
+        self.assertEqual(params['target_name'], 'Gaia18cta')
+
+    def test_build_query_parameters_for_ogle_ews_accepts_lmc_alias(self):
+        target = Target.objects.create(
+            name='Gaia18cta',
+            type=Target.SIDEREAL,
+            ra=83.2721666667,
+            dec=-69.5086666667,
+            epoch=2000.0,
+        )
+        target.aliases.create(name='OGLE-LMC-15')
+
+        params = _build_query_parameters_for_service(target, 'OGLEEWS', OGLEEWSDataService())
+
+        self.assertEqual(params['target_name'], 'LMC-15')
 
     def test_build_query_parameters_for_asassn_includes_target_names(self):
         target = Target.objects.create(name='AT2025abc', type=Target.SIDEREAL, ra=97.63665, dec=29.672296, epoch=2000.0)
