@@ -142,7 +142,7 @@ class MOAQueryForm(BaseQueryForm):
     target_name = forms.CharField(
         required=False,
         label='MOA event name',
-        help_text='You can enter 2019-BLG-397, MOA-2019-BLG-397, or use RA+Dec.',
+        help_text='You can enter 2019-BLG-397, MOA-2018-LMC-003, or use RA+Dec.',
     )
     ra = ra_field()
     dec = dec_field()

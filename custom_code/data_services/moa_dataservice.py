@@ -26,12 +26,16 @@ logger = logging.getLogger(__name__)
 MOA_ARCHIVE_BASE_URL = 'https://moaprime.massey.ac.nz/moaarchive'
 MOA_ARCHIVE_EVENT_BASE_URL = f'{MOA_ARCHIVE_BASE_URL}/event/'
 MOA_ARCHIVE_PHOT_BASE_URL = f'{MOA_ARCHIVE_EVENT_BASE_URL}phot/'
+MOA_ARCHIVE_LIST_BASE_URL = f'{MOA_ARCHIVE_BASE_URL}/list/'
 MOA_ALERT_BASE_URL = 'https://moaprime.massey.ac.nz/alerts'
 MOA_ALERT_DISPLAY_BASE_URL = f'{MOA_ALERT_BASE_URL}/display/'
 MOA_CATALOG_URL = (
     'https://raw.githubusercontent.com/mauritzwicker/queryMOAmicrolensing/main/moa_fullEvents.csv'
 )
-EVENT_NAME_RE = re.compile(r'^(?:MOA-)?(?P<year>\d{4})-BLG-(?P<number>\d{1,4})$', re.IGNORECASE)
+EVENT_NAME_RE = re.compile(
+    r'^(?:MOA-)?(?P<year>\d{4})-(?P<field>BLG|LMC|SMC)-(?P<number>\d{1,4})$',
+    re.IGNORECASE,
+)
 
 REQUEST_TIMEOUT = DATA_SERVICE_HTTP_TIMEOUT
 REQUEST_VERIFY = False
@@ -70,7 +74,10 @@ def _normalize_event_name(value):
     match = EVENT_NAME_RE.match(event_name)
     if not match:
         return event_name
-    return f"MOA-{match.group('year')}-BLG-{int(match.group('number')):04d}"
+    year = int(match.group('year'))
+    field = match.group('field').upper()
+    width = 3 if field in {'LMC', 'SMC'} and year < 2025 else 4
+    return f'MOA-{year:04d}-{field}-{int(match.group("number")):0{width}d}'
 
 
 def _event_suffix(normalized_name, width=None):
@@ -79,7 +86,7 @@ def _event_suffix(normalized_name, width=None):
         return _normalize_event_name(normalized_name).removeprefix('MOA-')
     number = int(match.group('number'))
     width = width or len(match.group('number'))
-    return f"{match.group('year')}-BLG-{number:0{width}d}"
+    return f"{match.group('year')}-{match.group('field').upper()}-{number:0{width}d}"
 
 
 def _event_suffix_candidates(value):
@@ -95,6 +102,18 @@ def _event_suffix_candidates(value):
         if suffix not in candidates:
             candidates.append(suffix)
     return candidates
+
+
+def _candidate_archive_years(value):
+    text = str(value or '').strip()
+    event_match = EVENT_NAME_RE.match(_normalize_event_name(text))
+    if event_match:
+        return [int(event_match.group('year'))]
+
+    transient_match = re.search(r'(?i)(?:^|\b)(?:gaia|asassn-?)(?P<year>\d{2})', text)
+    if transient_match:
+        return [2000 + int(transient_match.group('year'))]
+    return []
 
 
 def _parse_event_page(html_text):
@@ -240,6 +259,24 @@ class MOADataService(DataService):
             if best_match is not None:
                 matches = [best_match]
 
+        # The third-party CSV omits historical Magellanic Cloud events.  MOA's
+        # own per-year listing contains them, so consult it only when the fast
+        # catalog lookup failed and the supplied transient name identifies a year.
+        if not matches:
+            for year in _candidate_archive_years(target_name):
+                try:
+                    archive_rows = self._fetch_archive_rows(year)
+                except Exception as exc:
+                    logger.warning('MOA archive listing lookup failed for %s: %s', year, exc)
+                    continue
+                matches = self._find_by_name(archive_rows, target_name)
+                if not matches and ra is not None and dec is not None:
+                    best_match = self._find_by_cone(archive_rows, ra, dec, radius_arcsec)
+                    if best_match is not None:
+                        matches = [best_match]
+                if matches:
+                    break
+
         photometry_by_name = {}
         event_pages_by_name = {}
         photometry_urls = {}
@@ -362,6 +399,30 @@ class MOADataService(DataService):
             normalized = dict(row)
             normalized['Event'] = _normalize_event_name(row.get('Event'))
             rows.append(normalized)
+        return rows
+
+    def _fetch_archive_rows(self, year):
+        response = self._request(urljoin(MOA_ARCHIVE_LIST_BASE_URL, str(int(year))))
+        payload = response.json()
+        headings = payload.get('metadata') or []
+        rows = []
+        for entry in payload.get('entries') or []:
+            values = dict(zip(headings, entry))
+            event_name = _normalize_event_name(values.get('Name'))
+            ra_text = values.get('RA')
+            dec_text = values.get('Dec')
+            try:
+                coordinates = SkyCoord(str(ra_text), str(dec_text), unit=(u.hourangle, u.deg))
+            except (TypeError, ValueError):
+                continue
+            rows.append({
+                'Event': event_name,
+                'RA': ra_text,
+                'Dec': dec_text,
+                'ra_deg': coordinates.ra.deg,
+                'dec_deg': coordinates.dec.deg,
+                'Assessment': values.get('Remarks'),
+            })
         return rows
 
     def _find_by_name(self, rows, target_name):

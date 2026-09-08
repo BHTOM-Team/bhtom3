@@ -58,6 +58,7 @@ from custom_code.data_services.ogle_ocvs_dataservice import (
 )
 from custom_code.data_services.moa_dataservice import (
     MOADataService,
+    _candidate_archive_years,
     _event_suffix_candidates,
     _extract_calibration,
     _normalize_event_name as _normalize_moa_event_name,
@@ -654,6 +655,9 @@ class MOADataServiceTests(TestCase):
         self.assertEqual(_normalize_moa_event_name('2019-BLG-397'), 'MOA-2019-BLG-0397')
         self.assertEqual(_normalize_moa_event_name('MOA-2019-BLG-0397'), 'MOA-2019-BLG-0397')
         self.assertEqual(_event_suffix_candidates('MOA-2019-BLG-0397'), ['2019-BLG-397', '2019-BLG-0397'])
+        self.assertEqual(_normalize_moa_event_name('MOA-2018-LMC-003'), 'MOA-2018-LMC-003')
+        self.assertEqual(_event_suffix_candidates('MOA-2018-LMC-003'), ['2018-LMC-003', '2018-LMC-0003'])
+        self.assertEqual(_candidate_archive_years('Gaia18cta'), [2018])
 
         calibration = _extract_calibration('I = 27.6026 - 2.5 log10(Delta Flux + 0.0000)')
         self.assertEqual(calibration['band'], 'Red')
@@ -754,6 +758,58 @@ class MOADataServiceTests(TestCase):
         )
         self.assertEqual(photometry[0]['value']['filter'], 'MOA(Red)')
         self.assertAlmostEqual(photometry[0]['value']['magnitude'], 20.1026)
+
+    def test_gaia18cta_falls_back_to_moa_year_listing(self):
+        service = MOADataService()
+        archive_rows = [{
+            'Event': 'MOA-2018-LMC-003',
+            'ra_deg': 83.272,
+            'dec_deg': -69.508733,
+        }]
+        event_page = {
+            'event_name': 'MOA-2018-LMC-003',
+            'page_url': 'https://moaprime.massey.ac.nz/moaarchive/event/2018-LMC-003',
+            'phot_url': 'https://moaprime.massey.ac.nz/moaarchive/event/phot/2018-LMC-003',
+            'calibration_equation': 'I = 0.0000 - 2.5 log10(Delta Flux + 0.0000)',
+        }
+
+        with patch.object(service, '_fetch_catalog_rows', return_value=[]), patch.object(
+            service, '_fetch_archive_rows', return_value=archive_rows
+        ) as fetch_archive, patch.object(service, '_fetch_event_page', return_value=event_page), patch.object(
+            service, '_fetch_calibrated_photometry', return_value=[]
+        ):
+            results = service.query_targets({
+                'target_name': 'Gaia18cta',
+                'ra': 83.272,
+                'dec': -69.508733,
+                'radius_arcsec': 5.0,
+                'include_photometry': True,
+            })
+
+        fetch_archive.assert_called_once_with(2018)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'MOA-2018-LMC-003')
+        self.assertEqual(results[0]['aliases'], ['MOA-2018-LMC-003'])
+        self.assertNotIn('reduced_datums', results[0])
+        self.assertEqual(results[0]['source_location'], event_page['page_url'])
+
+    def test_fetch_archive_rows_converts_sexagesimal_coordinates(self):
+        service = MOADataService()
+        response = Mock()
+        response.json.return_value = {
+            'metadata': ['Name', 'MOA phase', 'Field', 'Chip', 'RA', 'Dec', 'Remarks'],
+            'entries': [[
+                'MOA-2018-LMC-003', 'MOA-2', 'lmc9', '1',
+                '+5:33:05.28', '-69:30:31.44', None,
+            ]],
+        }
+
+        with patch.object(service, '_request', return_value=response):
+            rows = service._fetch_archive_rows(2018)
+
+        self.assertEqual(rows[0]['Event'], 'MOA-2018-LMC-003')
+        self.assertAlmostEqual(rows[0]['ra_deg'], 83.272, places=5)
+        self.assertAlmostEqual(rows[0]['dec_deg'], -69.5087333333, places=5)
 
     def test_fetch_calibrated_photometry_warns_when_flux_calibration_missing(self):
         service = MOADataService()
@@ -1076,6 +1132,35 @@ class DataServicePersistenceTests(TestCase):
         self.assertEqual(params['target_names'], ['AT2025abc', 'ASASSN-25ab'])
         self.assertEqual(params['ra'], 97.63665)
         self.assertEqual(params['dec'], 29.672296)
+
+    def test_build_query_parameters_for_moa_uses_gaia_alert_name(self):
+        target = Target.objects.create(
+            name='Gaia18cta',
+            type=Target.SIDEREAL,
+            ra=83.272,
+            dec=-69.508733,
+            epoch=2000.0,
+        )
+
+        params = _build_query_parameters_for_service(target, 'MOA', MOADataService())
+
+        self.assertEqual(params['target_name'], 'Gaia18cta')
+        self.assertEqual(params['ra'], 83.272)
+        self.assertEqual(params['dec'], -69.508733)
+
+    def test_build_query_parameters_for_moa_prefers_moa_alias(self):
+        target = Target.objects.create(
+            name='Gaia18cta',
+            type=Target.SIDEREAL,
+            ra=83.272,
+            dec=-69.508733,
+            epoch=2000.0,
+        )
+        target.aliases.create(name='MOA-2018-LMC-003')
+
+        params = _build_query_parameters_for_service(target, 'MOA', MOADataService())
+
+        self.assertEqual(params['target_name'], 'MOA-2018-LMC-003')
 
     def test_transit_ephemeris_computes_next_transit_from_bjd_tdb(self):
         target = Target.objects.create(name='TestTransit', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
