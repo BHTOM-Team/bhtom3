@@ -224,7 +224,8 @@ class MOADataService(DataService):
     update_on_daily_refresh = False
     info_url = MOA_ARCHIVE_BASE_URL
     service_notes = (
-        'Query MOA microlensing events by MOA name or cone search, and ingest calibrated MOA lightcurve photometry.'
+        'Query MOA microlensing events by MOA name or cone search, and ingest calibrated magnitudes or '
+        'raw difference-flux light curves when MOA does not publish a calibration.'
     )
 
     @classmethod
@@ -249,7 +250,14 @@ class MOADataService(DataService):
         dec = _to_float(query_parameters.get('dec'))
         radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 5.0
 
-        catalog_rows = self._fetch_catalog_rows()
+        try:
+            catalog_rows = self._fetch_catalog_rows()
+        except Exception as exc:
+            # The community CSV is a useful fast index, but MOA's own yearly
+            # archive remains authoritative and must still be queried if it is
+            # unavailable.
+            logger.warning('MOA community catalogue lookup failed: %s', exc)
+            catalog_rows = []
         matches = []
         if target_name:
             matches = self._find_by_name(catalog_rows, target_name)
@@ -529,10 +537,17 @@ class MOADataService(DataService):
 
         if reference_flux == 0.0 and zeropoint == 0.0:
             logger.warning(
-                'MOA data exists for %s but no flux calibration is provided.',
+                'MOA data exists for %s but no flux calibration is provided; ingesting difference flux.',
                 event_name or 'unknown event',
             )
-            return []
+            return [{
+                'jd': row['jd'],
+                'mjd': row['mjd'],
+                'flux': row['dflux'],
+                'flux_error': row['dflux_err'],
+                'flux_units': 'MOA difference flux',
+                'filter': f'MOA({band})',
+            } for row in raw_rows]
 
         calibrated_rows = []
         for row in raw_rows:
@@ -558,15 +573,21 @@ class MOADataService(DataService):
             mjd = _to_float(row.get('mjd'))
             magnitude = _to_float(row.get('magnitude'))
             magnitude_error = _to_float(row.get('error'))
+            flux = _to_float(row.get('flux'))
+            flux_error = _to_float(row.get('flux_error'))
             filter_name = str(row.get('filter') or '').strip()
-            if mjd is None or magnitude is None or not filter_name:
+            if mjd is None or (magnitude is None and flux is None) or not filter_name:
                 continue
-            value = {
-                'filter': filter_name,
-                'magnitude': magnitude,
-            }
-            if magnitude_error is not None and magnitude_error > 0:
-                value['error'] = magnitude_error
+            value = {'filter': filter_name}
+            if magnitude is not None:
+                value['magnitude'] = magnitude
+                if magnitude_error is not None and magnitude_error > 0:
+                    value['error'] = magnitude_error
+            else:
+                value['flux'] = flux
+                value['flux_units'] = str(row.get('flux_units') or 'difference flux')
+                if flux_error is not None and flux_error >= 0:
+                    value['flux_error'] = flux_error
             output.append({
                 'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
                 'value': value,

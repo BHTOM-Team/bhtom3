@@ -882,7 +882,7 @@ class MOADataServiceTests(TestCase):
         self.assertEqual(photometry[0]['value']['filter'], 'MOA(Red)')
         self.assertAlmostEqual(photometry[0]['value']['magnitude'], 20.1026)
 
-    def test_gaia18cta_falls_back_to_moa_year_listing(self):
+    def test_gaia18cta_falls_back_to_moa_year_listing_and_returns_difference_flux(self):
         service = MOADataService()
         archive_rows = [{
             'Event': 'MOA-2018-LMC-003',
@@ -899,7 +899,14 @@ class MOADataServiceTests(TestCase):
         with patch.object(service, '_fetch_catalog_rows', return_value=[]), patch.object(
             service, '_fetch_archive_rows', return_value=archive_rows
         ) as fetch_archive, patch.object(service, '_fetch_event_page', return_value=event_page), patch.object(
-            service, '_fetch_calibrated_photometry', return_value=[]
+            service, '_fetch_calibrated_photometry', return_value=[{
+                'jd': 2458371.99,
+                'mjd': 58371.49,
+                'flux': 4800000.0,
+                'flux_error': 12000.0,
+                'flux_units': 'MOA difference flux',
+                'filter': 'MOA(Red)',
+            }]
         ):
             results = service.query_targets({
                 'target_name': 'Gaia18cta',
@@ -913,8 +920,34 @@ class MOADataServiceTests(TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['name'], 'MOA-2018-LMC-003')
         self.assertEqual(results[0]['aliases'], ['MOA-2018-LMC-003'])
-        self.assertNotIn('reduced_datums', results[0])
+        photometry = results[0]['reduced_datums']['photometry']
+        self.assertEqual(len(photometry), 1)
+        self.assertEqual(photometry[0]['value']['flux'], 4800000.0)
+        self.assertEqual(photometry[0]['value']['flux_error'], 12000.0)
+        self.assertEqual(photometry[0]['value']['filter'], 'MOA(Red)')
         self.assertEqual(results[0]['source_location'], event_page['page_url'])
+
+    def test_gaia18cta_uses_moa_archive_when_community_catalogue_fails(self):
+        service = MOADataService()
+        archive_rows = [{
+            'Event': 'MOA-2018-LMC-003',
+            'ra_deg': 83.272,
+            'dec_deg': -69.508733,
+        }]
+
+        with patch.object(service, '_fetch_catalog_rows', side_effect=requests.RequestException('offline')), patch.object(
+            service, '_fetch_archive_rows', return_value=archive_rows
+        ) as fetch_archive:
+            result = service.query_service({
+                'target_name': 'Gaia18cta',
+                'ra': 83.272,
+                'dec': -69.508733,
+                'radius_arcsec': 5.0,
+                'include_photometry': False,
+            })
+
+        fetch_archive.assert_called_once_with(2018)
+        self.assertEqual(result['events'], archive_rows)
 
     def test_fetch_archive_rows_converts_sexagesimal_coordinates(self):
         service = MOADataService()
@@ -934,7 +967,7 @@ class MOADataServiceTests(TestCase):
         self.assertAlmostEqual(rows[0]['ra_deg'], 83.272, places=5)
         self.assertAlmostEqual(rows[0]['dec_deg'], -69.5087333333, places=5)
 
-    def test_fetch_calibrated_photometry_warns_when_flux_calibration_missing(self):
+    def test_fetch_photometry_preserves_difference_flux_when_calibration_missing(self):
         service = MOADataService()
         event_page = {
             'event_name': 'MOA-2003-BLG-0008',
@@ -950,9 +983,16 @@ class MOADataServiceTests(TestCase):
         ) as mocked_warning:
             rows = service._fetch_calibrated_photometry(event_page)
 
-        self.assertEqual(rows, [])
+        self.assertEqual(rows, [{
+            'jd': 2452909.1,
+            'mjd': 52908.6,
+            'flux': 123.0,
+            'flux_error': 4.0,
+            'flux_units': 'MOA difference flux',
+            'filter': 'MOA(Red)',
+        }])
         mocked_warning.assert_called_with(
-            'MOA data exists for %s but no flux calibration is provided.',
+            'MOA data exists for %s but no flux calibration is provided; ingesting difference flux.',
             'MOA-2003-BLG-0008',
         )
 
