@@ -888,7 +888,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     GAIA_DR3_EPOCH_UTC_JD_OFFSET = 2455197.5
     MPC_PLOT_OBSERVATORY_CODES = {
         'T05', 'T08', 'W68', 'M22', 'R17', 'I41', 'G96', '703', 'C51', 'F51', 'F52',
-        '704', '699', '691', '645', 'C57', 'C55', 'X05',
+        '704', '699', '691', '645', 'C57', 'C55', 'W84', 'X05',
     }
     MPC_OBSERVATORY_GROUP_ORDER = {
         'ATLAS': 1,
@@ -916,6 +916,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         '645': {'label': 'Apache Point-Sloan Digital Sky Survey (645)', 'group': 'Other', 'group_sort_order': 6},
         'C57': {'label': 'TESS (C57)', 'group': 'Other', 'group_sort_order': 6},
         'C55': {'label': 'Kepler (C55)', 'group': 'Other', 'group_sort_order': 6},
+        'W84': {'label': 'Cerro Tololo-DECam (W84)', 'group': 'Other', 'group_sort_order': 6},
         'X05': {'label': 'LSST (X05)', 'group': 'Other', 'group_sort_order': 6},
         GAIA_DR3_OBSERVATORY_CODE: {'label': 'Gaia DR3', 'group': 'Other', 'group_sort_order': 6},
     }
