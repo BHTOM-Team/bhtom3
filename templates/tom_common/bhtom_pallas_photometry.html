@@ -106,7 +106,50 @@
         {% endif %}
         <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+        <style>
+          .pallas-photometry-plot-tabs {
+            display: flex;
+            gap: 0;
+            flex-wrap: wrap;
+          }
+          .pallas-photometry-plot-tab {
+            background-color: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.18);
+            color: rgba(255,255,255,0.82);
+            border-radius: 0.35rem;
+            padding: 0.45rem 0.9rem;
+          }
+          .pallas-photometry-plot-tab.active {
+            background-color: rgba(255,255,255,0.18);
+            border-color: rgba(255,255,255,0.36);
+            color: #fff;
+          }
+          .pallas-photometry-plot-panel[hidden] {
+            display: none;
+          }
+        </style>
         <script>
+          function showPallasPhotometryPlotTab(tabName) {
+            const tabs = document.querySelectorAll('[data-pallas-photometry-tab]');
+            const panels = document.querySelectorAll('[data-pallas-photometry-panel]');
+
+            tabs.forEach((tab) => {
+              const isActive = tab.dataset.pallasPhotometryTab === tabName;
+              tab.classList.toggle('active', isActive);
+              tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            });
+
+            panels.forEach((panel) => {
+              const isActive = panel.dataset.pallasPhotometryPanel === tabName;
+              panel.hidden = !isActive;
+              if (isActive && window.Plotly) {
+                panel.querySelectorAll('.js-plotly-plot').forEach((plotElement) => {
+                  Plotly.Plots.resize(plotElement);
+                });
+              }
+            });
+          }
+
           async function downloadPallasPhotometryPlot(plotId, format, filenameBase) {
             const plotElement = document.getElementById(plotId);
             if (!plotElement || !window.Plotly) {
@@ -140,26 +183,82 @@
               pdf.save(filenameBase + '.pdf');
             }
           }
+
+          async function downloadPallasAstrometryPlots(format, filenameBase) {
+            const raPlot = document.getElementById('bhtom-pallas-photometry-astrometry-plot-ra');
+            const decPlot = document.getElementById('bhtom-pallas-photometry-astrometry-plot-dec');
+            if (!raPlot || !decPlot || !window.Plotly) {
+              return;
+            }
+
+            const imageOptions = {
+              format: 'png',
+              width: 1600,
+              height: 800,
+              scale: 2
+            };
+
+            if (format === 'png') {
+              Plotly.downloadImage(raPlot, {...imageOptions, filename: filenameBase + '_ra'});
+              Plotly.downloadImage(decPlot, {...imageOptions, filename: filenameBase + '_dec'});
+              return;
+            }
+
+            if (format === 'pdf') {
+              if (!window.jspdf || !window.jspdf.jsPDF) {
+                return;
+              }
+              const raImage = await Plotly.toImage(raPlot, imageOptions);
+              const decImage = await Plotly.toImage(decPlot, imageOptions);
+              const pdf = new window.jspdf.jsPDF({
+                orientation: 'landscape',
+                unit: 'pt',
+                format: [1600, 1700]
+              });
+              pdf.addImage(raImage, 'PNG', 0, 0, 1600, 800);
+              pdf.addImage(decImage, 'PNG', 0, 850, 1600, 800);
+              pdf.save(filenameBase + '.pdf');
+            }
+          }
         </script>
-        <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
-          {{ photometry_mpc_band_plot|safe }}
-          {% if photometry_mpc_band_csv_url %}
-          <div class="mt-3" style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap;">
-            <a href="{{ photometry_mpc_band_csv_url }}" class="btn btn-light">Download CSV</a>
-            <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-filter-plot', 'png', '{{ photometry_mpc_band_download_base|escapejs }}')">Download PNG</button>
-            <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-filter-plot', 'pdf', '{{ photometry_mpc_band_download_base|escapejs }}')">Download PDF</button>
+        <div class="mt-4" style="width: 100%; max-width: none;">
+          <div class="pallas-photometry-plot-tabs" role="tablist" aria-label="Photometry plot views">
+            <button type="button" class="pallas-photometry-plot-tab active" data-pallas-photometry-tab="filter" role="tab" aria-selected="true" onclick="showPallasPhotometryPlotTab('filter')">By filter</button>
+            <button type="button" class="pallas-photometry-plot-tab" data-pallas-photometry-tab="observatory" role="tab" aria-selected="false" onclick="showPallasPhotometryPlotTab('observatory')">By observatory</button>
+            <button type="button" class="pallas-photometry-plot-tab" data-pallas-photometry-tab="astrometry" role="tab" aria-selected="false" onclick="showPallasPhotometryPlotTab('astrometry')">Astrometry</button>
           </div>
-          {% endif %}
-        </div>
-        <div class="mt-4 p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
-          {{ photometry_mpc_observatory_plot|safe }}
-          {% if photometry_mpc_observatory_csv_url %}
-          <div class="mt-3" style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap;">
-            <a href="{{ photometry_mpc_observatory_csv_url }}" class="btn btn-light">Download CSV</a>
-            <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-observatory-plot', 'png', '{{ photometry_mpc_observatory_download_base|escapejs }}')">Download PNG</button>
-            <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-observatory-plot', 'pdf', '{{ photometry_mpc_observatory_download_base|escapejs }}')">Download PDF</button>
+          <div class="p-3" style="background-color: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 0.35rem; width: 100%; max-width: none;">
+            <div class="pallas-photometry-plot-panel" data-pallas-photometry-panel="filter" role="tabpanel">
+              {{ photometry_mpc_band_plot|safe }}
+              {% if photometry_mpc_band_csv_url %}
+              <div class="mt-3" style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap;">
+                <a href="{{ photometry_mpc_band_csv_url }}" class="btn btn-light">Download CSV</a>
+                <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-filter-plot', 'png', '{{ photometry_mpc_band_download_base|escapejs }}')">Download PNG</button>
+                <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-filter-plot', 'pdf', '{{ photometry_mpc_band_download_base|escapejs }}')">Download PDF</button>
+              </div>
+              {% endif %}
+            </div>
+            <div class="pallas-photometry-plot-panel" data-pallas-photometry-panel="observatory" role="tabpanel" hidden>
+              {{ photometry_mpc_observatory_plot|safe }}
+              {% if photometry_mpc_observatory_csv_url %}
+              <div class="mt-3" style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap;">
+                <a href="{{ photometry_mpc_observatory_csv_url }}" class="btn btn-light">Download CSV</a>
+                <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-observatory-plot', 'png', '{{ photometry_mpc_observatory_download_base|escapejs }}')">Download PNG</button>
+                <button type="button" class="btn btn-light" onclick="downloadPallasPhotometryPlot('bhtom-pallas-photometry-observatory-plot', 'pdf', '{{ photometry_mpc_observatory_download_base|escapejs }}')">Download PDF</button>
+              </div>
+              {% endif %}
+            </div>
+            <div class="pallas-photometry-plot-panel" data-pallas-photometry-panel="astrometry" role="tabpanel" hidden>
+              {{ photometry_mpc_astrometry_plot|safe }}
+              {% if photometry_mpc_astrometry_csv_url %}
+              <div class="mt-3" style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap;">
+                <a href="{{ photometry_mpc_astrometry_csv_url }}" class="btn btn-light">Download CSV</a>
+                <button type="button" class="btn btn-light" onclick="downloadPallasAstrometryPlots('png', '{{ photometry_mpc_astrometry_download_base|escapejs }}')">Download PNG</button>
+                <button type="button" class="btn btn-light" onclick="downloadPallasAstrometryPlots('pdf', '{{ photometry_mpc_astrometry_download_base|escapejs }}')">Download PDF</button>
+              </div>
+              {% endif %}
+            </div>
           </div>
-          {% endif %}
         </div>
         {% endif %}
       </div>

@@ -960,7 +960,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
 
     def get(self, request, *args, **kwargs):
         csv_plot_kind = request.GET.get('download')
-        if csv_plot_kind in {'filter_plot_csv', 'observatory_plot_csv'}:
+        if csv_plot_kind in {'filter_plot_csv', 'observatory_plot_csv', 'astrometry_plot_csv'}:
             try:
                 resolved_target = self._resolve_photometry_target_from_request(request)
                 if resolved_target.get('suggestion') or resolved_target.get('candidates'):
@@ -974,6 +974,11 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 )
             except ValueError as exc:
                 return HttpResponse(str(exc), status=400, content_type='text/plain')
+            if csv_plot_kind == 'astrometry_plot_csv':
+                return self._build_mpc_astrometry_csv_response(
+                    observation_counts['astrometry_plot_records'],
+                    observation_counts['resolved_target_label'],
+                )
             return self._build_mpc_photometry_csv_response(
                 observation_counts[
                     'band_plot_records' if csv_plot_kind == 'filter_plot_csv' else 'observatory_plot_records'
@@ -996,10 +1001,13 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'photometry_mpc_plot_observation_count': 0,
             'photometry_mpc_band_plot': '',
             'photometry_mpc_observatory_plot': '',
+            'photometry_mpc_astrometry_plot': '',
             'photometry_mpc_band_csv_url': '',
             'photometry_mpc_observatory_csv_url': '',
+            'photometry_mpc_astrometry_csv_url': '',
             'photometry_mpc_band_download_base': '',
             'photometry_mpc_observatory_download_base': '',
+            'photometry_mpc_astrometry_download_base': '',
             'photometry_ssodnet_candidates': [],
             'photometry_ssodnet_suggestion': None,
             'photometry_ssodnet_identity': None,
@@ -1052,7 +1060,9 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 f'including {observation_counts["plotted_with_magnitude_error"]} with reported magnitude error'
                 f'{"s" if observation_counts["plotted_with_magnitude_error"] != 1 else ""}. '
                 f'Gaia DR3 contributed {observation_counts["gaia_plotted"]} plotted point'
-                f'{"s" if observation_counts["gaia_plotted"] != 1 else ""}.'
+                f'{"s" if observation_counts["gaia_plotted"] != 1 else ""}. '
+                f'Astrometry tab includes {observation_counts["astrometry_plotted"]} MPC astrometric record'
+                f'{"s" if observation_counts["astrometry_plotted"] != 1 else ""}.'
             ),
             'photometry_mpc_total_observation_count': observation_counts['total'],
             'photometry_mpc_magnitude_observation_count': observation_counts['with_magnitude'],
@@ -1060,8 +1070,10 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'photometry_mpc_plot_observation_count': observation_counts['plotted'],
             'photometry_mpc_band_plot': observation_counts['band_plot'],
             'photometry_mpc_observatory_plot': observation_counts['observatory_plot'],
+            'photometry_mpc_astrometry_plot': observation_counts['astrometry_plot'],
             'photometry_mpc_band_csv_url': self._build_mpc_photometry_csv_url('filter_plot_csv'),
             'photometry_mpc_observatory_csv_url': self._build_mpc_photometry_csv_url('observatory_plot_csv'),
+            'photometry_mpc_astrometry_csv_url': self._build_mpc_photometry_csv_url('astrometry_plot_csv'),
             'photometry_mpc_band_download_base': self._safe_mpc_photometry_image_filename_base(
                 observation_counts['resolved_target_label'],
                 'filter',
@@ -1069,6 +1081,10 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'photometry_mpc_observatory_download_base': self._safe_mpc_photometry_image_filename_base(
                 observation_counts['resolved_target_label'],
                 'observatory',
+            ),
+            'photometry_mpc_astrometry_download_base': self._safe_mpc_photometry_image_filename_base(
+                observation_counts['resolved_target_label'],
+                'astrometry',
             ),
         })
         return context
@@ -1321,6 +1337,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         if total_observation_count <= 0:
             raise ValueError(f'MPC returned no observation records for "{target_query}".')
 
+        astrometry_plot_records = cls._build_mpc_astrometry_records(records)
         records_with_magnitude = [
             record
             for record in records
@@ -1390,6 +1407,11 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             title=f'{resolved_target_label} reported magnitude by observatory code',
             div_id='bhtom-pallas-photometry-observatory-plot',
         )
+        astrometry_plot = cls._build_mpc_astrometry_plot(
+            target_query=resolved_target_label,
+            records=astrometry_plot_records,
+            div_id='bhtom-pallas-photometry-astrometry-plot',
+        )
 
         return {
             'resolved_target_label': resolved_target_label,
@@ -1399,12 +1421,42 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'plotted_with_magnitude_error': plotted_magnitude_error_count,
             'gaia_plotted': gaia_plot_count,
             'plotted': len(plot_records),
+            'astrometry_plotted': len(astrometry_plot_records),
             'band_plot': band_plot,
             'observatory_plot': observatory_plot,
+            'astrometry_plot': astrometry_plot,
             'plot_records': plot_records,
             'band_plot_records': plot_records,
             'observatory_plot_records': plot_records,
+            'astrometry_plot_records': astrometry_plot_records,
         }
+
+    @classmethod
+    def _build_mpc_astrometry_records(cls, records):
+        astrometry_records = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+
+            observed_at = cls._parse_mpc_obstime(record.get('obstime'))
+            if observed_at is None:
+                continue
+            if not _is_finite_number(record.get('ra')) or not _is_finite_number(record.get('dec')):
+                continue
+
+            observatory_code = str(record.get('stn') or '').strip() or 'Unknown'
+            astrometry_records.append({
+                'source': 'MPC',
+                'observed_at': observed_at,
+                'obstime': str(record.get('obstime') or '').strip(),
+                'ra': float(record.get('ra')),
+                'dec': float(record.get('dec')),
+                'observatory_code': observatory_code,
+                'observatory_label': cls._mpc_observatory_label(observatory_code),
+            })
+
+        astrometry_records.sort(key=lambda item: item['observed_at'])
+        return astrometry_records
 
     @classmethod
     def _build_mpc_photometry_csv_response(cls, plot_records, resolved_target_label, plot_kind):
@@ -1441,6 +1493,33 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         filename = cls._safe_mpc_photometry_csv_filename(resolved_target_label, plot_kind)
         response = HttpResponse(output.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    @classmethod
+    def _build_mpc_astrometry_csv_response(cls, astrometry_records, resolved_target_label):
+        output = StringIO()
+        writer = csv.DictWriter(output, fieldnames=[
+            'observation_time',
+            'ra',
+            'dec',
+            'observatory_code',
+            'observatory_label',
+        ])
+        writer.writeheader()
+        for record in astrometry_records:
+            writer.writerow({
+                'observation_time': record['observed_at'].strftime('%Y-%m-%d %H:%M:%S'),
+                'ra': record['ra'],
+                'dec': record['dec'],
+                'observatory_code': record['observatory_code'],
+                'observatory_label': record['observatory_label'],
+            })
+
+        filename_stem = re.sub(r'[^A-Za-z0-9]+', '_', str(resolved_target_label or 'MPC_astrometry')).strip('_')
+        if not filename_stem:
+            filename_stem = 'MPC_astrometry'
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="{filename_stem}_MPC_astrometry.csv"'
         return response
 
     @staticmethod
@@ -1692,6 +1771,73 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         )
 
     @classmethod
+    def _build_mpc_astrometry_plot(cls, target_query, records, div_id):
+        hover_text = [
+            '<br>'.join([
+                f"Date: {record['observed_at'].strftime('%Y-%m-%d %H:%M:%S')}",
+                f"RA: {record['ra']:.6f} deg",
+                f"Dec: {record['dec']:.6f} deg",
+                f"MPC station: {record['observatory_code']}",
+                f"Observatory: {record['observatory_label']}",
+            ])
+            for record in records
+        ]
+
+        def _figure(axis_key, title, y_axis_title, plot_div_id):
+            figure = go.Figure(
+                data=[
+                    go.Scatter(
+                        x=[record['observed_at'] for record in records],
+                        y=[record[axis_key] for record in records],
+                        mode='markers',
+                        marker={'size': 5, 'color': '#3f7fff', 'opacity': 0.72},
+                        text=hover_text,
+                        hovertemplate='%{text}<extra></extra>',
+                        showlegend=False,
+                    )
+                ],
+                layout=go.Layout(
+                    title={'text': title},
+                    xaxis={
+                        'title': 'Observation date',
+                        'showgrid': True,
+                        'gridcolor': 'rgba(0,0,0,0.12)',
+                    },
+                    yaxis={
+                        'title': y_axis_title,
+                        'showgrid': True,
+                        'gridcolor': 'rgba(0,0,0,0.12)',
+                    },
+                    margin={'l': 80, 'r': 30, 't': 70, 'b': 75},
+                    height=430,
+                    paper_bgcolor='#ffffff',
+                    plot_bgcolor='#ffffff',
+                ),
+            )
+            return plotly_io.to_html(
+                figure,
+                include_plotlyjs=False,
+                config={'responsive': True},
+                full_html=False,
+                div_id=plot_div_id,
+            )
+
+        return ''.join([
+            _figure(
+                'ra',
+                'Right Ascension vs Observation date',
+                'Right Ascension (deg)',
+                f'{div_id}-ra',
+            ),
+            _figure(
+                'dec',
+                'Declination vs Observation date',
+                'Declination (deg)',
+                f'{div_id}-dec',
+            ),
+        ])
+
+    @classmethod
     def _build_mpc_photometry_plot(cls, target_query, records, group_key, title, div_id):
         traces = []
         group_values = sorted({record[group_key] for record in records})
@@ -1795,7 +1941,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                     'yanchor': 'top',
                 },
                 margin={'l': 70, 'r': 30, 't': 70, 'b': 115},
-                height=520,
+                height=560,
                 paper_bgcolor='#ffffff',
                 plot_bgcolor='#ffffff',
             ),
