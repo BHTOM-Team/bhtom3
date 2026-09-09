@@ -880,8 +880,12 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     SSODNET_BASE_URL = 'https://api.ssodnet.imcce.fr/quaero/1/sso'
     SSODNET_TIMEOUT = 30
     SSODNET_ATTRIBUTION = "Object name search and designation resolution use LTE's SsODNet VO service (https://ssp.imcce.fr/webservices/ssodnet/)."
+    GAIA_DR3_TAP_SYNC_URL = 'https://gea.esac.esa.int/tap-server/tap/sync'
+    GAIA_DR3_TIMEOUT = 30
+    GAIA_DR3_OBSERVATORY_CODE = 'GAIA_DR3'
+    GAIA_DR3_EPOCH_UTC_JD_OFFSET = 2455197.5
     MPC_PLOT_OBSERVATORY_CODES = {
-        'T05', 'T08', 'W68', 'M22', 'R17', 'I41', 'G96', '703', 'C51', 'F51', 'F52', '258',
+        'T05', 'T08', 'W68', 'M22', 'R17', 'I41', 'G96', '703', 'C51', 'F51', 'F52',
         '704', '699', '691', '645', 'C57', 'C55', 'X05',
     }
     MPC_OBSERVATORY_GROUP_ORDER = {
@@ -901,7 +905,6 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         'I41': {'label': 'ZTF (I41)', 'group': 'ZTF', 'group_sort_order': 5},
         'G96': {'label': 'Mt. Lemmon Survey (G96)', 'group': 'Catalina', 'group_sort_order': 2},
         '703': {'label': 'Catalina Sky Survey (703)', 'group': 'Catalina', 'group_sort_order': 2},
-        '258': {'label': 'Gaia (258)', 'group': 'Other', 'group_sort_order': 6},
         'C51': {'label': 'NEOWISE (C51)', 'group': 'NEOWISE', 'group_sort_order': 3},
         'F51': {'label': 'Pan-STARRS 1 (F51)', 'group': 'Pan-STARRS', 'group_sort_order': 4},
         'F52': {'label': 'Pan-STARRS 2 (F52)', 'group': 'Pan-STARRS', 'group_sort_order': 4},
@@ -912,6 +915,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         'C57': {'label': 'TESS (C57)', 'group': 'Other', 'group_sort_order': 6},
         'C55': {'label': 'Kepler (C55)', 'group': 'Other', 'group_sort_order': 6},
         'X05': {'label': 'LSST (X05)', 'group': 'Other', 'group_sort_order': 6},
+        GAIA_DR3_OBSERVATORY_CODE: {'label': 'Gaia DR3', 'group': 'Other', 'group_sort_order': 6},
     }
     MPC_BAND_COLORS = {
         'c': '#00bcd4',
@@ -963,6 +967,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 observation_counts = self._fetch_mpc_observation_counts(
                     mpc_query,
                     resolved_display_label=ssodnet_identity['label'],
+                    ssodnet_identity=ssodnet_identity,
                 )
             except ValueError as exc:
                 return HttpResponse(str(exc), status=400, content_type='text/plain')
@@ -1027,6 +1032,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             observation_counts = self._fetch_mpc_observation_counts(
                 mpc_query,
                 resolved_display_label=ssodnet_identity['label'],
+                ssodnet_identity=ssodnet_identity,
             )
         except ValueError as exc:
             context['photometry_mpc_error'] = str(exc)
@@ -1041,7 +1047,9 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 f'{observation_counts["plotted"]} observation record'
                 f'{"s" if observation_counts["plotted"] != 1 else ""} from the selected observatories, '
                 f'including {observation_counts["plotted_with_magnitude_error"]} with reported magnitude error'
-                f'{"s" if observation_counts["plotted_with_magnitude_error"] != 1 else ""}.'
+                f'{"s" if observation_counts["plotted_with_magnitude_error"] != 1 else ""}. '
+                f'Gaia DR3 contributed {observation_counts["gaia_plotted"]} plotted point'
+                f'{"s" if observation_counts["gaia_plotted"] != 1 else ""}.'
             ),
             'photometry_mpc_total_observation_count': observation_counts['total'],
             'photometry_mpc_magnitude_observation_count': observation_counts['with_magnitude'],
@@ -1269,7 +1277,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         return bool(re.match(r'^\d+$', value))
 
     @classmethod
-    def _fetch_mpc_observation_counts(cls, target_query, resolved_display_label=''):
+    def _fetch_mpc_observation_counts(cls, target_query, resolved_display_label='', ssodnet_identity=None):
         try:
             response = requests.get(
                 cls.MPC_OBSERVATIONS_URL,
@@ -1337,16 +1345,22 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 magnitude_error = float(record.get('rmsmag'))
 
             plot_records.append({
+                'source': 'MPC',
                 'observed_at': observed_at,
                 'obstime': str(record.get('obstime') or '').strip(),
                 'magnitude': float(record.get('mag')),
                 'magnitude_error': magnitude_error,
                 'band': str(record.get('band') or 'Unknown').strip() or 'Unknown',
+                'band_plot_group': f'MPC:{str(record.get("band") or "Unknown").strip() or "Unknown"}',
                 'observatory_code': observatory_code,
                 'ra': str(record.get('ra') or '').strip(),
                 'dec': str(record.get('dec') or '').strip(),
+                'gaia_source_id': '',
+                'gaia_transit_id': '',
             })
 
+        gaia_plot_records = cls._fetch_gaia_dr3_plot_records(ssodnet_identity, target_query)
+        plot_records.extend(gaia_plot_records)
         plot_records.sort(key=lambda item: item['observed_at'])
         if not plot_records:
             raise ValueError(
@@ -1357,11 +1371,12 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         plotted_magnitude_error_count = sum(
             1 for record in plot_records if record['magnitude_error'] is not None
         )
+        gaia_plot_count = len(gaia_plot_records)
 
         band_plot = cls._build_mpc_photometry_plot(
             target_query=resolved_target_label,
             records=plot_records,
-            group_key='band',
+            group_key='band_plot_group',
             title=f'{resolved_target_label} reported magnitude by filter/band',
             div_id='bhtom-pallas-photometry-filter-plot',
         )
@@ -1379,6 +1394,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'with_magnitude': magnitude_observation_count,
             'with_magnitude_error': plotted_magnitude_error_count,
             'plotted_with_magnitude_error': plotted_magnitude_error_count,
+            'gaia_plotted': gaia_plot_count,
             'plotted': len(plot_records),
             'band_plot': band_plot,
             'observatory_plot': observatory_plot,
@@ -1399,6 +1415,9 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             'observatory_label',
             'ra',
             'dec',
+            'source',
+            'gaia_source_id',
+            'gaia_transit_id',
         ])
         writer.writeheader()
         for record in plot_records:
@@ -1411,6 +1430,9 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                 'observatory_label': cls._mpc_observatory_label(record['observatory_code']),
                 'ra': record['ra'],
                 'dec': record['dec'],
+                'source': record.get('source') or 'MPC',
+                'gaia_source_id': record.get('gaia_source_id') or '',
+                'gaia_transit_id': record.get('gaia_transit_id') or '',
             })
 
         filename = cls._safe_mpc_photometry_csv_filename(resolved_target_label, plot_kind)
@@ -1514,6 +1536,123 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
         return parsed
 
     @classmethod
+    def _numbered_minor_planet_from_ssodnet_identity(cls, ssodnet_identity, fallback_query=''):
+        if not isinstance(ssodnet_identity, dict):
+            ssodnet_identity = {}
+        values = [
+            ssodnet_identity.get('label'),
+            *(ssodnet_identity.get('aliases') or []),
+            fallback_query,
+        ]
+        for value in values:
+            value = str(value or '').strip()
+            parenthesized_match = re.match(r'^\((\d+)\)\s+.+$', value)
+            if parenthesized_match:
+                return int(parenthesized_match.group(1))
+        fallback_query = str(fallback_query or '').strip()
+        if cls._is_numbered_minor_planet_designation(fallback_query):
+            return int(fallback_query)
+        return None
+
+    @classmethod
+    def _fetch_gaia_dr3_plot_records(cls, ssodnet_identity, fallback_query=''):
+        number_mp = cls._numbered_minor_planet_from_ssodnet_identity(ssodnet_identity, fallback_query)
+        if number_mp is None:
+            return []
+
+        adql = f'''
+            SELECT source_id, number_mp, denomination, transit_id, epoch_utc,
+                   g_mag, g_flux, g_flux_error, ra, dec
+            FROM gaiadr3.sso_observation
+            WHERE number_mp = {number_mp}
+              AND g_mag IS NOT NULL
+              AND epoch_utc IS NOT NULL
+            ORDER BY transit_id, epoch_utc
+        '''
+        try:
+            response = requests.post(
+                cls.GAIA_DR3_TAP_SYNC_URL,
+                data={
+                    'REQUEST': 'doQuery',
+                    'LANG': 'ADQL',
+                    'FORMAT': 'json',
+                    'QUERY': adql,
+                },
+                headers={'Accept': 'application/json'},
+                timeout=cls.GAIA_DR3_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            logger.warning('BHTOM-PALLAS Gaia DR3 query failed for number_mp %s: %s', number_mp, exc)
+            return []
+
+        metadata = payload.get('metadata') if isinstance(payload, dict) else None
+        data = payload.get('data') if isinstance(payload, dict) else None
+        if not isinstance(metadata, list) or not isinstance(data, list):
+            logger.warning('BHTOM-PALLAS Gaia DR3 query returned unexpected response for number_mp %s', number_mp)
+            return []
+
+        column_names = [column.get('name') for column in metadata if isinstance(column, dict)]
+        required_columns = {
+            'source_id', 'number_mp', 'denomination', 'transit_id', 'epoch_utc',
+            'g_mag', 'g_flux', 'g_flux_error', 'ra', 'dec',
+        }
+        if not required_columns.issubset(set(column_names)):
+            logger.warning('BHTOM-PALLAS Gaia DR3 query missed expected columns for number_mp %s', number_mp)
+            return []
+
+        unique_transits = {}
+        for row in data:
+            if not isinstance(row, list):
+                continue
+            record = dict(zip(column_names, row))
+            transit_id = str(record.get('transit_id') or '').strip()
+            if not transit_id or transit_id in unique_transits:
+                continue
+            if not _is_finite_number(record.get('g_mag')) or not _is_finite_number(record.get('epoch_utc')):
+                continue
+
+            observed_at = cls._parse_gaia_epoch_utc(record.get('epoch_utc'))
+            if observed_at is None:
+                continue
+
+            magnitude_error = None
+            if (
+                _is_finite_number(record.get('g_flux'))
+                and _is_finite_number(record.get('g_flux_error'))
+                and float(record.get('g_flux')) > 0
+            ):
+                magnitude_error = (2.5 / math.log(10)) * (float(record.get('g_flux_error')) / float(record.get('g_flux')))
+
+            unique_transits[transit_id] = {
+                'source': 'Gaia DR3',
+                'observed_at': observed_at,
+                'obstime': observed_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'magnitude': float(record.get('g_mag')),
+                'magnitude_error': magnitude_error,
+                'band': 'G',
+                'band_plot_group': 'Gaia DR3:G',
+                'observatory_code': cls.GAIA_DR3_OBSERVATORY_CODE,
+                'ra': str(record.get('ra') or '').strip(),
+                'dec': str(record.get('dec') or '').strip(),
+                'gaia_source_id': str(record.get('source_id') or '').strip(),
+                'gaia_transit_id': transit_id,
+            }
+
+        return list(unique_transits.values())
+
+    @classmethod
+    def _parse_gaia_epoch_utc(cls, value):
+        if not _is_finite_number(value):
+            return None
+        try:
+            jd = float(value) + cls.GAIA_DR3_EPOCH_UTC_JD_OFFSET
+            return Time(jd, format='jd', scale='utc').to_datetime(timezone.utc).replace(tzinfo=None)
+        except Exception:
+            return None
+
+    @classmethod
     def _mpc_observatory_metadata(cls, observatory_code):
         code = str(observatory_code or '').strip()
         return cls.MPC_OBSERVATORY_METADATA.get(code, {
@@ -1530,6 +1669,15 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
     def _mpc_band_label(cls, band):
         band_code = str(band or '').strip()
         return cls.MPC_BAND_LABELS.get(band_code, band_code)
+
+    @classmethod
+    def _photometry_record_band_label(cls, record):
+        band_code = str(record.get('band') or '').strip()
+        if record.get('source') == 'Gaia DR3' and band_code == 'G':
+            return cls.MPC_BAND_LABELS.get('G', 'Gaia G')
+        if band_code == 'G':
+            return 'G'
+        return cls._mpc_band_label(band_code)
 
     @classmethod
     def _mpc_observatory_sort_key(cls, observatory_code):
@@ -1551,11 +1699,12 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
             trace_name = group_value
             if group_key == 'observatory_code':
                 trace_name = cls._mpc_observatory_label(group_value)
-            elif group_key == 'band':
-                trace_name = cls._mpc_band_label(group_value)
+            elif group_key == 'band_plot_group':
+                trace_name = cls._photometry_record_band_label(group_records[0])
             marker = {'size': 6}
-            if group_key == 'band' and group_value in cls.MPC_BAND_COLORS:
-                marker['color'] = cls.MPC_BAND_COLORS[group_value]
+            band_color_code = str(group_records[0].get('band') or '').strip()
+            if group_key == 'band_plot_group' and band_color_code in cls.MPC_BAND_COLORS:
+                marker['color'] = cls.MPC_BAND_COLORS[band_color_code]
             elif cls.MPC_PLOTLY_COLORWAY:
                 marker['color'] = cls.MPC_PLOTLY_COLORWAY[group_index % len(cls.MPC_PLOTLY_COLORWAY)]
 
@@ -1576,7 +1725,7 @@ class BhtomPallasPhotometryView(BhtomPallasBaseMixin, TemplateView):
                             if record['magnitude_error'] is not None
                             else 'Magnitude error: not reported'
                         ),
-                        f"Filter: {cls._mpc_band_label(record['band']) if group_key == 'band' else record['band']}",
+                        f"Filter: {cls._photometry_record_band_label(record)}",
                         f"Observatory: {cls._mpc_observatory_label(record['observatory_code'])}",
                     ])
                     for record in records_for_trace
