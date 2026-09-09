@@ -815,12 +815,13 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
 
     if 'target_name' in form_fields and service_name == 'OGLEEWS':
         ogle_ews_name = _extract_ogle_ews_name(target)
-        if ogle_ews_name:
-            query_parameters['target_name'] = ogle_ews_name
+        query_parameters['target_name'] = ogle_ews_name or target.name
     elif 'target_name' in form_fields and service_name == 'KMT':
         kmt_name = _extract_kmt_name(target)
         if kmt_name:
             query_parameters['target_name'] = kmt_name
+    elif 'target_name' in form_fields and service_name == 'MOA':
+        query_parameters['target_name'] = _extract_moa_name(target) or target.name
     elif 'target_name' in form_fields and service_name == 'ExoClock':
         query_parameters['radius_arcsec'] = max(float(query_parameters.get('radius_arcsec', 30.0)), 30.0)
         query_parameters['target_name'] = target.name
@@ -878,7 +879,18 @@ def _extract_gaia_alerts_name(target):
 
 def _extract_ogle_ews_name(target):
     for value in _iter_target_names(target):
-        match = re.match(r'(?i)^(?:OGLE[-\s]?)?(\d{4}-[A-Z]{3}-\d{4})$', value.strip())
+        match = re.match(
+            r'(?i)^(?:OGLE[-\s]?)?('
+            r'\d{4}-(?:BLG|BUL|LMC|SMC)-\d{1,5}'
+            r'|(?:LMC|SMC)-\d{1,3}'
+            r'|BUL_SC\d+\.\d+'
+            r'|GD\d+\.\d+\.\d+'
+            r')$',
+            value.strip(),
+        )
+        if match:
+            return match.group(1).upper()
+        match = re.match(r'(?i)^(OGLE3-ULENS-\d{4,5})$', value.strip())
         if match:
             return match.group(1).upper()
     return None
@@ -889,4 +901,12 @@ def _extract_kmt_name(target):
         match = re.match(r'(?i)^(?:KMT[-\s]?)?(\d{4}-BLG-\d{1,5})$', value.strip())
         if match:
             return f'KMT-{match.group(1).upper()}'
+    return None
+
+
+def _extract_moa_name(target):
+    for value in _iter_target_names(target):
+        match = re.match(r'(?i)^(?:MOA[-\s]?)?(\d{4}-(?:BLG|LMC|SMC)-\d{1,4})$', value.strip())
+        if match:
+            return f'MOA-{match.group(1).upper()}'
     return None

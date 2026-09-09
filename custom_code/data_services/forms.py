@@ -98,7 +98,7 @@ class OGLEEWSQueryForm(BaseQueryForm):
     target_name = forms.CharField(
         required=False,
         label='OGLE EWS name',
-        help_text='You can enter 2011-BLG-0001 or OGLE-2011-BLG-0001.',
+        help_text='Enter an OGLE EWS, OGLE3-ULENS, GD, LMC, or SMC microlensing name, or use RA+Dec.',
     )
     ra = ra_field()
     dec = dec_field()
@@ -116,11 +116,33 @@ class OGLEEWSQueryForm(BaseQueryForm):
         return cleaned
 
 
+class OGLEOCVSQueryForm(BaseQueryForm):
+    target_name = forms.CharField(
+        required=False,
+        label='OGLE OCVS name',
+        help_text='You can enter LMC-ECL-01000 or OGLE-LMC-ECL-01000.',
+    )
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, label='Search radius (arcsec)')
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include I- and V-band photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        has_name = bool((cleaned.get('target_name') or '').strip())
+        has_coordinates = cleaned.get('ra') is not None and cleaned.get('dec') is not None
+        if not has_name and not has_coordinates:
+            raise forms.ValidationError('Provide OGLE OCVS name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 5.0
+        return cleaned
+
+
 class MOAQueryForm(BaseQueryForm):
     target_name = forms.CharField(
         required=False,
         label='MOA event name',
-        help_text='You can enter 2019-BLG-397, MOA-2019-BLG-397, or use RA+Dec.',
+        help_text='You can enter 2019-BLG-397, MOA-2018-LMC-003, or use RA+Dec.',
     )
     ra = ra_field()
     dec = dec_field()

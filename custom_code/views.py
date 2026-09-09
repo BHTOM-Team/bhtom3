@@ -136,6 +136,7 @@ from custom_code.data_services.geosat_dataservice import GeoSatDataService
 from custom_code.tasks import enqueue_target_dataservices_update
 from custom_code.bhtom_catalogs.harvesters import gaia_alerts as gaia_alerts_harvester
 from custom_code.bhtom_catalogs.harvesters import ogle_ews as ogle_ews_harvester
+from custom_code.bhtom_catalogs.harvesters import ogle_ocvs as ogle_ocvs_harvester
 from custom_code.sun_separation import get_live_target_values
 
 
@@ -164,6 +165,7 @@ ALL_CATALOG_QUERY_SERVICE_NAMES = (
     'Gaia DR3',
     'JPL Horizons',
     'OGLE EWS',
+    'OGLE OCVS',
     'Simbad',
     'TNS',
 )
@@ -2790,6 +2792,8 @@ def _get_catalog_matches(service_name, cleaned_data):
         return gaia_dr3_harvester.get_all(term)
     if service_name == 'OGLE EWS':
         return ogle_ews_harvester.get_all(term)
+    if service_name == 'OGLE OCVS':
+        return ogle_ocvs_harvester.get_all(term)
     if service_name == 'Simbad':
         from custom_code.bhtom_catalogs.harvesters import simbad as simbad_harvester
         return simbad_harvester.get_all(
@@ -2813,6 +2817,10 @@ def _build_catalog_target_from_match(service_name, match):
         harvester = ogle_ews_harvester.OGLEEWSHarvester()
         harvester.catalog_data = match
         return harvester.to_target()
+    if service_name == 'OGLE OCVS':
+        harvester = ogle_ocvs_harvester.OGLEOCVSHarvester()
+        harvester.catalog_data = match
+        return harvester.to_target()
     if service_name == 'Simbad':
         from custom_code.bhtom_catalogs.harvesters import simbad as simbad_harvester
         return simbad_harvester.target_from_result(match)
@@ -2827,6 +2835,9 @@ def _build_catalog_result_row(service_name, index, match):
     elif service_name == 'OGLE EWS':
         view_url = ogle_ews_harvester.OGLEEWSHarvester.source_url(match)
         summary = str(match.get('field') or '').strip()
+    elif service_name == 'OGLE OCVS':
+        view_url = ogle_ocvs_harvester.OGLEOCVSHarvester.source_url(match)
+        summary = 'OGLE variable star'
     elif service_name == 'Simbad':
         view_url = simbad_harvester._simbad_url(target.ra, target.dec)
         summary = str(match.get('main_id') or '').strip()
@@ -3378,7 +3389,7 @@ class BhtomCatalogQueryView(FormView):
         if matches:
             return self._render_catalog_results(form, matches)
 
-        if service_name in {'Gaia Alerts', 'Gaia DR3', 'OGLE EWS', 'Simbad'}:
+        if service_name in {'Gaia Alerts', 'Gaia DR3', 'OGLE EWS', 'OGLE OCVS', 'Simbad'}:
             error_target = 'ra' if service_name == 'Simbad' else 'term'
             form.add_error(error_target, ValidationError('Object not found'))
             return self.form_invalid(form)

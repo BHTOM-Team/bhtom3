@@ -38,18 +38,31 @@ from bhtom3.bhtom_observations.facilities.lco import (
     resolve_lco_bhtom2_observatory_oname,
 )
 from custom_code.data_services.ogle_ews_dataservice import (
+    OGLE_ARCHIVE_SOURCES,
     OGLEEWSDataService,
     _dec_to_decimal,
+    _is_archive_target_name,
+    _legacy_magellanic_rows,
     _normalize_target_name,
     _ogle_event_url,
     _ogle_phot_url,
     _ogle_years,
+    _parse_archive_catalog_rows,
     _parse_lenses_rows,
     _parse_photometry_rows,
     _ra_to_decimal,
 )
+from custom_code.data_services.ogle_ocvs_dataservice import (
+    OGLEOCVSDataService,
+    _coordinates_url as _ogle_ocvs_coordinates_url,
+    _extract_page_links as _extract_ogle_ocvs_page_links,
+    _normalize_target_name as _normalize_ogle_ocvs_name,
+    _parse_coordinate_rows as _parse_ogle_ocvs_coordinate_rows,
+    _parse_photometry_rows as _parse_ogle_ocvs_photometry_rows,
+)
 from custom_code.data_services.moa_dataservice import (
     MOADataService,
+    _candidate_archive_years,
     _event_suffix_candidates,
     _extract_calibration,
     _normalize_event_name as _normalize_moa_event_name,
@@ -84,6 +97,7 @@ from custom_code.bhtom_catalogs.harvesters.kmt import KMTHarvester
 from custom_code.bhtom_catalogs.harvesters.lsst import LSSTHarvester
 from custom_code.bhtom_catalogs.harvesters.moa import MOAHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
+from custom_code.bhtom_catalogs.harvesters.ogle_ocvs import OGLEOCVSHarvester
 from custom_code.data_services.forms import (
     ExoClockQueryForm,
     GaiaDR3QueryForm,
@@ -310,6 +324,8 @@ class OGLEEWSDataServiceTests(TestCase):
         ]
 
         with patch.object(service, '_fetch_alert_rows', return_value=alert_rows), patch.object(
+            service, '_fetch_archive_catalog_rows', return_value=[]
+        ), patch.object(
             service,
             '_fetch_photometry_rows',
             return_value=photometry_rows,
@@ -343,8 +359,109 @@ class OGLEEWSDataServiceTests(TestCase):
         )
         self.assertEqual(
             _parse_photometry_rows('2455260.85336 17.131 0.015 5.94 1033.0\n')[0],
-            {'hjd': 2455260.85336, 'mag': 17.131, 'magerr': 0.015},
+            {'hjd': 2455260.85336, 'mag': 17.131, 'magerr': 0.015, 'band': 'I'},
         )
+
+    def test_parse_published_microlensing_catalogues(self):
+        sources = {source['key']: source for source in OGLE_ARCHIVE_SOURCES}
+        ogle2_bulge = _parse_archive_catalog_rows(
+            'BUL_SC2 65831 1999-BUL-44 18:04:06.85 -29:01:17.2 1.97 -3.54\n',
+            sources['ogle2_bulge'],
+        )[0]
+        bulge = _parse_archive_catalog_rows(
+            '0001 17:51:44.00 -30:17:20.7 BLG100.1 27898 2007-BLG-258 -\n',
+            sources['ogle3_bulge_a'],
+        )[0]
+        ogle4_bulge = _parse_archive_catalog_rows(
+            'BLG617.24.41328 BLG617.24 41328 17:13:54.30 -29:36:35.5 '
+            '258.47625 -29.60986 0 0 2457462 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 '
+            'OGLE-2016-BLG-0231\n',
+            sources['ogle4_bulge'],
+        )[0]
+        disk = _parse_archive_catalog_rows(
+            'GD1793.08.3677 GD1793.08 3677 06:37:40.01 +13:57:18.5 '
+            '99.416704 13.955137 0 0 2457686 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 '
+            'ASASSN-16li\n',
+            sources['ogle4_disk'],
+        )[0]
+        lmc = _parse_archive_catalog_rows(
+            'OGLE-LMC-15 05:33:05.32 -69:30:31.2 15.82 1.50\n',
+            sources['ogle_lmc'],
+        )[0]
+        smc = _parse_archive_catalog_rows(
+            'OGLE-SMC-02 00:40:28.12 -73:44:46.5 SMC713.01.1243 18.427\n',
+            sources['ogle_smc'],
+        )[0]
+
+        self.assertEqual(ogle2_bulge['name'], 'BUL_SC2.65831')
+        self.assertEqual(ogle2_bulge['aliases'], ['OGLE-1999-BUL-44'])
+        self.assertTrue(ogle2_bulge['photometry'][0]['url'].endswith('/2.65831.dat'))
+        self.assertEqual(ogle2_bulge['photometry'][0]['hjd_offset'], 2450000.0)
+        self.assertEqual(bulge['name'], 'OGLE3-ULENS-0001')
+        self.assertEqual(bulge['aliases'], ['OGLE-2007-BLG-258'])
+        self.assertEqual(bulge['photometry'][0]['hjd_offset'], 2450000.0)
+        self.assertEqual(ogle4_bulge['aliases'], ['OGLE-2016-BLG-0231'])
+        self.assertEqual(disk['name'], 'GD1793.08.3677')
+        self.assertEqual(disk['aliases'], ['ASASSN-16li'])
+        self.assertEqual(lmc['name'], 'LMC-15')
+        self.assertAlmostEqual(lmc['ra'], 83.2721666667)
+        self.assertEqual(smc['name'], 'SMC-02')
+
+    def test_legacy_magellanic_events_include_i_and_v_photometry(self):
+        rows = {row['name']: row for row in _legacy_magellanic_rows()}
+
+        self.assertIn('LMC-01', rows)
+        self.assertIn('LMC-03', rows)
+        self.assertIn('LMC-20', rows)
+        self.assertIn('SMC-01', rows)
+        self.assertEqual({item['band'] for item in rows['LMC-03']['photometry']}, {'I', 'V'})
+        self.assertTrue(all(item['hjd_offset'] == 2450000.0 for item in rows['LMC-03']['photometry']))
+        self.assertEqual(rows['LMC-03']['aliases'], ['OGLE-2007-LMC-01'])
+
+    def test_ogle3_photometry_offset_is_converted_to_full_hjd(self):
+        rows = _parse_photometry_rows('2072.760422 18.085031 0.005950\n', hjd_offset=2450000.0)
+        self.assertAlmostEqual(rows[0]['hjd'], 2452072.760422)
+
+    def test_gaia18cta_matches_lmc_catalogue_and_returns_i_photometry(self):
+        service = OGLEEWSDataService()
+        lmc_row = {
+            'name': 'LMC-15',
+            'ra': 83.2721666667,
+            'dec': -69.5086666667,
+            'aliases': [],
+            'photometry': [{
+                'url': 'https://ftp.astrouw.edu.pl/ogle/ogle4/LMC_OPTICAL_DEPTH/phot/OGLE-LMC-15.dat',
+                'band': 'I',
+            }],
+            'source_location': 'https://ftp.astrouw.edu.pl/ogle/ogle4/LMC_OPTICAL_DEPTH/',
+        }
+
+        with patch.object(service, '_fetch_alert_rows', return_value=[]), patch.object(
+            service, '_fetch_archive_catalog_rows', return_value=[lmc_row]
+        ), patch.object(
+            service,
+            '_fetch_photometry_rows',
+            return_value=[{'hjd': 2458383.5, 'mag': 15.82, 'magerr': 0.02, 'band': 'I'}],
+        ):
+            results = service.query_targets({
+                'target_name': 'Gaia18cta',
+                'ra': 83.2721666667,
+                'dec': -69.5086666667,
+                'radius_arcsec': 5.0,
+                'include_photometry': True,
+            })
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'OGLE-LMC-15')
+        self.assertEqual(results[0]['aliases'], ['OGLE-LMC-15'])
+        datum = results[0]['reduced_datums']['photometry'][0]
+        self.assertEqual(datum['value']['filter'], 'OGLE(I)')
+        self.assertEqual(datum['value']['magnitude'], 15.82)
+
+    def test_build_photometry_datums_preserves_v_band(self):
+        rows = _parse_photometry_rows('2455260.85336 17.131 0.015\n', band='V')
+        datum = OGLEEWSDataService()._build_photometry_datums(rows)[0]
+        self.assertEqual(datum['value']['filter'], 'OGLE(V)')
 
     def test_ogle_2026_helpers_use_new_ews_layout(self):
         self.assertEqual(
@@ -358,6 +475,88 @@ class OGLEEWSDataServiceTests(TestCase):
 
     def test_ogle_years_probes_one_year_ahead(self):
         self.assertIn(2026, _ogle_years(current_year=2025))
+
+    def test_gaia_name_limits_ews_lookup_to_its_year(self):
+        with patch('custom_code.data_services.ogle_ews_dataservice.requests.get') as get:
+            get.return_value.status_code = 404
+            OGLEEWSDataService()._fetch_alert_rows(target_name='Gaia18cta')
+
+        get.assert_called_once()
+        self.assertIn('/ews/2018/lenses.par', get.call_args.args[0])
+
+    def test_archive_name_skips_yearly_ews_catalogues(self):
+        self.assertTrue(_is_archive_target_name('OGLE-LMC-15'))
+        with patch('custom_code.data_services.ogle_ews_dataservice.requests.get') as get:
+            rows = OGLEEWSDataService()._fetch_alert_rows(target_name='OGLE-LMC-15')
+
+        self.assertEqual(rows, [])
+        get.assert_not_called()
+
+
+class OGLEOCVSDataServiceTests(TestCase):
+    def test_name_and_coordinate_response_are_normalized(self):
+        self.assertEqual(_normalize_ogle_ocvs_name('LMC-ECL-01000'), 'OGLE-LMC-ECL-01000')
+        self.assertEqual(_normalize_ogle_ocvs_name('OGLE LMC ECL 01000'), 'OGLE-LMC-ECL-01000')
+        self.assertEqual(
+            _ogle_ocvs_coordinates_url('LMC-ECL-01000'),
+            'https://ogledb.astrouw.edu.pl/~ogle/OCVS/radec.php?OGLE-LMC-ECL-01000&decimal=1',
+        )
+        self.assertEqual(
+            _parse_ogle_ocvs_coordinate_rows('OGLE-LMC-ECL-01000 72.034708 -69.853944\n'),
+            [{'name': 'OGLE-LMC-ECL-01000', 'ra': 72.034708, 'dec': -69.853944}],
+        )
+
+    def test_page_links_and_reduced_jd_photometry_are_parsed(self):
+        page_url = 'https://ogledb.astrouw.edu.pl/~ogle/OCVS/?OGLE-LMC-ECL-01000'
+        html = '''
+          <a href="data/I/00/OGLE-LMC-ECL-01000.dat">I-band</a>
+          <a href="data/V/00/OGLE-LMC-ECL-01000.dat">V-band</a>
+          <a href="../CVS/o.php?OGLE-LMC-ECL-01000">OGLE-III</a>
+        '''
+        links = _extract_ogle_ocvs_page_links(html, 'OGLE-LMC-ECL-01000', page_url)
+
+        self.assertEqual(links['I'], 'https://ogledb.astrouw.edu.pl/~ogle/OCVS/data/I/00/OGLE-LMC-ECL-01000.dat')
+        self.assertEqual(links['V'], 'https://ogledb.astrouw.edu.pl/~ogle/OCVS/data/V/00/OGLE-LMC-ECL-01000.dat')
+        self.assertEqual(links['cvs'], 'https://ogledb.astrouw.edu.pl/~ogle/CVS/o.php?OGLE-LMC-ECL-01000')
+        self.assertEqual(
+            _parse_ogle_ocvs_photometry_rows('5261.55766 18.697 0.033\n'),
+            [{'hjd': 2455261.55766, 'mag': 18.697, 'magerr': 0.033}],
+        )
+
+    @patch.object(OGLEOCVSDataService, '_request_text')
+    def test_query_targets_ingests_i_and_v_photometry(self, request_text):
+        request_text.side_effect = [
+            'OGLE-LMC-ECL-01000 72.034708 -69.853944\n',
+            '<a href="data/I/00/OGLE-LMC-ECL-01000.dat">I</a>'
+            '<a href="data/V/00/OGLE-LMC-ECL-01000.dat">V</a>',
+            '5261.55766 18.697 0.033\n',
+            '5275.53339 19.124 0.016\n',
+        ]
+
+        service = OGLEOCVSDataService()
+        parameters = service.build_query_parameters({'target_name': 'LMC-ECL-01000'})
+        results = service.query_targets(parameters)
+
+        self.assertEqual(results[0]['name'], 'OGLE-LMC-ECL-01000')
+        self.assertEqual(results[0]['aliases'], ['OGLE-LMC-ECL-01000'])
+        photometry = results[0]['reduced_datums']['photometry']
+        self.assertEqual([datum['value']['filter'] for datum in photometry], ['OGLE(I)', 'OGLE(V)'])
+
+    def test_harvester_maps_ocvs_target_metadata(self):
+        harvester = OGLEOCVSHarvester()
+        harvester.catalog_data = {
+            'name': 'OGLE-LMC-T2CEP-005',
+            'ra': 72.034708,
+            'dec': -69.853944,
+        }
+
+        target = harvester.to_target()
+
+        self.assertEqual(target.name, 'OGLE-LMC-T2CEP-005')
+        self.assertEqual(target.type, 'SIDEREAL')
+        self.assertEqual(target.epoch, 2000.0)
+        self.assertEqual(target.classification, 'Variable star-other')
+        self.assertEqual(target.description, 'OGLE variable star')
 
 
 class ExoClockDataServiceTests(TestCase):
@@ -579,6 +778,9 @@ class MOADataServiceTests(TestCase):
         self.assertEqual(_normalize_moa_event_name('2019-BLG-397'), 'MOA-2019-BLG-0397')
         self.assertEqual(_normalize_moa_event_name('MOA-2019-BLG-0397'), 'MOA-2019-BLG-0397')
         self.assertEqual(_event_suffix_candidates('MOA-2019-BLG-0397'), ['2019-BLG-397', '2019-BLG-0397'])
+        self.assertEqual(_normalize_moa_event_name('MOA-2018-LMC-003'), 'MOA-2018-LMC-003')
+        self.assertEqual(_event_suffix_candidates('MOA-2018-LMC-003'), ['2018-LMC-003', '2018-LMC-0003'])
+        self.assertEqual(_candidate_archive_years('Gaia18cta'), [2018])
 
         calibration = _extract_calibration('I = 27.6026 - 2.5 log10(Delta Flux + 0.0000)')
         self.assertEqual(calibration['band'], 'Red')
@@ -680,7 +882,92 @@ class MOADataServiceTests(TestCase):
         self.assertEqual(photometry[0]['value']['filter'], 'MOA(Red)')
         self.assertAlmostEqual(photometry[0]['value']['magnitude'], 20.1026)
 
-    def test_fetch_calibrated_photometry_warns_when_flux_calibration_missing(self):
+    def test_gaia18cta_falls_back_to_moa_year_listing_and_returns_difference_flux(self):
+        service = MOADataService()
+        archive_rows = [{
+            'Event': 'MOA-2018-LMC-003',
+            'ra_deg': 83.272,
+            'dec_deg': -69.508733,
+        }]
+        event_page = {
+            'event_name': 'MOA-2018-LMC-003',
+            'page_url': 'https://moaprime.massey.ac.nz/moaarchive/event/2018-LMC-003',
+            'phot_url': 'https://moaprime.massey.ac.nz/moaarchive/event/phot/2018-LMC-003',
+            'calibration_equation': 'I = 0.0000 - 2.5 log10(Delta Flux + 0.0000)',
+        }
+
+        with patch.object(service, '_fetch_catalog_rows', return_value=[]), patch.object(
+            service, '_fetch_archive_rows', return_value=archive_rows
+        ) as fetch_archive, patch.object(service, '_fetch_event_page', return_value=event_page), patch.object(
+            service, '_fetch_calibrated_photometry', return_value=[{
+                'jd': 2458371.99,
+                'mjd': 58371.49,
+                'flux': 4800000.0,
+                'flux_error': 12000.0,
+                'flux_units': 'MOA difference flux',
+                'filter': 'MOA(Red)',
+            }]
+        ):
+            results = service.query_targets({
+                'target_name': 'Gaia18cta',
+                'ra': 83.272,
+                'dec': -69.508733,
+                'radius_arcsec': 5.0,
+                'include_photometry': True,
+            })
+
+        fetch_archive.assert_called_once_with(2018)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['name'], 'MOA-2018-LMC-003')
+        self.assertEqual(results[0]['aliases'], ['MOA-2018-LMC-003'])
+        photometry = results[0]['reduced_datums']['photometry']
+        self.assertEqual(len(photometry), 1)
+        self.assertEqual(photometry[0]['value']['flux'], 4800000.0)
+        self.assertEqual(photometry[0]['value']['flux_error'], 12000.0)
+        self.assertEqual(photometry[0]['value']['filter'], 'MOA(Red)')
+        self.assertEqual(results[0]['source_location'], event_page['page_url'])
+
+    def test_gaia18cta_uses_moa_archive_when_community_catalogue_fails(self):
+        service = MOADataService()
+        archive_rows = [{
+            'Event': 'MOA-2018-LMC-003',
+            'ra_deg': 83.272,
+            'dec_deg': -69.508733,
+        }]
+
+        with patch.object(service, '_fetch_catalog_rows', side_effect=requests.RequestException('offline')), patch.object(
+            service, '_fetch_archive_rows', return_value=archive_rows
+        ) as fetch_archive:
+            result = service.query_service({
+                'target_name': 'Gaia18cta',
+                'ra': 83.272,
+                'dec': -69.508733,
+                'radius_arcsec': 5.0,
+                'include_photometry': False,
+            })
+
+        fetch_archive.assert_called_once_with(2018)
+        self.assertEqual(result['events'], archive_rows)
+
+    def test_fetch_archive_rows_converts_sexagesimal_coordinates(self):
+        service = MOADataService()
+        response = Mock()
+        response.json.return_value = {
+            'metadata': ['Name', 'MOA phase', 'Field', 'Chip', 'RA', 'Dec', 'Remarks'],
+            'entries': [[
+                'MOA-2018-LMC-003', 'MOA-2', 'lmc9', '1',
+                '+5:33:05.28', '-69:30:31.44', None,
+            ]],
+        }
+
+        with patch.object(service, '_request', return_value=response):
+            rows = service._fetch_archive_rows(2018)
+
+        self.assertEqual(rows[0]['Event'], 'MOA-2018-LMC-003')
+        self.assertAlmostEqual(rows[0]['ra_deg'], 83.272, places=5)
+        self.assertAlmostEqual(rows[0]['dec_deg'], -69.5087333333, places=5)
+
+    def test_fetch_photometry_preserves_difference_flux_when_calibration_missing(self):
         service = MOADataService()
         event_page = {
             'event_name': 'MOA-2003-BLG-0008',
@@ -696,9 +983,16 @@ class MOADataServiceTests(TestCase):
         ) as mocked_warning:
             rows = service._fetch_calibrated_photometry(event_page)
 
-        self.assertEqual(rows, [])
+        self.assertEqual(rows, [{
+            'jd': 2452909.1,
+            'mjd': 52908.6,
+            'flux': 123.0,
+            'flux_error': 4.0,
+            'flux_units': 'MOA difference flux',
+            'filter': 'MOA(Red)',
+        }])
         mocked_warning.assert_called_with(
-            'MOA data exists for %s but no flux calibration is provided.',
+            'MOA data exists for %s but no flux calibration is provided; ingesting difference flux.',
             'MOA-2003-BLG-0008',
         )
 
@@ -991,6 +1285,33 @@ class DataServicePersistenceTests(TestCase):
         self.assertEqual(params['dec'], 29.672296)
         self.assertEqual(params['radius_arcsec'], 30.0)
 
+    def test_build_query_parameters_for_ogle_ews_keeps_generic_target_name(self):
+        target = Target.objects.create(
+            name='Gaia18cta',
+            type=Target.SIDEREAL,
+            ra=83.2721666667,
+            dec=-69.5086666667,
+            epoch=2000.0,
+        )
+
+        params = _build_query_parameters_for_service(target, 'OGLEEWS', OGLEEWSDataService())
+
+        self.assertEqual(params['target_name'], 'Gaia18cta')
+
+    def test_build_query_parameters_for_ogle_ews_accepts_lmc_alias(self):
+        target = Target.objects.create(
+            name='Gaia18cta',
+            type=Target.SIDEREAL,
+            ra=83.2721666667,
+            dec=-69.5086666667,
+            epoch=2000.0,
+        )
+        target.aliases.create(name='OGLE-LMC-15')
+
+        params = _build_query_parameters_for_service(target, 'OGLEEWS', OGLEEWSDataService())
+
+        self.assertEqual(params['target_name'], 'LMC-15')
+
     def test_build_query_parameters_for_asassn_includes_target_names(self):
         target = Target.objects.create(name='AT2025abc', type=Target.SIDEREAL, ra=97.63665, dec=29.672296, epoch=2000.0)
         target.aliases.create(name='ASASSN-25ab')
@@ -1001,6 +1322,35 @@ class DataServicePersistenceTests(TestCase):
         self.assertEqual(params['target_names'], ['AT2025abc', 'ASASSN-25ab'])
         self.assertEqual(params['ra'], 97.63665)
         self.assertEqual(params['dec'], 29.672296)
+
+    def test_build_query_parameters_for_moa_uses_gaia_alert_name(self):
+        target = Target.objects.create(
+            name='Gaia18cta',
+            type=Target.SIDEREAL,
+            ra=83.272,
+            dec=-69.508733,
+            epoch=2000.0,
+        )
+
+        params = _build_query_parameters_for_service(target, 'MOA', MOADataService())
+
+        self.assertEqual(params['target_name'], 'Gaia18cta')
+        self.assertEqual(params['ra'], 83.272)
+        self.assertEqual(params['dec'], -69.508733)
+
+    def test_build_query_parameters_for_moa_prefers_moa_alias(self):
+        target = Target.objects.create(
+            name='Gaia18cta',
+            type=Target.SIDEREAL,
+            ra=83.272,
+            dec=-69.508733,
+            epoch=2000.0,
+        )
+        target.aliases.create(name='MOA-2018-LMC-003')
+
+        params = _build_query_parameters_for_service(target, 'MOA', MOADataService())
+
+        self.assertEqual(params['target_name'], 'MOA-2018-LMC-003')
 
     def test_transit_ephemeris_computes_next_transit_from_bjd_tdb(self):
         target = Target.objects.create(name='TestTransit', type=Target.SIDEREAL, ra=1.0, dec=2.0, epoch=2000.0)
@@ -1334,6 +1684,7 @@ class ASASSNDataServiceTests(TestCase):
         self.assertEqual(params['radius_arcsec'], 7.0)
 
     def test_query_targets_handles_missing_lightcurve_tables(self):
+        """A catalogue match with no photometry still yields the ASAS-SN id as an alias."""
         service = ASASSNDataService()
 
         with patch.object(service, 'query_service', return_value={
@@ -1343,6 +1694,24 @@ class ASASSNDataServiceTests(TestCase):
             'source_location': 'https://example.invalid/asassn/123',
             'ra': 12.3,
             'dec': -45.6,
+        }):
+            results = service.query_targets({'ra': 12.3, 'dec': -45.6})
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['aliases'], ['123'])
+        self.assertEqual(results[0]['reduced_datums'], {'photometry': []})
+
+    def test_query_targets_returns_nothing_without_any_match(self):
+        service = ASASSNDataService()
+
+        with patch.object(service, 'query_service', return_value={
+            'asassn_id': None,
+            'lc_filtered': None,
+            'lc_limits': None,
+            'source_location': None,
+            'ra': 12.3,
+            'dec': -45.6,
+            'transient': None,
         }):
             results = service.query_targets({'ra': 12.3, 'dec': -45.6})
 
@@ -1433,6 +1802,91 @@ class ASASSNDataServiceTests(TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['name'], 'ASASSN-17cf')
         self.assertEqual(results[0]['aliases'], ['661428703026/ASASSN-17cf'])
+
+    def test_query_service_ingests_non_detections_as_upper_limits(self):
+        """ASAS-SN flags non-detections with mag_err=99.999, not a negative error."""
+        import pandas as pd
+
+        service = ASASSNDataService()
+        lc_data = pd.DataFrame([
+            {'jd': 2458000.5, 'mag': 15.0, 'mag_err': 0.05, 'limit': 17.0, 'phot_filter': 'g'},
+            {'jd': 2458001.5, 'mag': 16.5, 'mag_err': 99.999, 'limit': 16.5, 'phot_filter': 'g'},
+        ])
+
+        client = Mock()
+        client.cone_search.side_effect = [
+            pd.DataFrame([{'asas_sn_id': 661428703026, 'ra_deg': 12.3, 'dec_deg': -45.6}]),
+            {661428703026: Mock(data=lc_data)},
+        ]
+
+        with patch('custom_code.data_services.asassn_dataservice._fetch_transient_rows', return_value=[]), patch(
+            'custom_code.data_services.asassn_dataservice.SkyPatrolClient',
+            return_value=client,
+        ):
+            results = service.query_service({'ra': 12.3, 'dec': -45.6, 'radius_arcsec': 7.0})
+
+        self.assertEqual(len(results['lc_filtered']), 1)
+        self.assertEqual(len(results['lc_limits']), 1)
+
+        datums = service._build_photometry_datums(results['lc_filtered'], results['lc_limits'])
+        self.assertEqual(len(datums), 2)
+        limit_datums = [d for d in datums if d['value']['error'] < 0]
+        self.assertEqual(len(limit_datums), 1)
+        self.assertEqual(limit_datums[0]['value']['magnitude'], 16.5)
+        self.assertEqual(limit_datums[0]['value']['filter'], 'ASASSN(g)')
+
+    def test_query_service_keeps_asassn_id_integral(self):
+        """A numeric-only result row must not upcast the catalogue id to a float."""
+        import pandas as pd
+
+        service = ASASSNDataService()
+        client = Mock()
+        client.cone_search.return_value = pd.DataFrame([
+            {'asas_sn_id': 661428703026, 'ra_deg': 12.3, 'dec_deg': -45.6},
+        ])
+
+        with patch('custom_code.data_services.asassn_dataservice._fetch_transient_rows', return_value=[]), patch(
+            'custom_code.data_services.asassn_dataservice.SkyPatrolClient',
+            return_value=client,
+        ):
+            results = service.query_service({
+                'ra': 12.3, 'dec': -45.6, 'radius_arcsec': 7.0, 'include_photometry': False,
+            })
+
+        self.assertEqual(results['asassn_id'], 661428703026)
+        self.assertEqual(
+            results['source_location'],
+            'http://asas-sn.ifa.hawaii.edu/skypatrol/objects/661428703026',
+        )
+
+    def test_allow_child_processes_unblocks_daemonic_download(self):
+        """pyasassn uses multiprocessing.Pool, which a daemon worker may not start."""
+        import multiprocessing
+
+        from custom_code.data_services.asassn_dataservice import _allow_child_processes
+
+        config = multiprocessing.current_process()._config
+        original = config.get('daemon')
+        config['daemon'] = True
+        try:
+            with _allow_child_processes():
+                self.assertFalse(config['daemon'])
+            self.assertTrue(config['daemon'])
+        finally:
+            if original is None:
+                config.pop('daemon', None)
+            else:
+                config['daemon'] = original
+
+    def test_find_transient_by_cone_respects_radius(self):
+        from custom_code.data_services.asassn_dataservice import _find_transient_by_cone
+
+        rows = [{'name': 'ASASSN-25ab', 'ra': 12.3, 'dec': -45.6}]
+        self.assertIsNone(_find_transient_by_cone(rows, 12.3, -45.6 + 2.0 / 1000, 5.0))
+        self.assertEqual(
+            _find_transient_by_cone(rows, 12.3, -45.6 + 2.0 / 1000, 10.0)['name'],
+            'ASASSN-25ab',
+        )
 
     def test_query_targets_does_not_emit_other_id_as_asassn_alias(self):
         service = ASASSNDataService()
@@ -1754,6 +2208,13 @@ class CatalogServiceRegistrationTests(TestCase):
         from tom_catalogs.harvester import get_service_classes
 
         self.assertIn('OGLE EWS', get_service_classes())
+
+    def test_ogle_ocvs_is_listed_in_both_service_selectors(self):
+        from tom_catalogs.harvester import get_service_classes
+        from custom_code.tasks import _get_data_service_classes
+
+        self.assertIn('OGLE OCVS', get_service_classes())
+        self.assertIn('OGLEOCVS', _get_data_service_classes())
 
     def test_moa_is_listed_in_catalog_services(self):
         from tom_catalogs.harvester import get_service_classes
