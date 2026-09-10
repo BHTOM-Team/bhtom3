@@ -277,7 +277,36 @@ def _has_meaningful_data_service_result(result):
         return False
     if str(result.get('name') or '').strip():
         return True
-    return result.get('ra') is not None and result.get('dec') is not None
+    try:
+        return math.isfinite(float(result.get('ra'))) and math.isfinite(float(result.get('dec')))
+    except (TypeError, ValueError):
+        return False
+
+
+def _backfill_data_service_result_coordinates(result, *parameter_sets):
+    """Give a real name/data result the coordinates already resolved for the query."""
+    if not isinstance(result, dict):
+        return result
+    has_payload = bool(str(result.get('name') or '').strip() or result.get('reduced_datums'))
+    if not has_payload:
+        return result
+    normalized = dict(result)
+    for coordinate in ('ra', 'dec'):
+        try:
+            present = math.isfinite(float(normalized.get(coordinate)))
+        except (TypeError, ValueError):
+            present = False
+        if present:
+            continue
+        for parameters in parameter_sets:
+            candidate = parameters.get(coordinate) if isinstance(parameters, dict) else None
+            try:
+                if math.isfinite(float(candidate)):
+                    normalized[coordinate] = float(candidate)
+                    break
+            except (TypeError, ValueError):
+                continue
+    return normalized
 
 
 def _save_bhtom2_upload_preference(user, token, oname, calibration_filter):
@@ -324,6 +353,7 @@ def _run_single_data_service_query(data_service_name, parameters, *, query_id=''
     raw_results = service.query_targets(query_parameters) or []
     rows = []
     for index, result in enumerate(raw_results):
+        result = _backfill_data_service_result_coordinates(result, query_parameters, parameters)
         if not _has_meaningful_data_service_result(result):
             logger.debug('Ignoring empty result returned by data service %s.', data_service_name)
             continue

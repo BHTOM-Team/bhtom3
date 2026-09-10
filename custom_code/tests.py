@@ -161,6 +161,7 @@ from custom_code.views import (
     _catalog_target_params,
     _catalog_query_services_for_input,
     _serialize_query_parameters,
+    _backfill_data_service_result_coordinates,
     _has_meaningful_data_service_result,
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
@@ -763,12 +764,35 @@ class DataServiceQuerySerializationTests(TestCase):
             'aliases': [None],
         }))
 
+    def test_blank_coordinate_placeholder_is_not_meaningful(self):
+        self.assertFalse(_has_meaningful_data_service_result({
+            'name': '',
+            'ra': '',
+            'dec': '',
+        }))
+
+    def test_nan_coordinate_placeholder_is_not_meaningful(self):
+        self.assertFalse(_has_meaningful_data_service_result({
+            'name': None,
+            'ra': float('nan'),
+            'dec': float('nan'),
+        }))
+
     def test_coordinate_only_data_service_result_is_meaningful(self):
         self.assertTrue(_has_meaningful_data_service_result({
             'name': None,
             'ra': 183.7419128,
             'dec': 63.787784,
         }))
+
+    def test_real_result_inherits_coordinates_resolved_for_query(self):
+        result = _backfill_data_service_result_coordinates(
+            {'name': 'SN 2026fvx', 'ra': None, 'dec': ''},
+            {'ra': 183.741913, 'dec': 63.787784},
+        )
+
+        self.assertEqual(result['ra'], 183.741913)
+        self.assertEqual(result['dec'], 63.787784)
 
 
 class ObservationStatusTaskTests(TestCase):

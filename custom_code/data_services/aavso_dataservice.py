@@ -27,8 +27,10 @@ incremental ``fromjd`` (latest stored point) resumes where it stopped. Dedup is 
 
 import json
 import logging
+import xml.etree.ElementTree as ET
 from collections import Counter
 from datetime import timezone as dt_timezone
+from urllib.parse import urlencode
 
 import requests
 from astropy.time import Time
@@ -89,6 +91,20 @@ def _to_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _aavso_object_url(identifier=None, oid=None):
+    """Return the most specific official AAVSO VSX URL available for an object."""
+    if oid not in (None, ''):
+        query = urlencode({'view': 'detail.top', 'oid': str(oid).strip()})
+        return f'{AAVSO_API_URL}?{query}'
+    identifier = str(identifier or '').strip()
+    if identifier:
+        # The public object endpoint is still object-specific and is a useful fallback when
+        # VSX metadata did not provide the numeric OID needed by the human detail page.
+        query = urlencode({'view': 'api.object', 'ident': identifier})
+        return f'{AAVSO_API_URL}?{query}'
+    return AAVSO_INFO_URL
 
 
 def _reduced_datum_identity(timestamp, value):
@@ -351,12 +367,42 @@ class AAVSODataService(DataService):
             'idents': idents,
             'vsx_name': vsx_names[0] if vsx_names else None,
             'target_id': target_id,
+            'ra': ra_f,
+            'dec': dec_f,
             'fromjd': from_jd,
             'tojd': _to_float(parameters.get('tojd')),
             'include_photometry': bool(parameters.get('include_photometry', True)),
             'force': bool(parameters.get('force')),
         }
         return self.query_parameters
+
+    def _fetch_vsx_object(self, ident):
+        """Fetch the small VSX object record used for its OID and canonical coordinates."""
+        ident = str(ident or '').strip()
+        if not ident:
+            return {}
+        try:
+            response = self._get_http_session().get(
+                AAVSO_API_URL,
+                params={'view': 'api.object', 'ident': ident},
+                timeout=DATA_SERVICE_HTTP_TIMEOUT,
+            )
+            response.raise_for_status()
+            root = ET.fromstring(response.text)
+        except Exception as exc:
+            logger.info('AAVSO: could not load VSX object metadata for %r: %s', ident, exc)
+            return {}
+
+        def value(tag):
+            element = root.find(tag)
+            return str(element.text or '').strip() if element is not None else ''
+
+        return {
+            'name': value('Name'),
+            'oid': value('OID'),
+            'ra': _to_float(value('RA2000')),
+            'dec': _to_float(value('Declination2000')),
+        }
 
     # --------------------------------------------------------- remote query
     def query_service(self, query_parameters, **kwargs):
@@ -549,7 +595,19 @@ class AAVSODataService(DataService):
 
             # Prefer the coordinate-resolved VSX name as the alias; fall back to observed starName.
             alias = vsx_name or star_name
-            result = {'source_location': AAVSO_INFO_URL}
+            metadata = self._fetch_vsx_object(alias or ident)
+            alias = alias or metadata.get('name')
+            result = {
+                'source_location': _aavso_object_url(alias or ident, metadata.get('oid')),
+                'ra': (
+                    query_parameters.get('ra')
+                    if query_parameters.get('ra') is not None else metadata.get('ra')
+                ),
+                'dec': (
+                    query_parameters.get('dec')
+                    if query_parameters.get('dec') is not None else metadata.get('dec')
+                ),
+            }
             if alias:
                 result['name'] = alias
                 result['aliases'] = [alias]

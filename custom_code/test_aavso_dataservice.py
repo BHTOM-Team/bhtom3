@@ -10,12 +10,25 @@ from custom_code.data_services.aavso_dataservice import (
     _AAVSOIdentifierUnavailable,
     _REQUEST_HEADERS,
     _RETRYABLE_HTTP_STATUSES,
+    _aavso_object_url,
     _ingest_photometry,
 )
 from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 class AAVSODataServiceTests(SimpleTestCase):
+    def test_object_url_uses_human_vsx_detail_page_when_oid_is_known(self):
+        self.assertEqual(
+            _aavso_object_url('SN 2026fvx', '10875707'),
+            'https://vsx.aavso.org/index.php?view=detail.top&oid=10875707',
+        )
+
+    def test_object_url_falls_back_to_object_specific_api_page(self):
+        self.assertEqual(
+            _aavso_object_url('SN 2026fvx'),
+            'https://vsx.aavso.org/index.php?view=api.object&ident=SN+2026fvx',
+        )
+
     def test_http_session_retries_transient_405_responses(self):
         service = AAVSODataService()
 
@@ -170,6 +183,33 @@ class AAVSODataServiceTests(SimpleTestCase):
         self.assertEqual(parameters['fromjd'], 2450000.0)
         historical_from_jd.assert_called_once_with(7)
         incremental_from_jd.assert_not_called()
+
+    def test_query_target_has_coordinates_and_direct_vsx_link(self):
+        service = AAVSODataService()
+        row = {'timestamp': Mock(), 'value': {'filter': 'AAVSO(V)', 'magnitude': 12.3}}
+        with patch.object(
+            service, '_fetch_chunked', return_value=(0, 'SN 2026fvx', [row], True)
+        ), patch.object(service, '_fetch_vsx_object', return_value={
+            'name': 'SN 2026fvx',
+            'oid': '10875707',
+            'ra': 183.74221,
+            'dec': 63.78789,
+        }):
+            results = service.query_targets({
+                'idents': ['SN 2026fvx'],
+                'ra': 183.741913,
+                'dec': 63.787784,
+                'fromjd': 2461290.0,
+                'tojd': 2461291.0,
+                'include_photometry': True,
+            })
+
+        self.assertEqual(results[0]['ra'], 183.741913)
+        self.assertEqual(results[0]['dec'], 63.787784)
+        self.assertEqual(
+            results[0]['source_location'],
+            'https://vsx.aavso.org/index.php?view=detail.top&oid=10875707',
+        )
 
     def test_retryable_statuses_include_server_and_rate_limit_errors(self):
         self.assertTrue({405, 429, 500, 502, 503, 504}.issubset(_RETRYABLE_HTTP_STATUSES))
