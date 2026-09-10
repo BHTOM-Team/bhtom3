@@ -738,6 +738,21 @@ class DataServiceQuerySerializationTests(TestCase):
         self.assertIn(f'/targets/{target.pk}/', annotated[0]['existing_target_url'])
         self.assertNotIn('existing_target_pk', annotated[1])
 
+    def test_annotate_rapas_result_matches_existing_target_by_coordinates_only(self):
+        target = Target.objects.create(name='SN2026fvx', type=Target.SIDEREAL, ra=183.7419128, dec=63.787784)
+        results = [{
+            'id': 0,
+            'service': 'RAPAS',
+            'name': 'A different RAPAS name',
+            'ra': 183.7419128,
+            'dec': 63.787784,
+        }]
+
+        annotated = _annotate_results_with_existing_targets(results)
+
+        self.assertEqual(annotated[0]['existing_target_pk'], target.pk)
+        self.assertIn(f'/targets/{target.pk}/', annotated[0]['existing_target_url'])
+
 
 class ObservationStatusTaskTests(TestCase):
     def test_run_observation_status_update_passes_target_none(self):

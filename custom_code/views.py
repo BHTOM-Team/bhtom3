@@ -198,9 +198,31 @@ def _find_existing_target_by_name(name):
     )
 
 
+def _find_existing_target_by_coordinates(ra, dec, radius_arcsec=5.0):
+    try:
+        ra = float(ra)
+        dec = float(dec)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(ra) or not math.isfinite(dec):
+        return None
+
+    candidates = list(Target.matches.match_cone_search(ra, dec, radius_arcsec))
+    if not candidates:
+        return None
+    center = SkyCoord(ra, dec, unit='deg')
+    return min(
+        candidates,
+        key=lambda target: center.separation(SkyCoord(target.ra, target.dec, unit='deg')).arcsecond,
+    )
+
+
 def _annotate_results_with_existing_targets(results):
     for result in results:
-        target = _find_existing_target_by_name(result.get('name'))
+        if result.get('service') == 'RAPAS':
+            target = _find_existing_target_by_coordinates(result.get('ra'), result.get('dec'))
+        else:
+            target = _find_existing_target_by_name(result.get('name'))
         if target is None:
             continue
         result['existing_target_pk'] = target.pk
@@ -220,6 +242,10 @@ def _summarize_target_query_result(result):
         'gaia_variability_type',
     )
     parts = []
+    reduced_datums = result.get('reduced_datums') or {}
+    photometry = reduced_datums.get('photometry') or []
+    if photometry:
+        parts.append(f'{len(photometry)} photometry measurements')
     for key in preferred_keys:
         value = result.get(key)
         if value in (None, '', [], {}):
