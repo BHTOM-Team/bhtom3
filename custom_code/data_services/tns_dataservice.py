@@ -2,6 +2,7 @@
 
 import math
 import re
+import time
 from urllib.parse import quote
 
 import requests
@@ -18,6 +19,7 @@ class TNSDataService(BaseTNSDataService):
 
     def build_query_parameters(self, parameters, **kwargs):
         adapted = dict(parameters)
+        self._query_deadline_monotonic = adapted.get('_query_deadline_monotonic')
         target_name = str(adapted.get('target_name') or '').strip()
         adapted['target_name'] = re.sub(
             r'^(?:SN|AT)\s*', '', target_name, flags=re.IGNORECASE
@@ -28,11 +30,19 @@ class TNSDataService(BaseTNSDataService):
         return super().build_query_parameters(adapted, **kwargs)
 
     def query_service(self, data, **kwargs):
+        timeout = DATA_SERVICE_HTTP_TIMEOUT
+        query_deadline = getattr(self, '_query_deadline_monotonic', None)
+        if query_deadline:
+            remaining = max(0.1, float(query_deadline) - time.monotonic())
+            timeout = (
+                min(float(DATA_SERVICE_HTTP_TIMEOUT[0]), remaining),
+                min(float(DATA_SERVICE_HTTP_TIMEOUT[1]), remaining),
+            )
         response = requests.post(
             kwargs['url'],
             data=data,
             headers=self.build_headers(),
-            timeout=DATA_SERVICE_HTTP_TIMEOUT,
+            timeout=timeout,
         )
         response.raise_for_status()
         payload = response.json()

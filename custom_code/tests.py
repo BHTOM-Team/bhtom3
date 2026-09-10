@@ -163,6 +163,7 @@ from custom_code.views import (
     _catalog_query_services_for_input,
     _serialize_query_parameters,
     _backfill_data_service_result_coordinates,
+    _data_service_failure_feedback,
     _has_meaningful_data_service_result,
     _normalize_data_service_result,
     _parameters_for_data_service,
@@ -824,6 +825,12 @@ class DataServiceQuerySerializationTests(TestCase):
         self.assertEqual(result['ra'], 183.74221)
         self.assertEqual(result['dec'], 63.78789)
         self.assertEqual(result['source_location'], 'https://www.wis-tns.org/object/2026fvx')
+
+    def test_data_service_http_failure_feedback_includes_safe_status(self):
+        response = Mock(status_code=401)
+        error = requests.HTTPError('contains remote response detail', response=response)
+
+        self.assertEqual(_data_service_failure_feedback('TNS', error), 'TNS: HTTP 401')
 
     def test_all_data_services_returns_fast_results_within_service_timeout(self):
         slow_release = threading.Event()

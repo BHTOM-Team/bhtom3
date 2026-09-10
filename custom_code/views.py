@@ -354,6 +354,17 @@ def _normalize_data_service_result(result, data_service_name):
     return normalized
 
 
+def _data_service_failure_feedback(data_service_name, exc):
+    """Return a useful error category without exposing response bodies or credentials."""
+    if isinstance(exc, requests.Timeout):
+        return f'{data_service_name}: request timed out'
+    if isinstance(exc, requests.HTTPError):
+        status_code = getattr(getattr(exc, 'response', None), 'status_code', None)
+        if status_code:
+            return f'{data_service_name}: HTTP {status_code}'
+    return f'{data_service_name}: query failed ({exc.__class__.__name__})'
+
+
 def _save_bhtom2_upload_preference(user, token, oname, calibration_filter):
     if user is None or not getattr(user, 'is_authenticated', False):
         return None
@@ -483,7 +494,7 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
                 rows.extend(future.result())
             except Exception as exc:
                 logger.warning('All-data-services query failed for %s: %s', service_name, exc)
-                feedback.append(f'{service_name}: query failed')
+                feedback.append(_data_service_failure_feedback(service_name, exc))
     except FuturesTimeoutError:
         timed_out = True
     finally:
@@ -501,7 +512,7 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
                     rows.extend(future.result())
                 except Exception as exc:
                     logger.warning('All-data-services query failed for %s: %s', service_name, exc)
-                    feedback.append(f'{service_name}: query failed')
+                    feedback.append(_data_service_failure_feedback(service_name, exc))
                 continue
             future.cancel()
             logger.warning('All-data-services query timed out for %s', service_name)
