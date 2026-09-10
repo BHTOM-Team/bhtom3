@@ -44,6 +44,24 @@ def _normalized_name(value):
     return re.sub(r'\s+', ' ', _clean_text(value)).casefold()
 
 
+def _compact_name(value):
+    return re.sub(r'[^a-z0-9]', '', _normalized_name(value))
+
+
+def _record_names(record):
+    return {
+        _normalized_name(record.get('name')),
+        _normalized_name(record.get('sheet_name')),
+    }
+
+
+def _record_matches_partial_name(record, query):
+    compact_query = _compact_name(query)
+    if not compact_query:
+        return False
+    return any(compact_query in _compact_name(name) for name in _record_names(record))
+
+
 def _to_float(value):
     if isinstance(value, (int, float)):
         number = float(value)
@@ -380,6 +398,7 @@ class RAPASDataService(DataService):
         target_name, ra, dec = resolve_query_coordinates(parameters)
         target_names = parameters.get('target_names') or ([target_name] if target_name else [])
         self.query_parameters = {
+            'target_id': parameters.get('target_id'),
             'target_name': target_name,
             'target_names': [_clean_text(name) for name in target_names if _clean_text(name)],
             'ra': _to_float(ra),
@@ -392,10 +411,17 @@ class RAPASDataService(DataService):
     def query_service(self, query_parameters, **kwargs):
         records = _fetch_records()
         names = {_normalized_name(name) for name in query_parameters.get('target_names') or []}
-        matches = [
-            record for record in records
-            if names.intersection({_normalized_name(record['name']), _normalized_name(record['sheet_name'])})
-        ]
+        is_target_refresh = bool(query_parameters.get('target_id'))
+        matches = []
+
+        # Interactive/general queries support abbreviated and substring searches,
+        # e.g. SN2026fvx, 2026fvx, 26fvx, fvx, or 2026. Target refreshes deliberately
+        # ignore names and link a BHTOM target to RAPAS by coordinates only.
+        if not is_target_refresh:
+            matches = [
+                record for record in records
+                if any(_record_matches_partial_name(record, name) for name in names)
+            ]
 
         if not matches and query_parameters.get('ra') is not None and query_parameters.get('dec') is not None:
             center = SkyCoord(query_parameters['ra'], query_parameters['dec'], unit='deg')

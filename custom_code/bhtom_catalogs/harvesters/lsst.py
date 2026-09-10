@@ -55,12 +55,8 @@ def get(term):
         return _parse_rows(response.json())
 
     object_rows = _query('/api/v1/objects', {'diaObjectId': dia_object_id, 'output-format': 'json'})
-    if not object_rows:
-        object_rows = _query('/api/v1/objects', {'objectId': dia_object_id, 'output-format': 'json'})
 
     source_rows = _query('/api/v1/sources', {'diaObjectId': dia_object_id, 'output-format': 'json'})
-    if not source_rows:
-        source_rows = _query('/api/v1/sources', {'objectId': dia_object_id, 'output-format': 'json'})
 
     if not object_rows and not source_rows:
         return {}

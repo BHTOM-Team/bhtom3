@@ -30,6 +30,8 @@ from datetime import timezone as dt_timezone
 
 import requests
 from astropy.time import Time
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from django.conf import settings
 
@@ -59,6 +61,10 @@ _DEFAULT_FROM_JD = 2415020.0
 # JD = MJD + this constant.
 _MJD_TO_JD = 2400000.5
 _REQUEST_HEADERS = {'User-Agent': 'bhtom3 AAVSO dataservice', 'Accept': 'text/plain'}
+# The AAVSO endpoint occasionally returns 405 for an otherwise valid GET (and then succeeds
+# when the identical request is repeated). Treat it like the other transient edge/server
+# responses for this idempotent API call.
+_RETRYABLE_HTTP_STATUSES = (405, 408, 425, 429, 500, 502, 503, 504)
 
 
 def _chunk_days():
@@ -175,6 +181,27 @@ class AAVSODataService(DataService):
     @classmethod
     def get_form_class(cls):
         return AAVSOQueryForm
+
+    def _get_http_session(self):
+        """Return a persistent session with bounded retries for transient AAVSO failures."""
+        session = getattr(self, '_aavso_http_session', None)
+        if session is None:
+            retry = Retry(
+                total=int(getattr(settings, 'AAVSO_HTTP_RETRIES', 3)),
+                connect=int(getattr(settings, 'AAVSO_HTTP_RETRIES', 3)),
+                read=int(getattr(settings, 'AAVSO_HTTP_RETRIES', 3)),
+                status=int(getattr(settings, 'AAVSO_HTTP_RETRIES', 3)),
+                backoff_factor=float(getattr(settings, 'AAVSO_HTTP_RETRY_BACKOFF', 1.0)),
+                status_forcelist=_RETRYABLE_HTTP_STATUSES,
+                allowed_methods=frozenset({'GET'}),
+                respect_retry_after_header=True,
+                raise_on_status=False,
+            )
+            session = requests.Session()
+            session.headers.update(_REQUEST_HEADERS)
+            session.mount('https://', HTTPAdapter(max_retries=retry))
+            self._aavso_http_session = session
+        return session
 
     # -------------------------------------------------------- query params
     def _target_names(self, target_name, target_id):
@@ -298,7 +325,11 @@ class AAVSODataService(DataService):
         }
         if to_jd is not None:
             params['tojd'] = to_jd
-        resp = requests.get(AAVSO_API_URL, params=params, headers=_REQUEST_HEADERS, timeout=DATA_SERVICE_HTTP_TIMEOUT)
+        resp = self._get_http_session().get(
+            AAVSO_API_URL,
+            params=params,
+            timeout=DATA_SERVICE_HTTP_TIMEOUT,
+        )
         resp.raise_for_status()
         return self._parse_delim(resp.text)
 

@@ -70,6 +70,74 @@ class RAPASDataServiceTests(SimpleTestCase):
             results = service.query_targets(parameters)
         self.assertEqual([result['name'] for result in results], ['SN 2026fvx'])
 
+    def test_general_query_accepts_compact_and_partial_names(self):
+        second_record = dict(self.record, name='AT 2026abc', sheet_name='AT 2026abc')
+        records = [self.record, second_record]
+
+        for query in ('SN2026fvx', '2026fvx', '26fvx', 'fvx'):
+            service = RAPASDataService()
+            parameters = service.build_query_parameters({
+                'target_name': query,
+                'target_names': [query],
+                'ra': 0.0,
+                'dec': 0.0,
+            })
+            with patch('custom_code.data_services.rapas_dataservice._fetch_records', return_value=records):
+                results = service.query_targets(parameters)
+            self.assertEqual([result['name'] for result in results], ['SN 2026fvx'])
+
+        service = RAPASDataService()
+        parameters = service.build_query_parameters({
+            'target_name': '2026',
+            'target_names': ['2026'],
+            'ra': 0.0,
+            'dec': 0.0,
+        })
+        with patch('custom_code.data_services.rapas_dataservice._fetch_records', return_value=records):
+            results = service.query_targets(parameters)
+        self.assertEqual([result['name'] for result in results], ['SN 2026fvx', 'AT 2026abc'])
+
+    def test_scheduled_target_refresh_does_not_use_broad_partial_matching(self):
+        service = RAPASDataService()
+        parameters = service.build_query_parameters({
+            'target_id': 123,
+            'target_name': '2026',
+            'target_names': ['2026'],
+            'ra': 0.0,
+            'dec': 0.0,
+        })
+        with patch('custom_code.data_services.rapas_dataservice._fetch_records', return_value=[self.record]):
+            results = service.query_targets(parameters)
+        self.assertEqual(results, [])
+
+    def test_scheduled_target_refresh_ignores_even_an_exact_name(self):
+        service = RAPASDataService()
+        parameters = service.build_query_parameters({
+            'target_id': 123,
+            'target_name': 'SN2026fvx',
+            'target_names': ['SN2026fvx'],
+            'ra': 0.0,
+            'dec': 0.0,
+        })
+        with patch('custom_code.data_services.rapas_dataservice._fetch_records', return_value=[self.record]):
+            results = service.query_targets(parameters)
+        self.assertEqual(results, [])
+
+    def test_scheduled_target_refresh_matches_by_coordinates_and_returns_rapas_name(self):
+        service = RAPASDataService()
+        parameters = service.build_query_parameters({
+            'target_id': 123,
+            'target_name': 'Completely different BHTOM name',
+            'target_names': ['Completely different BHTOM name'],
+            'ra': self.record['ra'] + 0.0001,
+            'dec': self.record['dec'],
+            'radius_arcsec': 5.0,
+        })
+        with patch('custom_code.data_services.rapas_dataservice._fetch_records', return_value=[self.record]):
+            results = service.query_targets(parameters)
+        self.assertEqual([result['name'] for result in results], ['SN 2026fvx'])
+        self.assertEqual(results[0]['aliases'], [{'name': 'SN 2026fvx', 'source_name': 'RAPAS'}])
+
     def test_measurement_rows_create_all_three_rapas_bands(self):
         rows = [[], ['Filtre A / G', '', '', '', '', 'Filtre A / G', '', 'Filtre B / Gbp', '', 'Filtre C / Grp']]
         rows.append(['Date(JJ/MM/AAAA)', 'UTC(HH:MM:SS)', 'MJD'])

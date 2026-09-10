@@ -94,8 +94,6 @@ class LSSTDataService(DataService):
 
         if dia_id and str(dia_id).isdigit():
             object_rows = self._post('/api/v1/objects', {'diaObjectId': str(dia_id), 'output-format': 'json'})
-            if not object_rows:
-                object_rows = self._post('/api/v1/objects', {'objectId': str(dia_id), 'output-format': 'json'})
             if query_parameters.get('include_photometry', True):
                 source_rows = self._post(
                     '/api/v1/sources',
@@ -105,15 +103,6 @@ class LSSTDataService(DataService):
                         'output-format': 'json',
                     }
                 )
-                if not source_rows:
-                    source_rows = self._post(
-                        '/api/v1/sources',
-                        {
-                            'objectId': str(dia_id),
-                            'columns': 'r:diaObjectId,r:midpointMjdTai,r:scienceFlux,r:scienceFluxErr,r:band',
-                            'output-format': 'json',
-                        }
-                    )
 
         if not object_rows and ra is not None and dec is not None:
             cone_rows = self._post(
