@@ -15,6 +15,8 @@ Notes on the AID data:
 * ``fainterThan == 1`` marks a non-detection -- stored as an UPPER LIMIT with ``error = -1``
   (bhtom3 plots error <= 0 as a limit), reusing the same convention as the ATLAS service.
 * Bands (V, B, I, R, CV, Vis., ...) become ``AAVSO(<band>)`` filters.
+* Observer identity and the complete set of public observation details returned by AID are
+  retained in each datum for plot hover text and the measurement detail page.
 
 Loading: the full history is pulled by default, in bounded JD chunks. When a target exists
 each chunk is inserted immediately, so a well-observed star (tens of thousands of points) is
@@ -67,6 +69,10 @@ _REQUEST_HEADERS = {'User-Agent': 'bhtom3 AAVSO dataservice', 'Accept': 'text/pl
 _RETRYABLE_HTTP_STATUSES = (405, 408, 425, 429, 500, 502, 503, 504)
 
 
+class _AAVSOIdentifierUnavailable(RuntimeError):
+    """The API repeatedly rejected a GET for one identifier; another alias may still work."""
+
+
 def _chunk_days():
     """Width (in JD days) of each fetch window. Well-observed stars return ~100k points/year
     (e.g. SS Cyg), so the full history is pulled in bounded chunks rather than one huge request.
@@ -89,6 +95,17 @@ def _reduced_datum_identity(timestamp, value):
     return (timestamp, json.dumps(value, sort_keys=True, separators=(',', ':'), default=str))
 
 
+def _photometry_identity(timestamp, value):
+    """Identity shared by legacy and metadata-rich versions of an AAVSO observation."""
+    value = value if isinstance(value, dict) else {}
+    return (
+        timestamp,
+        value.get('filter'),
+        _to_float(value.get('magnitude')),
+        _to_float(value.get('error')),
+    )
+
+
 def _ingest_photometry(target, rows):
     """Insert one chunk's photometry, deduping against existing points in the chunk's time span.
 
@@ -99,23 +116,67 @@ def _ingest_photometry(target, rows):
         return 0
     times = [r['timestamp'] for r in rows]
     lo, hi = min(times), max(times)
-    existing = {
-        _reduced_datum_identity(ts, val)
-        for ts, val in ReducedDatum.objects.filter(
+    existing_rows = list(
+        ReducedDatum.objects.filter(
             target=target,
             source_name=AAVSODataService.name,
             data_type='photometry',
             timestamp__gte=lo,
             timestamp__lte=hi,
-        ).values_list('timestamp', 'value')
+        )
+    )
+    existing_identities = {
+        _reduced_datum_identity(existing.timestamp, existing.value)
+        for existing in existing_rows
     }
-    seen = set()
+    existing_by_observation_id = {}
+    legacy_by_photometry_identity = {}
+    for existing in existing_rows:
+        value = existing.value if isinstance(existing.value, dict) else {}
+        observation_id = str(value.get('aavso_observation_id') or '').strip()
+        if observation_id:
+            existing_by_observation_id[observation_id] = existing
+        else:
+            legacy_by_photometry_identity.setdefault(
+                _photometry_identity(existing.timestamp, value), []
+            ).append(existing)
+
+    seen_observation_ids = set()
+    seen_identities = set()
     new_rows = []
+    updated_rows = {}
     for r in rows:
-        key = _reduced_datum_identity(r['timestamp'], r['value'])
-        if key in existing or key in seen:
+        value = r['value'] if isinstance(r['value'], dict) else {}
+        observation_id = str(value.get('aavso_observation_id') or '').strip()
+        identity = _reduced_datum_identity(r['timestamp'], value)
+        if observation_id and observation_id in seen_observation_ids:
             continue
-        seen.add(key)
+        if not observation_id and (identity in existing_identities or identity in seen_identities):
+            continue
+
+        existing = existing_by_observation_id.get(observation_id) if observation_id else None
+        if existing is None:
+            legacy_matches = legacy_by_photometry_identity.get(
+                _photometry_identity(r['timestamp'], value), []
+            )
+            existing = legacy_matches.pop(0) if legacy_matches else None
+
+        if existing is not None:
+            if existing.timestamp != r['timestamp'] or existing.value != value:
+                existing.timestamp = r['timestamp']
+                existing.value = value
+                existing.source_location = AAVSO_INFO_URL
+                updated_rows[existing.pk] = existing
+            if observation_id:
+                seen_observation_ids.add(observation_id)
+            else:
+                seen_identities.add(identity)
+            continue
+
+        if observation_id:
+            seen_observation_ids.add(observation_id)
+        else:
+            seen_identities.add(identity)
         new_rows.append(ReducedDatum(
             target=target,
             data_type='photometry',
@@ -126,6 +187,12 @@ def _ingest_photometry(target, rows):
         ))
     if new_rows:
         ReducedDatum.objects.bulk_create(new_rows, batch_size=500)
+    if updated_rows:
+        ReducedDatum.objects.bulk_update(
+            list(updated_rows.values()),
+            fields=['timestamp', 'value', 'source_location'],
+            batch_size=500,
+        )
     return len(new_rows)
 
 
@@ -237,6 +304,24 @@ class AAVSODataService(DataService):
         except Exception:
             return _DEFAULT_FROM_JD
 
+    def _historical_from_jd(self, target_id):
+        """Start at the oldest stored point when refreshing metadata for existing data."""
+        if not target_id:
+            return _DEFAULT_FROM_JD
+        earliest = (
+            ReducedDatum.objects
+            .filter(target_id=target_id, source_name=self.name, data_type='photometry')
+            .order_by('timestamp')
+            .values_list('timestamp', flat=True)
+            .first()
+        )
+        if not earliest:
+            return _DEFAULT_FROM_JD
+        try:
+            return float(Time(earliest, scale='utc').mjd) + _MJD_TO_JD
+        except Exception:
+            return _DEFAULT_FROM_JD
+
     def build_query_parameters(self, parameters, **kwargs):
         target_name, ra, dec = resolve_query_coordinates(parameters)
         target_id = parameters.get('target_id')
@@ -257,7 +342,10 @@ class AAVSODataService(DataService):
 
         from_jd = _to_float(parameters.get('fromjd'))
         if from_jd is None:
-            from_jd = self._incremental_from_jd(target_id)
+            if parameters.get('force'):
+                from_jd = self._historical_from_jd(target_id)
+            else:
+                from_jd = self._incremental_from_jd(target_id)
 
         self.query_parameters = {
             'idents': idents,
@@ -266,6 +354,7 @@ class AAVSODataService(DataService):
             'fromjd': from_jd,
             'tojd': _to_float(parameters.get('tojd')),
             'include_photometry': bool(parameters.get('include_photometry', True)),
+            'force': bool(parameters.get('force')),
         }
         return self.query_parameters
 
@@ -277,7 +366,10 @@ class AAVSODataService(DataService):
         from_jd = query_parameters.get('fromjd') or _DEFAULT_FROM_JD
         to_jd = query_parameters.get('tojd')
         for ident in idents:
-            rows, star_name = self._fetch_photometry(ident, from_jd, to_jd)
+            try:
+                rows, star_name = self._fetch_photometry(ident, from_jd, to_jd)
+            except _AAVSOIdentifierUnavailable:
+                continue
             if rows:
                 self.query_results = {'rows': rows, 'star_name': star_name, 'ident': ident, 'vsx_name': vsx_name}
                 return self.query_results
@@ -330,7 +422,22 @@ class AAVSODataService(DataService):
             params=params,
             timeout=DATA_SERVICE_HTTP_TIMEOUT,
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError:
+            if resp.status_code == 405:
+                # AAVSO intermittently uses 405 for valid GET requests. The session has
+                # already retried it; abort this identifier so one unavailable alias cannot
+                # fail the target's complete DataService refresh or trigger a century-long
+                # scan of empty yearly windows.
+                logger.warning(
+                    'AAVSO returned 405 after retries for ident=%r JD %.5f..%s; skipping identifier.',
+                    ident,
+                    from_jd,
+                    f'{to_jd:.5f}' if to_jd is not None else 'latest',
+                )
+                raise _AAVSOIdentifierUnavailable(ident)
+            raise
         return self._parse_delim(resp.text)
 
     def _parse_delim(self, text):
@@ -357,12 +464,45 @@ class AAVSODataService(DataService):
             if jd is None or mag is None:
                 continue
             timestamp = Time(jd, format='jd', scale='utc').to_datetime(timezone=dt_timezone.utc)
-            value = {'filter': _band_label(cell(parts, 'band')), 'magnitude': mag}
+            observer_code = cell(parts, 'by')
+            observer_name = cell(parts, 'obsName')
+            transformed = cell(parts, 'transformed')
+            value = {
+                'filter': _band_label(cell(parts, 'band')),
+                'magnitude': mag,
+                'julian_date': jd,
+                'mjd': jd - _MJD_TO_JD,
+                'star_name': cell(parts, 'starName'),
+                'observer': observer_name or observer_code,
+                'observer_name': observer_name,
+                'observer_code': observer_code,
+                'observer_affiliation': cell(parts, 'obsAffil'),
+                'observer_country': cell(parts, 'obsCountry'),
+                'aavso_observation_id': cell(parts, 'obsID'),
+                'observation_type': cell(parts, 'obsType'),
+                'measurement_type': cell(parts, 'mtype'),
+                'software': cell(parts, 'software'),
+                'comment': cell(parts, 'comment'),
+                'comment_code': cell(parts, 'comCode'),
+                'comparison_star_1': cell(parts, 'compStar1'),
+                'comparison_star_2': cell(parts, 'compStar2'),
+                'chart': cell(parts, 'charts'),
+                'transformed': {'1': True, '0': False}.get(transformed),
+                'airmass': _to_float(cell(parts, 'airmass')),
+                'validation_flag': cell(parts, 'val'),
+                'comparison_magnitude': _to_float(cell(parts, 'cmag')),
+                'check_magnitude': _to_float(cell(parts, 'kmag')),
+                'ads_reference': cell(parts, 'adsRef'),
+                'digitizer': cell(parts, 'digitizer'),
+                'credit': cell(parts, 'credit'),
+            }
 
             if cell(parts, 'fainterThan') == '1':
                 # Non-detection: fainter-than measurement -> upper limit.
                 value['error'] = -1.0
+                value['fainter_than'] = True
             else:
+                value['fainter_than'] = False
                 uncert = _to_float(cell(parts, 'uncert'))
                 if uncert is not None and uncert > 0:
                     value['error'] = uncert
@@ -398,7 +538,12 @@ class AAVSODataService(DataService):
                 target = None
 
         for ident in idents:
-            added, star_name, accumulated, saw_any = self._fetch_chunked(ident, from_jd, to_jd, target)
+            try:
+                added, star_name, accumulated, saw_any = self._fetch_chunked(
+                    ident, from_jd, to_jd, target
+                )
+            except _AAVSOIdentifierUnavailable:
+                continue
             if not saw_any:
                 continue  # this identifier had no AAVSO data; try the next candidate
 

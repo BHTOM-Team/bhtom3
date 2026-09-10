@@ -4684,6 +4684,35 @@ class RAPASMeasurementDetailView(LoginRequiredMixin, TemplateView):
         return context
 
 
+class AAVSOMeasurementDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'custom_code/aavso_measurement_detail.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        queryset = ReducedDatum.objects.select_related('target').filter(
+            pk=self.kwargs['pk'],
+            source_name='AAVSO',
+            data_type='photometry',
+        )
+        if not settings.TARGET_PERMISSIONS_ONLY:
+            queryset = get_objects_for_user(
+                self.request.user,
+                'tom_dataproducts.view_reduceddatum',
+                klass=queryset,
+            )
+        datum = get_object_or_404(queryset)
+        value = datum.value if isinstance(datum.value, dict) else {}
+        observer_code = str(value.get('observer_code') or '').strip()
+        context.update({
+            'datum': datum,
+            'measurement': value,
+            'observer_profile_url': (
+                f'https://www.aavso.org/users/{quote(observer_code.lower(), safe="")}' if observer_code else ''
+            ),
+        })
+        return context
+
+
 class BhtomDataProductSaveView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         service_class = get_service_class(request.POST['facility'])

@@ -1,12 +1,16 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+import requests
 from django.test import SimpleTestCase
+from django.urls import reverse
 
 from custom_code.data_services.aavso_dataservice import (
     AAVSO_API_URL,
     AAVSODataService,
+    _AAVSOIdentifierUnavailable,
     _REQUEST_HEADERS,
     _RETRYABLE_HTTP_STATUSES,
+    _ingest_photometry,
 )
 from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
@@ -28,8 +32,12 @@ class AAVSODataServiceTests(SimpleTestCase):
     def test_fetch_photometry_uses_persistent_session(self):
         response = Mock()
         response.text = (
-            'JD@@@mag@@@uncert@@@band@@@starName@@@fainterThan\n'
-            '2461294.5@@@14.2@@@0.1@@@V@@@Test Star@@@0\n'
+            'JD@@@mag@@@uncert@@@band@@@by@@@comCode@@@compStar1@@@compStar2@@@charts@@@comment@@@'
+            'transformed@@@airmass@@@val@@@cmag@@@kmag@@@starName@@@obsAffil@@@mtype@@@adsRef@@@'
+            'digitizer@@@credit@@@obsID@@@fainterThan@@@obsType@@@software@@@obsName@@@obsCountry\n'
+            '2461294.5@@@14.2@@@0.1@@@V@@@TEST@@@B@@@123@@@125@@@X123@@@Clear sky@@@1@@@1.2@@@Z@@@'
+            '12.3@@@12.5@@@Test Star@@@AAVSO@@@STD@@@2024A&A...1A@@@Scanner@@@AAVSO@@@123456@@@0@@@'
+            'CCD@@@AstroImageJ@@@Test, Observer@@@PL\n'
         )
         session = Mock()
         session.get.return_value = response
@@ -51,11 +59,117 @@ class AAVSODataServiceTests(SimpleTestCase):
         )
         response.raise_for_status.assert_called_once_with()
         self.assertEqual(star_name, 'Test Star')
-        self.assertEqual(rows[0]['value'], {
-            'filter': 'AAVSO(V)',
-            'magnitude': 14.2,
-            'error': 0.1,
-        })
+        value = rows[0]['value']
+        self.assertEqual(value['filter'], 'AAVSO(V)')
+        self.assertEqual(value['magnitude'], 14.2)
+        self.assertEqual(value['error'], 0.1)
+        self.assertEqual(value['observer'], 'Test, Observer')
+        self.assertEqual(value['observer_name'], 'Test, Observer')
+        self.assertEqual(value['observer_code'], 'TEST')
+        self.assertEqual(value['observer_country'], 'PL')
+        self.assertEqual(value['aavso_observation_id'], '123456')
+        self.assertEqual(value['observation_type'], 'CCD')
+        self.assertEqual(value['software'], 'AstroImageJ')
+        self.assertEqual(value['comment'], 'Clear sky')
+        self.assertEqual(value['airmass'], 1.2)
+        self.assertIs(value['transformed'], True)
+
+    def test_ingest_enriches_matching_legacy_row_instead_of_duplicating_it(self):
+        service = AAVSODataService()
+        rows, _star_name = service._parse_delim(
+            'JD@@@mag@@@uncert@@@band@@@by@@@starName@@@obsID@@@fainterThan@@@obsName\n'
+            '2461294.5@@@14.2@@@0.1@@@V@@@TEST@@@Test Star@@@123456@@@0@@@Test Observer\n'
+        )
+        existing = Mock(
+            pk=7,
+            timestamp=rows[0]['timestamp'],
+            value={'filter': 'AAVSO(V)', 'magnitude': 14.2, 'error': 0.1},
+            source_location='https://www.aavso.org/',
+        )
+
+        with patch(
+            'custom_code.data_services.aavso_dataservice.ReducedDatum.objects.filter',
+            return_value=[existing],
+        ), patch(
+            'custom_code.data_services.aavso_dataservice.ReducedDatum.objects.bulk_create'
+        ) as bulk_create, patch(
+            'custom_code.data_services.aavso_dataservice.ReducedDatum.objects.bulk_update'
+        ) as bulk_update:
+            added = _ingest_photometry(Mock(), rows)
+
+        self.assertEqual(added, 0)
+        bulk_create.assert_not_called()
+        bulk_update.assert_called_once()
+        self.assertEqual(existing.value['aavso_observation_id'], '123456')
+        self.assertEqual(existing.value['observer_name'], 'Test Observer')
+
+    def test_persistent_405_marks_only_that_identifier_unavailable_after_retries(self):
+        response = Mock(status_code=405)
+        response.raise_for_status.side_effect = requests.HTTPError(
+            '405 Client Error', response=response
+        )
+        session = Mock()
+        session.get.return_value = response
+        service = AAVSODataService()
+        service._aavso_http_session = session
+
+        with self.assertRaises(_AAVSOIdentifierUnavailable):
+            service._fetch_photometry('Unknown Alias', 2415020.0, 2415385.0)
+
+    def test_query_service_skips_405_identifier_and_tries_next_alias(self):
+        service = AAVSODataService()
+        row = {'timestamp': Mock(), 'value': {'filter': 'AAVSO(V)', 'magnitude': 12.3}}
+        with patch.object(
+            service,
+            '_fetch_photometry',
+            side_effect=[_AAVSOIdentifierUnavailable('bad'), ([row], 'Good Star')],
+        ) as fetch:
+            result = service.query_service({
+                'idents': ['Bad Alias', 'Good Star'],
+                'fromjd': 2460000.0,
+                'tojd': 2460001.0,
+            })
+
+        self.assertEqual(result['ident'], 'Good Star')
+        self.assertEqual(result['rows'], [row])
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_non_405_http_error_is_not_hidden(self):
+        response = Mock(status_code=500)
+        error = requests.HTTPError('500 Server Error', response=response)
+        response.raise_for_status.side_effect = error
+        session = Mock()
+        session.get.return_value = response
+        service = AAVSODataService()
+        service._aavso_http_session = session
+
+        with self.assertRaises(requests.HTTPError) as raised:
+            service._fetch_photometry('Test Star', 2415020.0, 2415385.0)
+
+        self.assertIs(raised.exception, error)
+
+    def test_aavso_measurement_detail_url(self):
+        self.assertEqual(reverse('aavso-measurement-detail', args=(42,)), '/dataproducts/aavso/42/')
+
+    def test_forced_refresh_starts_at_oldest_stored_observation_for_metadata_backfill(self):
+        service = AAVSODataService()
+        with patch(
+            'custom_code.data_services.aavso_dataservice.resolve_query_coordinates',
+            return_value=('Test Star', None, None),
+        ), patch.object(service, '_target_names', return_value=['Test Star']), patch.object(
+            service, '_historical_from_jd', return_value=2450000.0
+        ) as historical_from_jd, patch.object(
+            service, '_incremental_from_jd', return_value=2460000.0
+        ) as incremental_from_jd:
+            parameters = service.build_query_parameters({
+                'target_id': 7,
+                'target_name': 'Test Star',
+                'force': True,
+            })
+
+        self.assertEqual(parameters['fromjd'], 2450000.0)
+        historical_from_jd.assert_called_once_with(7)
+        incremental_from_jd.assert_not_called()
 
     def test_retryable_statuses_include_server_and_rate_limit_errors(self):
         self.assertTrue({405, 429, 500, 502, 503, 504}.issubset(_RETRYABLE_HTTP_STATUSES))

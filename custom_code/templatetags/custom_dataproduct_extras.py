@@ -317,9 +317,14 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
         observer = datum.value.get('observer') or ''
         if datum.source_name == 'RAPAS':
             link = reverse('rapas-measurement-detail', args=(datum.id,))
+        elif datum.source_name == 'AAVSO':
+            link = reverse('aavso-measurement-detail', args=(datum.id,))
         else:
             link = f"/dataproducts/data/{datum.data_product_id}/" if datum.data_product_id else ''
-        custom = f"{facility}, {observer}".strip(', ')
+        if datum.source_name == 'AAVSO' and observer:
+            custom = f'AAVSO<br>Observer: {observer}'
+        else:
+            custom = f"{facility}, {observer}".strip(', ')
 
         is_limit = (datum.value.get('limit') is not None) or (error is not None and error <= 0)
         target_bucket = limits_data if is_limit else photometry_data
@@ -379,7 +384,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
                 hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>'
                             'MJD= %{text:.6f}'
                             '<br>mag= %{y:.3f}&#177;%{error_y.array:.3f}'
-                            '<br>%{customdata[0]}<br>%{customdata[1]}',
+                            '<br>%{customdata[0]}',
             )   
         )
 
@@ -410,7 +415,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
                 hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>'
                             'MJD= %{text:.6f}'
                             '<br>mag= %{y:.3f}&#177;%{error_y.array:.3f}'
-                            '<br>%{customdata[0]}<br>%{customdata[1]}',
+                            '<br>%{customdata[0]}',
             )   
         )
             
@@ -440,7 +445,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
                 customdata=list(zip(filter_values['customdata'], filter_values['link'])),
                 hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>MJD = %{text:.6f}'
                               '<br>limit mag = %{y:.3f}'
-                              '<br>%{customdata[0]}<br>%{customdata[1]}',
+                              '<br>%{customdata[0]}',
             )
         )
 
@@ -485,7 +490,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             orientation='h',
             font=dict(color=label_color),
         ),
-        clickmode='event+select',
+        clickmode='event',
     )
 
     request = context.get('request')

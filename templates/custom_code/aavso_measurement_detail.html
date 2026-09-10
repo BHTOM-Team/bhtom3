@@ -1,0 +1,106 @@
+{% extends 'tom_common/base.html' %}
+
+{% block title %}AAVSO observation for {{ measurement.star_name|default:datum.target.name }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-start flex-wrap mb-3">
+    <div>
+      <h2>AAVSO observation</h2>
+      <p class="mb-0">
+        <strong>Target:</strong>
+        <a href="{% url 'targets-detail-override' datum.target.pk %}">{{ datum.target.name }}</a>
+      </p>
+      <p><strong>AAVSO star name:</strong> {{ measurement.star_name|default:"Not provided" }}</p>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header"><strong>Photometry</strong></div>
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-4">Date and time (UTC)</dt>
+        <dd class="col-sm-8">{{ datum.timestamp|date:"Y-m-d H:i:s" }}</dd>
+        <dt class="col-sm-4">Julian Date</dt>
+        <dd class="col-sm-8">{{ measurement.julian_date|default_if_none:"Not provided" }}</dd>
+        <dt class="col-sm-4">MJD</dt>
+        <dd class="col-sm-8">{% if measurement.mjd != None %}{{ measurement.mjd|floatformat:6 }}{% else %}Not provided{% endif %}</dd>
+        <dt class="col-sm-4">Filter</dt>
+        <dd class="col-sm-8">{{ measurement.filter }}</dd>
+        <dt class="col-sm-4">Magnitude</dt>
+        <dd class="col-sm-8">{{ measurement.magnitude }}</dd>
+        <dt class="col-sm-4">Uncertainty</dt>
+        <dd class="col-sm-8">
+          {% if measurement.fainter_than %}Upper limit{% elif measurement.error != None %}{{ measurement.error }}{% else %}Not provided{% endif %}
+        </dd>
+        <dt class="col-sm-4">Fainter-than observation</dt>
+        <dd class="col-sm-8">
+          {% if measurement.fainter_than == True %}Yes{% elif measurement.fainter_than == False %}No{% else %}Not provided{% endif %}
+        </dd>
+        <dt class="col-sm-4">Airmass</dt>
+        <dd class="col-sm-8">{{ measurement.airmass|default_if_none:"Not provided" }}</dd>
+        <dt class="col-sm-4">Transformed</dt>
+        <dd class="col-sm-8">
+          {% if measurement.transformed == True %}Yes{% elif measurement.transformed == False %}No{% else %}Not provided{% endif %}
+        </dd>
+        <dt class="col-sm-4">Validation flag</dt>
+        <dd class="col-sm-8">{{ measurement.validation_flag|default:"Not provided" }}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header"><strong>Observer</strong></div>
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-4">Name</dt>
+        <dd class="col-sm-8">{{ measurement.observer_name|default:measurement.observer|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">AAVSO observer code</dt>
+        <dd class="col-sm-8">
+          {% if observer_profile_url %}<a href="{{ observer_profile_url }}" target="_blank" rel="noopener noreferrer">{{ measurement.observer_code }}</a>{% else %}Not provided{% endif %}
+        </dd>
+        <dt class="col-sm-4">Affiliation</dt>
+        <dd class="col-sm-8">{{ measurement.observer_affiliation|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Country</dt>
+        <dd class="col-sm-8">{{ measurement.observer_country|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Credit</dt>
+        <dd class="col-sm-8">{{ measurement.credit|default:"Not provided" }}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><strong>Observation details</strong></div>
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-4">AAVSO observation ID</dt>
+        <dd class="col-sm-8">{{ measurement.aavso_observation_id|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Observation type</dt>
+        <dd class="col-sm-8">{{ measurement.observation_type|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Measurement type</dt>
+        <dd class="col-sm-8">{{ measurement.measurement_type|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Software</dt>
+        <dd class="col-sm-8">{{ measurement.software|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Chart</dt>
+        <dd class="col-sm-8">{{ measurement.chart|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Comparison star 1</dt>
+        <dd class="col-sm-8">{{ measurement.comparison_star_1|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Comparison star 2</dt>
+        <dd class="col-sm-8">{{ measurement.comparison_star_2|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Comparison magnitude</dt>
+        <dd class="col-sm-8">{{ measurement.comparison_magnitude|default_if_none:"Not provided" }}</dd>
+        <dt class="col-sm-4">Check magnitude</dt>
+        <dd class="col-sm-8">{{ measurement.check_magnitude|default_if_none:"Not provided" }}</dd>
+        <dt class="col-sm-4">Comment code</dt>
+        <dd class="col-sm-8">{{ measurement.comment_code|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Comment</dt>
+        <dd class="col-sm-8" style="white-space: pre-wrap;">{{ measurement.comment|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">ADS reference</dt>
+        <dd class="col-sm-8">{{ measurement.ads_reference|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Digitizer</dt>
+        <dd class="col-sm-8">{{ measurement.digitizer|default:"Not provided" }}</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+{% endblock %}
