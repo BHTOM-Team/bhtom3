@@ -82,6 +82,7 @@ class TNSDataServiceTests(SimpleTestCase):
         self.assertEqual(datum['magnitude'], 18.42)
         self.assertEqual(datum['observer'], 'TNS')
         self.assertEqual(datum['facility'], 'TNS')
+        self.assertEqual(datum['tns_name'], 'SN 2026fvx')
         self.assertEqual(datum['tns_observer'], 'Example Observer')
 
         target = service.create_target_from_query(result)

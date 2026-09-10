@@ -132,6 +132,7 @@ from custom_code.models import (
     FacilityProposal,
     FacilityProposalMembership,
     GeoTarget,
+    TargetAliasInfo,
     TransitEphemeris,
     UserBhtom2UploadPreference,
 )
@@ -3006,6 +3007,47 @@ class TargetDetailDataTests(TestCase):
         context = bhtom_target_data({'request': Mock(), 'current_coords': None}, target)
 
         self.assertEqual(context['astrometry_rows'], [])
+
+    def test_target_data_adds_tns_and_aavso_links_from_imported_photometry(self):
+        target = Target.objects.create(
+            name='SN 2026fvx',
+            type=Target.SIDEREAL,
+            ra=183.742223,
+            dec=63.787891,
+            epoch=2000.0,
+        )
+        rapas_alias = TargetName.objects.create(target=target, name='SN 2026fvx')
+        TargetAliasInfo.objects.create(
+            target_name=rapas_alias,
+            source_name='RAPAS',
+            url='',
+        )
+        ReducedDatum.objects.create(
+            target=target,
+            data_type='photometry',
+            source_name='TNS',
+            source_location='https://www.wis-tns.org/object/2026fvx',
+            timestamp=datetime(2026, 3, 17, tzinfo=timezone.utc),
+            value={'filter': 'TNS(ATLAS-c)', 'magnitude': 16.0, 'tns_name': 'SN 2026fvx'},
+        )
+        ReducedDatum.objects.create(
+            target=target,
+            data_type='photometry',
+            source_name='AAVSO',
+            source_location='https://www.aavso.org/',
+            timestamp=datetime(2026, 3, 18, tzinfo=timezone.utc),
+            value={'filter': 'AAVSO(V)', 'magnitude': 15.8, 'star_name': 'SN 2026FVX'},
+        )
+
+        context = bhtom_target_data({'request': Mock(), 'current_coords': None}, target)
+        other_names = {row['source_name']: row for row in context['target_other_names']}
+
+        self.assertEqual(set(other_names), {'RAPAS', 'TNS', 'AAVSO'})
+        self.assertEqual(other_names['TNS']['url'], 'https://www.wis-tns.org/object/2026fvx')
+        self.assertEqual(
+            other_names['AAVSO']['url'],
+            'https://vsx.aavso.org/index.php?view=api.object&ident=SN+2026FVX',
+        )
 
     def test_target_data_omits_gaia_astrometry_block_when_values_are_empty_strings(self):
         target = Target.objects.create(

@@ -3,6 +3,9 @@ from django.conf import settings
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 import math
 from numbers import Number
+from urllib.parse import quote, urlencode
+
+from tom_dataproducts.models import ReducedDatum
 
 from custom_code.astrometry import can_compute_current_coordinates
 from custom_code.sun_separation import get_live_target_values
@@ -53,6 +56,40 @@ def _simbad_coordinate_url(target):
         f'https://simbad.cds.unistra.fr/simbad/sim-coo?Coord={target.ra}+{target.dec}'
         f'&Radius=3&Radius.unit=arcsec&submit=submit+query'
     )
+
+
+def _data_service_other_names(target, existing_sources):
+    rows = []
+    for service_name in ('TNS', 'AAVSO'):
+        if service_name in existing_sources:
+            continue
+        datum = (
+            ReducedDatum.objects
+            .filter(target=target, source_name=service_name, data_type='photometry')
+            .order_by('-timestamp')
+            .first()
+        )
+        if datum is None:
+            continue
+        value = datum.value if isinstance(datum.value, dict) else {}
+        if service_name == 'TNS':
+            name = str(value.get('tns_name') or target.name or '').strip()
+            url = str(datum.source_location or '').strip()
+            if not url and name:
+                objname = name
+                if objname.upper().startswith(('SN', 'AT')):
+                    objname = objname[2:].strip()
+                url = f'https://www.wis-tns.org/object/{quote(objname)}'
+        else:
+            name = str(value.get('star_name') or target.name or '').strip()
+            url = str(datum.source_location or '').strip()
+            if not url or url.rstrip('/') == 'https://www.aavso.org':
+                url = (
+                    f'https://vsx.aavso.org/index.php?{urlencode({"view": "api.object", "ident": name})}'
+                    if name else ''
+                )
+        rows.append({'source_name': service_name, 'name': name, 'url': url})
+    return rows
 
 
 @register.filter
@@ -133,6 +170,10 @@ def bhtom_target_data(context, target):
             'name': alias.name,
             'url': url,
         })
+    other_names.extend(_data_service_other_names(
+        target,
+        {row['source_name'] for row in other_names},
+    ))
     other_names.sort(key=lambda row: (row['source_name'].lower(), row['name'].lower()))
     try:
         transit_ephemeris = target.transit_ephemeris

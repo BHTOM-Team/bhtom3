@@ -669,8 +669,9 @@ class AAVSODataService(DataService):
             alias = vsx_name or star_name
             metadata = self._fetch_vsx_object(alias or ident)
             alias = alias or metadata.get('name')
+            source_location = _aavso_object_url(alias or ident, metadata.get('oid'))
             result = {
-                'source_location': _aavso_object_url(alias or ident, metadata.get('oid')),
+                'source_location': source_location,
                 'ra': (
                     query_parameters.get('ra')
                     if query_parameters.get('ra') is not None else metadata.get('ra')
@@ -687,6 +688,11 @@ class AAVSODataService(DataService):
                 # No target to insert into (ad-hoc query): hand rows to the framework.
                 result['reduced_datums'] = {'photometry': accumulated}
             else:
+                ReducedDatum.objects.filter(
+                    target=target,
+                    source_name=self.name,
+                    data_type='photometry',
+                ).exclude(source_location=source_location).update(source_location=source_location)
                 logger.info('AAVSO: ingested %s new points for target id=%s (ident=%s).', added, target_id, ident)
             return [result]
 

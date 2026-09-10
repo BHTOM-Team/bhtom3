@@ -122,6 +122,7 @@ def _parse_tns_photometry(target_data):
             'filter': filter_name,
             'observer': 'TNS',
             'facility': 'TNS',
+            'tns_name': target_data.get('name'),
             'survey': survey,
             'tns_filter': raw_filter,
             'tns_observer': photo.get('observer'),
