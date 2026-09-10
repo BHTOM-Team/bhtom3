@@ -2,6 +2,7 @@ import json
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
+from tom_dataservices.data_services.tns import TNSDataService as BaseTNSDataService
 
 from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 from custom_code.data_services.tns_dataservice import TNSDataService
@@ -39,3 +40,23 @@ class TNSDataServiceTests(SimpleTestCase):
             timeout=DATA_SERVICE_HTTP_TIMEOUT,
         )
         response.raise_for_status.assert_called_once_with()
+
+    def test_query_targets_replaces_non_numeric_display_coordinates(self):
+        service = TNSDataService()
+        upstream_result = {
+            'name_prefix': 'SN',
+            'objname': '2026fvx',
+            'ra': 'null',
+            'dec': '',
+            'radeg': '183.742210',
+            'decdeg': '63.787890',
+        }
+        with patch.object(
+            BaseTNSDataService,
+            'query_targets',
+            return_value=[upstream_result],
+        ):
+            result = service.query_targets({})[0]
+
+        self.assertEqual(result['ra'], 183.74221)
+        self.assertEqual(result['dec'], 63.78789)

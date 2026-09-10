@@ -30,7 +30,8 @@ ALL_DATA_SERVICES_QUERY_TIMEOUT = float(secret.get(
 ))
 ALL_DATA_SERVICES_QUERY_MAX_WORKERS = int(secret.get(
     'ALL_DATA_SERVICES_QUERY_MAX_WORKERS',
-    os.environ.get('ALL_DATA_SERVICES_QUERY_MAX_WORKERS', '12'),
+    # 0 means one worker per installed service, so every service gets the full timeout window.
+    os.environ.get('ALL_DATA_SERVICES_QUERY_MAX_WORKERS', '0'),
 ))
 RAPAS_CACHE_SECONDS = int(secret.get('RAPAS_CACHE_SECONDS', os.environ.get('RAPAS_CACHE_SECONDS', '14400')))
 RAPAS_REFRESH_SECONDS = int(secret.get(

@@ -1,5 +1,6 @@
 """Bounded, name-normalizing adapter for TOM Toolkit's TNS DataService."""
 
+import math
 import re
 from urllib.parse import quote
 
@@ -48,6 +49,16 @@ class TNSDataService(BaseTNSDataService):
             if objname:
                 target.setdefault('name', f'{prefix} {objname}'.strip())
                 target.setdefault('source_location', f'https://www.wis-tns.org/object/{quote(objname)}')
-            target.setdefault('ra', target.get('radeg'))
-            target.setdefault('dec', target.get('decdeg'))
+            for coordinate, candidates in (
+                ('ra', ('radeg', 'ra_deg', 'ra')),
+                ('dec', ('decdeg', 'dec_deg', 'dec')),
+            ):
+                for candidate_key in candidates:
+                    try:
+                        candidate = float(target.get(candidate_key))
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(candidate):
+                        target[coordinate] = candidate
+                        break
         return targets

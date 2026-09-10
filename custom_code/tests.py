@@ -814,6 +814,8 @@ class DataServiceQuerySerializationTests(TestCase):
         result = _normalize_data_service_result({
             'name_prefix': 'SN',
             'objname': '2026fvx',
+            'ra': 'null',
+            'dec': '',
             'radeg': 183.74221,
             'decdeg': 63.78789,
         }, 'TNS')
@@ -823,7 +825,7 @@ class DataServiceQuerySerializationTests(TestCase):
         self.assertEqual(result['dec'], 63.78789)
         self.assertEqual(result['source_location'], 'https://www.wis-tns.org/object/2026fvx')
 
-    def test_all_data_services_returns_fast_results_within_global_timeout(self):
+    def test_all_data_services_returns_fast_results_within_service_timeout(self):
         slow_release = threading.Event()
 
         def run_service(service_name, parameters, **kwargs):

@@ -334,10 +334,21 @@ def _normalize_data_service_result(result, data_service_name):
         prefix = str(normalized.get('name_prefix') or '').strip()
         if objname and not str(normalized.get('name') or '').strip():
             normalized['name'] = f'{prefix} {objname}'.strip()
-        if normalized.get('ra') in (None, ''):
-            normalized['ra'] = normalized.get('radeg')
-        if normalized.get('dec') in (None, ''):
-            normalized['dec'] = normalized.get('decdeg')
+        # TNS target creation consumes radeg/decdeg, while the shared result table consumes
+        # ra/dec. Some responses also contain an unusable ra/dec value such as "null", so an
+        # existence check is insufficient: explicitly choose a finite numeric value.
+        for coordinate, candidates in (
+            ('ra', ('radeg', 'ra_deg', 'ra')),
+            ('dec', ('decdeg', 'dec_deg', 'dec')),
+        ):
+            for candidate_key in candidates:
+                try:
+                    candidate = float(normalized.get(candidate_key))
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(candidate):
+                    normalized[coordinate] = candidate
+                    break
         if objname and not normalized.get('source_location'):
             normalized['source_location'] = f'https://www.wis-tns.org/object/{quote(objname)}'
     return normalized
@@ -381,7 +392,18 @@ def _upload_dataproduct_to_bhtom2(dataproduct, *, user, token, oname, calibratio
     )
 
 
-def _run_single_data_service_query(data_service_name, parameters, *, query_id='', cache_prefix='query'):
+def _run_single_data_service_query(
+    data_service_name,
+    parameters,
+    *,
+    query_id='',
+    cache_prefix='query',
+    service_timeout_seconds=None,
+):
+    parameters = dict(parameters)
+    if service_timeout_seconds is not None:
+        # Set this inside the worker, so the deadline starts when this service actually starts.
+        parameters['_query_deadline_monotonic'] = time.monotonic() + service_timeout_seconds
     service = get_data_service_class(data_service_name)()
     service_parameters = _parameters_for_data_service(data_service_name, parameters)
     query_parameters = service.build_query_parameters(service_parameters)
@@ -433,13 +455,11 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
         float(getattr(settings, 'ALL_DATA_SERVICES_QUERY_TIMEOUT', 12.0)),
     )
     shared_parameters['_all_data_services_query'] = True
-    shared_parameters['_query_deadline_monotonic'] = time.monotonic() + timeout_seconds
-    max_workers = max(
-        1,
-        min(
-            len(service_names),
-            int(getattr(settings, 'ALL_DATA_SERVICES_QUERY_MAX_WORKERS', 12)),
-        ),
+    configured_workers = int(getattr(settings, 'ALL_DATA_SERVICES_QUERY_MAX_WORKERS', 0))
+    max_workers = (
+        len(service_names)
+        if configured_workers <= 0
+        else min(len(service_names), configured_workers)
     )
     executor = ThreadPoolExecutor(max_workers=max_workers)
     future_map = {
@@ -449,6 +469,7 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
             shared_parameters,
             query_id=query_id,
             cache_prefix=f'{cache_prefix}_{service_name}',
+            service_timeout_seconds=timeout_seconds,
         ): service_name
         for service_name in service_names
     }
@@ -468,7 +489,8 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
     finally:
         if timed_out:
             feedback.append(
-                f'Returned available results after {timeout_seconds:g}s; some services are still slow'
+                f'Returned available results after a {timeout_seconds:g}s per-service window; '
+                'some services are still slow'
             )
         timed_out_services = []
         for future, service_name in future_map.items():
