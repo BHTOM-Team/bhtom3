@@ -51,6 +51,8 @@ class TNSDataServiceTests(SimpleTestCase):
             'radeg': '183.742210',
             'decdeg': '63.787890',
             'object_type': {'name': 'SN Ia'},
+            'redshift': '0.01234',
+            'discoverydate': '2026-03-17 19:41:12',
             'photometry': [
                 {
                     'id': 17,
@@ -81,6 +83,27 @@ class TNSDataServiceTests(SimpleTestCase):
         self.assertEqual(datum['observer'], 'TNS')
         self.assertEqual(datum['facility'], 'TNS')
         self.assertEqual(datum['tns_observer'], 'Example Observer')
+
+        target = service.create_target_from_query(result)
+        self.assertEqual(target.epoch, 2000.0)
+        self.assertEqual(target.description, 'TNS target, classification SN Ia, redshift 0.01234.')
+        self.assertEqual(target.redshift, 0.01234)
+        self.assertEqual(target.importance, 9.99)
+        self.assertEqual(target.cadence, 1.0)
+        self.assertEqual(target.discovery_date.isoformat(), '2026-03-17T19:41:12+00:00')
+
+    def test_create_target_uses_unknown_classification_and_omits_unknown_redshift(self):
+        service = TNSDataService()
+
+        target = service.create_target_from_query({
+            'name': 'AT 2026abc',
+            'ra': 12.3,
+            'dec': -45.6,
+            'redshift': None,
+        })
+
+        self.assertEqual(target.description, 'TNS target, classification unknown.')
+        self.assertIsNone(target.discovery_date)
 
     def test_parse_tns_photometry_normalizes_survey_filters_and_limits(self):
         rows = _parse_tns_photometry({

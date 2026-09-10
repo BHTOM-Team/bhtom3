@@ -171,6 +171,7 @@ from custom_code.views import (
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
     EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
+    TNS_RECOMMENDED_OBSERVING_STRATEGY,
     ProposalAwareObservationCreateView,
 )
 
@@ -3659,6 +3660,55 @@ class PlanetaryTransitTargetCreateTests(TestCase):
         self.assertIn('pm_ra_error=0.11', location)
         self.assertIn('pm_dec_error=0.22', location)
         self.assertIn('gaia_variability_type=RR', location)
+
+    def test_create_target_from_tns_prefills_observing_defaults(self):
+        cache_key = 'result_tns_1'
+        cache_payload = {
+            'name': 'SN 2026fvx',
+            'source': 'TNS',
+            'ra': 183.742223,
+            'dec': 63.787891,
+        }
+        cache.set(cache_key, cache_payload, 3600)
+
+        request = RequestFactory().post(
+            reverse('dataservices:create-target'),
+            data={
+                'data_service': 'TNS',
+                'selected_results': ['tns_1'],
+            },
+        )
+        request.user = get_user_model().objects.create_user(username='tns-create-query', password='secret')
+
+        class StubService:
+            def to_target(self, cached_result):
+                return Target(
+                    name='SN 2026fvx',
+                    type=Target.SIDEREAL,
+                    ra=183.742223,
+                    dec=63.787891,
+                    epoch=2000.0,
+                    description='TNS target, classification SN Ia, redshift 0.01234.',
+                    discovery_date=datetime(2026, 3, 17, 19, 41, 12, tzinfo=timezone.utc),
+                    importance=9.99,
+                    cadence=1.0,
+                    redshift=0.01234,
+                ), None, None
+
+        with patch('custom_code.views.get_data_service_class', return_value=StubService):
+            response = BhtomCreateTargetFromQueryView.as_view()(request)
+
+        self.assertEqual(response.status_code, 302)
+        location = response['Location']
+        self.assertIn('epoch=2000.0', location)
+        self.assertIn('description=TNS+target%2C+classification+SN+Ia%2C+redshift+0.01234.', location)
+        self.assertIn('importance=9.99', location)
+        self.assertIn('cadence=1.0', location)
+        self.assertIn('discovery_date=', location)
+        self.assertIn(
+            f'recommended_observing_strategy={TNS_RECOMMENDED_OBSERVING_STRATEGY.replace(" ", "+").replace(",", "%2C")}',
+            location,
+        )
 
     def test_create_target_from_query_redirects_with_jpl_solar_system_defaults(self):
         cache_key = 'result_2'

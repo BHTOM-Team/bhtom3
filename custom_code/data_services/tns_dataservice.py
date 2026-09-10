@@ -4,13 +4,14 @@ import json
 import math
 import re
 import time
-from datetime import timezone as dt_timezone
+from datetime import datetime, timezone as dt_timezone
 from urllib.parse import quote
 
 import requests
 from astropy.time import Time
 from tom_dataproducts.models import ReducedDatum
 from tom_dataservices.data_services.tns import TNSDataService as BaseTNSDataService
+from tom_targets.models import Target
 
 from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
@@ -149,6 +150,35 @@ def _classification(target_data):
     return _nested_name(target_data.get('object_type')) or _nested_name(target_data.get('type'))
 
 
+def _discovery_date(target_data):
+    raw_value = (
+        target_data.get('discoverydate')
+        or target_data.get('discovery_date')
+        or target_data.get('discovered_at')
+    )
+    if isinstance(raw_value, datetime):
+        parsed = raw_value
+    elif raw_value not in (None, ''):
+        try:
+            parsed = datetime.fromisoformat(str(raw_value).strip().replace('Z', '+00:00'))
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt_timezone.utc)
+    return parsed
+
+
+def _target_description(target_data):
+    classification = str(_classification(target_data) or 'unknown').strip() or 'unknown'
+    description = f'TNS target, classification {classification}'
+    redshift = _to_float(target_data.get('redshift'))
+    if redshift is not None:
+        description += f', redshift {redshift:g}'
+    return f'{description}.'
+
+
 class TNSDataService(BaseTNSDataService):
     name = 'TNS'
     update_on_daily_refresh = True
@@ -207,11 +237,30 @@ class TNSDataService(BaseTNSDataService):
             target['name'] = f'{prefix} {objname}'.strip()
             target['source'] = self.name
             target['classification'] = _classification(target)
+            target['redshift'] = _to_float(target.get('redshift'))
+            target['discovery_date'] = _discovery_date(target)
             target['ra'] = _first_float(target, 'radeg', 'ra_deg', 'ra')
             target['dec'] = _first_float(target, 'decdeg', 'dec_deg', 'dec')
             target['source_location'] = f'https://www.wis-tns.org/object/{quote(objname)}'
             target['reduced_datums'] = {'photometry': _parse_tns_photometry(target)}
         return targets
+
+    def create_target_from_query(self, target_result, **kwargs):
+        target = Target(
+            name=target_result.get('name'),
+            type=Target.SIDEREAL,
+            ra=_first_float(target_result, 'ra', 'radeg', 'ra_deg'),
+            dec=_first_float(target_result, 'dec', 'decdeg', 'dec_deg'),
+            epoch=2000.0,
+        )
+        target.description = _target_description(target_result)
+        target.importance = 9.99
+        target.cadence = 1.0
+        target.discovery_date = _discovery_date(target_result)
+        redshift = _to_float(target_result.get('redshift'))
+        if redshift is not None:
+            target.redshift = redshift
+        return target
 
     def create_reduced_datums_from_query(self, target, data=None, data_type=None, **kwargs):
         """Persist TNS photometry when TOM's interactive DataService import calls us."""

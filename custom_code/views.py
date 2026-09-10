@@ -624,6 +624,7 @@ EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY = (
     'with ingres and egres well determined. Adjust the exposure time accordingly to the brightness '
     'of the star and the depth of the transit.'
 )
+TNS_RECOMMENDED_OBSERVING_STRATEGY = 'TNS target, observe densely'
 
 
 def _set_groups_field_visibility(form, queryset):
@@ -3828,6 +3829,12 @@ class BhtomCreateTargetFromQueryView(CreateTargetFromQueryView):
         )
         if has_transit_payload:
             target_params['classification'] = 'Planetary Transit'
+        if cached_result.get('source') == 'TNS':
+            target_params['recommended_observing_strategy'] = TNS_RECOMMENDED_OBSERVING_STRATEGY
+            for field_name in ('importance', 'cadence', 'discovery_date'):
+                value = getattr(target, field_name, None)
+                if value not in (None, ''):
+                    target_params[field_name] = value
         target_params['source_name'] = cached_result.get('transit_source_name') or target_params.get('source_name') or ''
         target_params['source_url'] = cached_result.get('transit_source_url') or target_params.get('source_url') or ''
         target_params['planet_name'] = cached_result.get('transit_planet_name') or target_params.get('planet_name') or ''
