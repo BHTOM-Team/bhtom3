@@ -66,8 +66,7 @@ def _canonical_survey(photo, raw_filter):
         return 'ASASSN'
     if 'ZTF' in joined:
         return 'ZTF'
-    compact = re.sub(r'[^A-Za-z0-9]+', '', str(next((v for v in candidates if v), 'TNS')))
-    return compact or 'TNS'
+    return None
 
 
 def _tns_filter(photo):
@@ -77,9 +76,13 @@ def _tns_filter(photo):
     for suffix in ('GOTO', 'ATLAS', 'ASAS-SN', 'ASASSN', 'ZTF', 'Sloan'):
         band = re.sub(rf'(?i)(?:[-_ ]?{re.escape(suffix)})', '', band)
     band = band.strip('-_ ') or 'unknown'
+    cousins_match = re.fullmatch(r'(?i)([RI])[-_ ]?Cousins', band)
+    if cousins_match:
+        band = f'{cousins_match.group(1).upper()}Cousins'
     band_aliases = {'cyan': 'c', 'orange': 'o', 'clear': 'C', 'l': 'L'}
     band = band_aliases.get(band.lower(), band)
-    return f'{survey}-{band}', survey, str(raw_filter)
+    inner_filter = f'{survey}-{band}' if survey else band
+    return f'TNS({inner_filter})', survey or 'TNS', str(raw_filter)
 
 
 def _tns_timestamp(photo):

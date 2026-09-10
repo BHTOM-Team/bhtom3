@@ -95,14 +95,14 @@ PHOTOMETRY_COLOR_MAP = {
     'MOA(Blue)': ['#3b82f6', 'diamond-wide', 4],
     'ATLAS(c)': ['#1f7e7d', 'circle', 4],
     'ATLAS(o)': ['#f88f1e', 'circle', 4],
-    'GOTO-L': ['#9467bd', 'circle-open', 5],
-    'ASASSN-g': ['green', 'circle-open', 5],
-    'ASASSN-V': ['darkgreen', 'circle-open', 5],
-    'ATLAS-c': ['#1f7e7d', 'circle-open', 5],
-    'ATLAS-o': ['#f88f1e', 'circle-open', 5],
-    'ZTF-g': ['#2ca02c', 'circle-open', 5],
-    'ZTF-r': ['#d62728', 'circle-open', 5],
-    'ZTF-i': ['#800000', 'circle-open', 5],
+    'TNS(GOTO-L)': ['#9467bd', 'circle-open', 5],
+    'TNS(ASASSN-g)': ['green', 'circle-open', 5],
+    'TNS(ASASSN-V)': ['darkgreen', 'circle-open', 5],
+    'TNS(ATLAS-c)': ['#1f7e7d', 'circle-open', 5],
+    'TNS(ATLAS-o)': ['#f88f1e', 'circle-open', 5],
+    'TNS(ZTF-g)': ['#2ca02c', 'circle-open', 5],
+    'TNS(ZTF-r)': ['#d62728', 'circle-open', 5],
+    'TNS(ZTF-i)': ['#800000', 'circle-open', 5],
     'AAVSO(U)': ['#8000ff', 'circle-open', 5],
     'AAVSO(B)': ['blue', 'circle-open', 5],
     'AAVSO(V)': ['green', 'circle-open', 5],
@@ -231,14 +231,14 @@ PHOTOMETRY_LIMITS_COLOR_MAP = {
     'MOA(Blue)': ['#3b82f6', 'arrow-down-open', 4],
     'ATLAS(c)': ['#1f7e7d', 'arrow-down-open', 4],
     'ATLAS(o)': ['#f88f1e', 'arrow-down-open', 4],
-    'GOTO-L': ['#9467bd', 'arrow-down-open', 5],
-    'ASASSN-g': ['green', 'arrow-down-open', 5],
-    'ASASSN-V': ['darkgreen', 'arrow-down-open', 5],
-    'ATLAS-c': ['#1f7e7d', 'arrow-down-open', 5],
-    'ATLAS-o': ['#f88f1e', 'arrow-down-open', 5],
-    'ZTF-g': ['#2ca02c', 'arrow-down-open', 5],
-    'ZTF-r': ['#d62728', 'arrow-down-open', 5],
-    'ZTF-i': ['#800000', 'arrow-down-open', 5],
+    'TNS(GOTO-L)': ['#9467bd', 'arrow-down-open', 5],
+    'TNS(ASASSN-g)': ['green', 'arrow-down-open', 5],
+    'TNS(ASASSN-V)': ['darkgreen', 'arrow-down-open', 5],
+    'TNS(ATLAS-c)': ['#1f7e7d', 'arrow-down-open', 5],
+    'TNS(ATLAS-o)': ['#f88f1e', 'arrow-down-open', 5],
+    'TNS(ZTF-g)': ['#2ca02c', 'arrow-down-open', 5],
+    'TNS(ZTF-r)': ['#d62728', 'arrow-down-open', 5],
+    'TNS(ZTF-i)': ['#800000', 'arrow-down-open', 5],
     'AAVSO(U)': ['#8000ff', 'arrow-down-open', 5],
     'AAVSO(B)': ['blue', 'arrow-down-open', 5],
     'AAVSO(V)': ['green', 'arrow-down-open', 5],
@@ -314,6 +314,20 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
 
     for datum in datums:
         filter_name = str(datum.value.get('filter', '')).strip()
+        if datum.source_name == 'TNS' and filter_name and not filter_name.startswith('TNS('):
+            survey = str(datum.value.get('survey') or '').upper()
+            if survey in {'GOTO', 'ASASSN', 'ATLAS', 'ZTF'}:
+                inner_filter = filter_name
+            else:
+                raw_filter = str(datum.value.get('tns_filter') or filter_name).strip()
+                compact_filter = raw_filter.replace('-', '').replace('_', '').replace(' ', '').lower()
+                if compact_filter == 'rcousins':
+                    inner_filter = 'RCousins'
+                elif compact_filter == 'icousins':
+                    inner_filter = 'ICousins'
+                else:
+                    inner_filter = raw_filter
+            filter_name = f'TNS({inner_filter})'
         if not filter_name or filter_name in skip_filters:
             continue
 

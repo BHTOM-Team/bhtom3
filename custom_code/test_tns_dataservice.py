@@ -76,7 +76,7 @@ class TNSDataServiceTests(SimpleTestCase):
         self.assertEqual(result['classification'], 'SN Ia')
         self.assertEqual(result['source_location'], 'https://www.wis-tns.org/object/2026fvx')
         datum = result['reduced_datums']['photometry'][0]['value']
-        self.assertEqual(datum['filter'], 'GOTO-L')
+        self.assertEqual(datum['filter'], 'TNS(GOTO-L)')
         self.assertEqual(datum['magnitude'], 18.42)
         self.assertEqual(datum['observer'], 'TNS')
         self.assertEqual(datum['facility'], 'TNS')
@@ -94,9 +94,24 @@ class TNSDataServiceTests(SimpleTestCase):
             ],
         })
 
-        self.assertEqual([row['value']['filter'] for row in rows], ['ASASSN-g', 'ATLAS-c', 'ZTF-r'])
+        self.assertEqual(
+            [row['value']['filter'] for row in rows],
+            ['TNS(ASASSN-g)', 'TNS(ATLAS-c)', 'TNS(ZTF-r)'],
+        )
         self.assertEqual(rows[-1]['value']['limit'], 20.2)
         self.assertTrue(rows[-1]['value']['upper_limit'])
+
+    def test_parse_tns_photometry_does_not_repeat_an_unknown_survey_name(self):
+        rows = _parse_tns_photometry({
+            'photometry': [{
+                'jd': 2461293.5,
+                'flux': 16.0,
+                'flux_unit': {'name': 'mag'},
+                'filters': {'name': 'R-Cousins'},
+            }],
+        })
+
+        self.assertEqual(rows[0]['value']['filter'], 'TNS(RCousins)')
 
     @patch('custom_code.data_services.tns_dataservice.requests.post')
     def test_object_request_enables_photometry(self, post):

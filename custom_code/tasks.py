@@ -300,6 +300,62 @@ def _bulk_insert_reduced_datums(target, service_name, service, result, reduced_d
             if not candidates:
                 continue
 
+        if service_name == 'TNS':
+            existing_rows = list(ReducedDatum.objects.filter(
+                target=target,
+                source_name=service_name,
+                data_type=data_type,
+            ))
+            existing_by_photometry_id = {}
+            existing_by_measurement = {}
+            for existing in existing_rows:
+                existing_value = existing.value if isinstance(existing.value, dict) else {}
+                photometry_id = existing_value.get('tns_photometry_id')
+                if photometry_id not in (None, ''):
+                    existing_by_photometry_id[str(photometry_id)] = existing
+                measurement_key = (
+                    existing.timestamp,
+                    existing_value.get('tns_filter'),
+                    existing_value.get('magnitude'),
+                    existing_value.get('limit'),
+                )
+                existing_by_measurement.setdefault(measurement_key, []).append(existing)
+
+            remaining_candidates = []
+            for timestamp, value in candidates:
+                value = value if isinstance(value, dict) else {}
+                photometry_id = value.get('tns_photometry_id')
+                existing = (
+                    existing_by_photometry_id.get(str(photometry_id))
+                    if photometry_id not in (None, '') else None
+                )
+                if existing is None:
+                    measurement_key = (
+                        timestamp,
+                        value.get('tns_filter'),
+                        value.get('magnitude'),
+                        value.get('limit'),
+                    )
+                    matches = existing_by_measurement.get(measurement_key) or []
+                    existing = matches.pop(0) if matches else None
+                if existing is None:
+                    remaining_candidates.append((timestamp, value))
+                    continue
+                if (
+                    existing.timestamp != timestamp
+                    or existing.value != value
+                    or existing.source_location != source_location
+                ):
+                    ReducedDatum.objects.filter(pk=existing.pk).update(
+                        timestamp=timestamp,
+                        value=value,
+                        source_location=source_location,
+                    )
+            candidates = remaining_candidates
+            timestamps = [timestamp for timestamp, _value in candidates]
+            if not candidates:
+                continue
+
         existing_keys = {
             _reduced_datum_identity(timestamp, value)
             for timestamp, value in ReducedDatum.objects.filter(
