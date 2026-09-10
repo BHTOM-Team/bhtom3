@@ -270,6 +270,36 @@ def _bulk_insert_reduced_datums(target, service_name, service, result, reduced_d
         if not candidates:
             continue
 
+        if service_name == 'RAPAS':
+            existing_by_measurement_id = {}
+            for existing in ReducedDatum.objects.filter(
+                target=target,
+                source_name=service_name,
+                data_type=data_type,
+            ):
+                existing_value = existing.value if isinstance(existing.value, dict) else {}
+                measurement_id = existing_value.get('measurement_id')
+                if measurement_id:
+                    existing_by_measurement_id[measurement_id] = existing
+
+            remaining_candidates = []
+            for timestamp, value in candidates:
+                measurement_id = value.get('measurement_id') if isinstance(value, dict) else None
+                existing = existing_by_measurement_id.get(measurement_id)
+                if existing is None:
+                    remaining_candidates.append((timestamp, value))
+                    continue
+                if existing.timestamp != timestamp or existing.value != value or existing.source_location:
+                    ReducedDatum.objects.filter(pk=existing.pk).update(
+                        timestamp=timestamp,
+                        value=value,
+                        source_location='',
+                    )
+            candidates = remaining_candidates
+            timestamps = [timestamp for timestamp, _value in candidates]
+            if not candidates:
+                continue
+
         existing_keys = {
             _reduced_datum_identity(timestamp, value)
             for timestamp, value in ReducedDatum.objects.filter(
@@ -301,11 +331,11 @@ def _bulk_insert_reduced_datums(target, service_name, service, result, reduced_d
     return created_count
 
 
-def _get_or_create_target_alias(target, alias_name):
+def _get_or_create_target_alias(target, alias_name, allow_primary_name=False):
     alias_name = str(alias_name or '').strip()
     if not alias_name:
         return None, False
-    if alias_name.casefold() == str(target.name or '').strip().casefold():
+    if not allow_primary_name and alias_name.casefold() == str(target.name or '').strip().casefold():
         logger.info('Skipping alias "%s" for target %s because it matches the primary target name.', alias_name, target.name)
         return None, False
 
@@ -717,7 +747,11 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
             if not alias_data['name']:
                 continue
             aliases_found += 1
-            alias_obj, created = _get_or_create_target_alias(target, alias_data['name'])
+            alias_obj, created = _get_or_create_target_alias(
+                target,
+                alias_data['name'],
+                allow_primary_name=service_name == 'RAPAS',
+            )
             if alias_obj is None:
                 continue
             alias_url = _resolve_alias_url(alias_data, result, service)
@@ -827,6 +861,9 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         query_parameters['target_name'] = target.name
         query_parameters['target_names'] = list(dict.fromkeys(_iter_target_names(target)))
     elif 'target_name' in form_fields and service_name == 'ASASSN':
+        query_parameters['target_name'] = target.name
+        query_parameters['target_names'] = list(dict.fromkeys(_iter_target_names(target)))
+    elif 'target_name' in form_fields and service_name == 'RAPAS':
         query_parameters['target_name'] = target.name
         query_parameters['target_names'] = list(dict.fromkeys(_iter_target_names(target)))
     elif 'target_name' in form_fields and service_name == 'FRAM':

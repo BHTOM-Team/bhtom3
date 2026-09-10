@@ -45,7 +45,7 @@ from django.db.models import Count, Q
 from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
 from django_comments.models import Comment
-from guardian.shortcuts import assign_perm
+from guardian.shortcuts import assign_perm, get_objects_for_user
 from rest_framework.authtoken.models import Token
 
 from tom_common.hints import add_hint
@@ -4656,6 +4656,32 @@ class BhtomDataProductUploadView(LoginRequiredMixin, FormView):
     def form_invalid(self, form):
         messages.error(self.request, 'There was a problem uploading your file: {}'.format(form.errors.as_json()))
         return redirect(self.request.POST.get('referrer', '/'))
+
+
+class RAPASMeasurementDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'custom_code/rapas_measurement_detail.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        queryset = ReducedDatum.objects.select_related('target').filter(
+            pk=self.kwargs['pk'],
+            source_name='RAPAS',
+            data_type='photometry',
+        )
+        if not settings.TARGET_PERMISSIONS_ONLY:
+            queryset = get_objects_for_user(
+                self.request.user,
+                'tom_dataproducts.view_reduceddatum',
+                klass=queryset,
+            )
+        datum = get_object_or_404(queryset)
+        value = datum.value if isinstance(datum.value, dict) else {}
+        context.update({
+            'datum': datum,
+            'measurement': value,
+            'observer_and_telescope': value.get('observer') or '',
+        })
+        return context
 
 
 class BhtomDataProductSaveView(LoginRequiredMixin, View):

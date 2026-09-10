@@ -88,6 +88,11 @@ In a separate terminal and correct env (LW has bhtom3env alias) run:
 
 this will enqueue daily updataes of the data services for all targets with importance>0 as well as their Sun distance.
 
+RAPAS workbooks are configured in `RAPAS_SPREADSHEETS` in `bhtom3/settings_base.py`.
+Add older workbooks to that list as `{'year': YYYY, 'url': '...'}` entries. The
+RAPAS service downloads and caches each workbook, but does not expose the workbook
+URLs in target aliases or measurement pages.
+
 ------
 For visata (test production server)
 

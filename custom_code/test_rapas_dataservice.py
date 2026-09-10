@@ -1,0 +1,87 @@
+from datetime import datetime, timezone
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
+
+from custom_code.data_services.rapas_dataservice import (
+    RAPASDataService,
+    _sheet_measurements,
+    _spreadsheet_id,
+    _to_float,
+)
+
+
+class RAPASDataServiceTests(SimpleTestCase):
+    def setUp(self):
+        self.record = {
+            'name': 'SN 2026fvx',
+            'sheet_name': 'SN 2026fvx',
+            'year': 2026,
+            'ra': 183.7419128,
+            'dec': 63.787784,
+            'metadata': {'nature': 'SN Ia', 'host_galaxy': 'NGC4205'},
+            'measurements': [{
+                'timestamp': datetime(2026, 3, 20, 22, tzinfo=timezone.utc),
+                'value': {
+                    'filter': 'RAPAS(G)',
+                    'magnitude': 15.95,
+                    'error': 0.14,
+                    'measurement_id': '2026:SN 2026fvx:23:G',
+                },
+            }],
+        }
+
+    def test_google_sheet_id_and_localized_numbers(self):
+        url = 'https://docs.google.com/spreadsheets/d/abc_123/edit?gid=42'
+        self.assertEqual(_spreadsheet_id(url), 'abc_123')
+        self.assertEqual(_to_float('61 184,94'), 61184.94)
+        self.assertEqual(_to_float('0'), 0.0)
+
+    def test_exact_name_match_returns_private_alias_and_labeled_photometry(self):
+        service = RAPASDataService()
+        parameters = service.build_query_parameters({
+            'target_name': 'Different primary name',
+            'target_names': ['Different primary name', 'SN 2026fvx'],
+            'ra': self.record['ra'],
+            'dec': self.record['dec'],
+            'include_photometry': True,
+        })
+        with patch('custom_code.data_services.rapas_dataservice._fetch_records', return_value=[self.record]):
+            results = service.query_targets(parameters)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['aliases'], [{'name': 'SN 2026fvx', 'source_name': 'RAPAS'}])
+        self.assertEqual(results[0]['source_location'], '')
+        value = results[0]['reduced_datums']['photometry'][0]['value']
+        self.assertEqual(value['filter'], 'RAPAS(G)')
+        self.assertEqual(value['nature'], 'SN Ia')
+        self.assertNotIn('url', results[0]['aliases'][0])
+
+    def test_coordinate_match_is_used_when_names_do_not_match(self):
+        service = RAPASDataService()
+        parameters = service.build_query_parameters({
+            'target_name': 'Unrelated target name',
+            'target_names': ['Unrelated target name'],
+            'ra': self.record['ra'] + 0.0001,
+            'dec': self.record['dec'],
+            'radius_arcsec': 5.0,
+        })
+        with patch('custom_code.data_services.rapas_dataservice._fetch_records', return_value=[self.record]):
+            results = service.query_targets(parameters)
+        self.assertEqual([result['name'] for result in results], ['SN 2026fvx'])
+
+    def test_measurement_rows_create_all_three_rapas_bands(self):
+        rows = [[], ['Filtre A / G', '', '', '', '', 'Filtre A / G', '', 'Filtre B / Gbp', '', 'Filtre C / Grp']]
+        rows.append(['Date(JJ/MM/AAAA)', 'UTC(HH:MM:SS)', 'MJD'])
+        rows.append([
+            '20/03/2026', '22:00:00', '61 119.91667', 183.74, 63.79,
+            15.95, 0.14, 16.19, 0.07, 15.85, 0.17, 0.34, 19.0,
+            'Jean-Louis Dumont', 'PrismV11', '', '', '',
+        ])
+        measurements = _sheet_measurements(rows, {}, 2026, 'SN 2026fvx', 'SN 2026fvx')
+        self.assertEqual(
+            [measurement['value']['filter'] for measurement in measurements],
+            ['RAPAS(G)', 'RAPAS(GBP)', 'RAPAS(GRP)'],
+        )
+        self.assertEqual(measurements[0]['value']['observer'], 'Jean-Louis Dumont')
+        self.assertEqual(measurements[0]['value']['upper_limit_g'], 19.0)

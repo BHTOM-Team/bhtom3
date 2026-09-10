@@ -10,6 +10,21 @@
 <div class="light-curve">
   {{ plot|safe }}
 </div>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.light-curve .plotly-graph-div').forEach(function (plot) {
+      if (plot.dataset.measurementLinksBound === '1' || typeof plot.on !== 'function') return;
+      plot.dataset.measurementLinksBound = '1';
+      plot.on('plotly_click', function (event) {
+        const point = event && event.points && event.points[0];
+        const link = point && point.customdata && point.customdata[1];
+        if (typeof link === 'string' && link.startsWith('/dataproducts/')) {
+          window.location.assign(link);
+        }
+      });
+    });
+  });
+</script>
 {% if highenergy_plot %}
 <div class="mt-4">
   <h4>High-Energy Light Curve</h4>

@@ -1,0 +1,90 @@
+{% extends 'tom_common/base.html' %}
+
+{% block title %}RAPAS measurement for {{ measurement.rapas_name }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-start flex-wrap mb-3">
+    <div>
+      <h2>RAPAS measurement</h2>
+      <p class="mb-0">
+        <strong>Target:</strong>
+        <a href="{% url 'targets-detail-override' datum.target.pk %}">{{ datum.target.name }}</a>
+      </p>
+      <p><strong>RAPAS name:</strong> {{ measurement.rapas_name }}</p>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header"><strong>Photometry</strong></div>
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-4">Date and time (UTC)</dt>
+        <dd class="col-sm-8">{{ datum.timestamp|date:"Y-m-d H:i:s" }}</dd>
+        <dt class="col-sm-4">MJD</dt>
+        <dd class="col-sm-8">{{ measurement.mjd|floatformat:6 }}</dd>
+        <dt class="col-sm-4">Filter</dt>
+        <dd class="col-sm-8">{{ measurement.filter }}</dd>
+        <dt class="col-sm-4">Magnitude</dt>
+        <dd class="col-sm-8">{{ measurement.magnitude }}</dd>
+        <dt class="col-sm-4">Uncertainty</dt>
+        <dd class="col-sm-8">{% if measurement.error != None %}{{ measurement.error }}{% else %}Not provided{% endif %}</dd>
+        <dt class="col-sm-4">GBP − GRP colour index</dt>
+        <dd class="col-sm-8">{{ measurement.color_index_bp_rp|default_if_none:"Not provided" }}</dd>
+        <dt class="col-sm-4">G upper limit</dt>
+        <dd class="col-sm-8">{{ measurement.upper_limit_g|default_if_none:"Not provided" }}</dd>
+        <dt class="col-sm-4">Observer / telescope entry (as supplied)</dt>
+        <dd class="col-sm-8">{{ observer_and_telescope|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Comment / instrument information</dt>
+        <dd class="col-sm-8">{{ measurement.comment|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Measurement RA (deg)</dt>
+        <dd class="col-sm-8">{{ measurement.ra|default_if_none:"Not provided" }}</dd>
+        <dt class="col-sm-4">Measurement Dec (deg)</dt>
+        <dd class="col-sm-8">{{ measurement.dec|default_if_none:"Not provided" }}</dd>
+        <dt class="col-sm-4">Covered field / telescope entry (as supplied)</dt>
+        <dd class="col-sm-8">{{ measurement.field_area_sq_deg|default:"Not provided" }}</dd>
+        {% if measurement.additional_info %}
+        <dt class="col-sm-4">Additional information</dt>
+        <dd class="col-sm-8">{{ measurement.additional_info }}</dd>
+        {% endif %}
+        {% if measurement.spectrum_url %}
+        <dt class="col-sm-4">Spectrum</dt>
+        <dd class="col-sm-8"><a href="{{ measurement.spectrum_url }}" target="_blank" rel="noopener noreferrer">Open spectrum</a></dd>
+        {% endif %}
+      </dl>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><strong>RAPAS target details</strong></div>
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-4">Workbook year</dt>
+        <dd class="col-sm-8">{{ measurement.rapas_year }}</dd>
+        <dt class="col-sm-4">RAPAS sheet</dt>
+        <dd class="col-sm-8">{{ measurement.rapas_sheet }}</dd>
+        <dt class="col-sm-4">RAPAS row</dt>
+        <dd class="col-sm-8">{{ measurement.rapas_row }}</dd>
+        <dt class="col-sm-4">Nature</dt>
+        <dd class="col-sm-8">{{ measurement.nature|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Alert date</dt>
+        <dd class="col-sm-8">{{ measurement.alert_date|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Host galaxy</dt>
+        <dd class="col-sm-8">{{ measurement.host_galaxy|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Redshift</dt>
+        <dd class="col-sm-8">{{ measurement.redshift|default_if_none:"Not provided" }}</dd>
+        <dt class="col-sm-4">Discovery magnitude</dt>
+        <dd class="col-sm-8">{{ measurement.discovery_magnitude|default_if_none:"Not provided" }}</dd>
+        <dt class="col-sm-4">RAPAS alert comment</dt>
+        <dd class="col-sm-8">{{ measurement.alert_comment|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">RAPAS status</dt>
+        <dd class="col-sm-8">{{ measurement.rapas_status|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">Alert end date</dt>
+        <dd class="col-sm-8">{{ measurement.alert_end_date|default:"Not provided" }}</dd>
+        <dt class="col-sm-4">RAPAS restricted flag</dt>
+        <dd class="col-sm-8">{{ measurement.rapas_restricted|default_if_none:"Not provided" }}</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+{% endblock %}

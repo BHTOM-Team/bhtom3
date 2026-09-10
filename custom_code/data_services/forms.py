@@ -94,6 +94,22 @@ class GaiaAlertsQueryForm(BaseQueryForm):
         return cleaned
 
 
+class RAPASQueryForm(BaseQueryForm):
+    target_name = target_name_field('RAPAS or BHTOM target name')
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(required=False, initial=5.0, min_value=0.1, label='Search radius (arcsec)')
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include RAPAS photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide a RAPAS/BHTOM target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 5.0
+        return cleaned
+
+
 class OGLEEWSQueryForm(BaseQueryForm):
     target_name = forms.CharField(
         required=False,

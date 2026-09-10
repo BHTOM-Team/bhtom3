@@ -44,6 +44,9 @@ def upload_dataproduct(context, obj):
 # Color map to be used in all plots.
 PHOTOMETRY_COLOR_MAP = {
     'GSA(G)': ['black', 'hexagon', 8],
+    'RAPAS(G)': ['black', 'diamond-open', 6],
+    'RAPAS(GBP)': ['#315efb', 'diamond-open', 6],
+    'RAPAS(GRP)': ['#d62728', 'diamond-open', 6],
     'ZTF(zg)': ['green', 'x', 6],
     'ZTF(zi)': ['#800000', 'x', 6],
     'ZTF(zr)': ['red', 'x', 6],
@@ -312,7 +315,10 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
 
         facility = datum.value.get('telescope') or datum.value.get('facility') or datum.source_name or ''
         observer = datum.value.get('observer') or ''
-        link = f"/dataproducts/data/{datum.data_product_id}/" if datum.data_product_id else ''
+        if datum.source_name == 'RAPAS':
+            link = reverse('rapas-measurement-detail', args=(datum.id,))
+        else:
+            link = f"/dataproducts/data/{datum.data_product_id}/" if datum.data_product_id else ''
         custom = f"{facility}, {observer}".strip(', ')
 
         is_limit = (datum.value.get('limit') is not None) or (error is not None and error <= 0)
