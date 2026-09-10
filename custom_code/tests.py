@@ -85,6 +85,7 @@ from custom_code.data_services.kmt_dataservice import (
 )
 from custom_code.data_services.lamost_dataservice import LAMOSTDataService
 from custom_code.data_services.neowise_dataservice import NeoWISEDataService
+from custom_code.data_services.simbad_dataservice import SimbadDataService
 from custom_code.data_services.twomass_dataservice import TwoMASSDataService
 from custom_code.bhtom_catalogs.harvesters.simbad import target_from_result
 from custom_code.bhtom_catalogs.harvesters.crts import CRTSHarvester
@@ -160,6 +161,7 @@ from custom_code.views import (
     _catalog_target_params,
     _catalog_query_services_for_input,
     _serialize_query_parameters,
+    _has_meaningful_data_service_result,
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
     EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
@@ -752,6 +754,21 @@ class DataServiceQuerySerializationTests(TestCase):
 
         self.assertEqual(annotated[0]['existing_target_pk'], target.pk)
         self.assertIn(f'/targets/{target.pk}/', annotated[0]['existing_target_url'])
+
+    def test_empty_data_service_placeholder_is_not_meaningful(self):
+        self.assertFalse(_has_meaningful_data_service_result({
+            'name': None,
+            'ra': None,
+            'dec': None,
+            'aliases': [None],
+        }))
+
+    def test_coordinate_only_data_service_result_is_meaningful(self):
+        self.assertTrue(_has_meaningful_data_service_result({
+            'name': None,
+            'ra': 183.7419128,
+            'dec': 63.787784,
+        }))
 
 
 class ObservationStatusTaskTests(TestCase):
@@ -1490,6 +1507,22 @@ class DataServiceTargetNameResolutionTests(TestCase):
         self.assertEqual(target_name, 'AliasB')
         self.assertEqual(ra, 98.7)
         self.assertEqual(dec, 6.5)
+
+    def test_resolve_query_coordinates_accepts_compact_equivalent_name(self):
+        Target.objects.create(name='SN 2026fvx', type=Target.SIDEREAL, ra=183.7419128, dec=63.787784)
+
+        target_name, ra, dec = resolve_query_coordinates({'target_name': 'SN2026fvx'})
+
+        self.assertEqual(target_name, 'SN2026fvx')
+        self.assertEqual(ra, 183.7419128)
+        self.assertEqual(dec, 63.787784)
+
+
+class SimbadDataServiceTests(TestCase):
+    def test_missing_coordinates_return_no_results(self):
+        service = object.__new__(SimbadDataService)
+
+        self.assertEqual(service.query_targets({'ra': None, 'dec': None}), [])
 
 
 class TwoMASSDataServiceTests(TestCase):

@@ -1,4 +1,5 @@
 import logging
+import re
 import socket
 
 from django.conf import settings
@@ -44,6 +45,10 @@ def normalize_target_name(value):
     return str(value or '').strip()
 
 
+def compact_target_name(value):
+    return re.sub(r'[^a-z0-9]', '', normalize_target_name(value).casefold())
+
+
 def resolve_target_by_name(target_name):
     target_name = normalize_target_name(target_name)
     if not target_name:
@@ -56,7 +61,16 @@ def resolve_target_by_name(target_name):
         .first()
     )
     if target is None:
-        logger.info('Could not resolve target name "%s" to a local BHTOM target.', target_name)
+        compact_name = compact_target_name(target_name)
+        if compact_name:
+            for candidate in Target.objects.prefetch_related('aliases').all():
+                candidate_names = [candidate.name]
+                candidate_names.extend(alias.name for alias in candidate.aliases.all())
+                if any(compact_target_name(name) == compact_name for name in candidate_names):
+                    target = candidate
+                    break
+    if target is None:
+        logger.debug('Could not resolve target name "%s" to a local BHTOM target.', target_name)
     return target
 
 

@@ -125,6 +125,7 @@ from custom_code.facility_proposals import (
 from custom_code.models import Facility, GeoTarget, TransitEphemeris
 from custom_code.models import UserBhtom2UploadPreference
 from custom_code.data_services.forms import AllDataServicesQueryForm
+from custom_code.data_services.service_utils import resolve_target_by_name
 from custom_code.geosat import (
     altaz_to_hadec_point,
     convert_altaz_curve_to_hadec,
@@ -271,6 +272,14 @@ def _cache_query_result(result_id, payload):
     cache.set(f'result_{result_id}', payload, 3600)
 
 
+def _has_meaningful_data_service_result(result):
+    if not isinstance(result, dict):
+        return False
+    if str(result.get('name') or '').strip():
+        return True
+    return result.get('ra') is not None and result.get('dec') is not None
+
+
 def _save_bhtom2_upload_preference(user, token, oname, calibration_filter):
     if user is None or not getattr(user, 'is_authenticated', False):
         return None
@@ -315,6 +324,9 @@ def _run_single_data_service_query(data_service_name, parameters, *, query_id=''
     raw_results = service.query_targets(query_parameters) or []
     rows = []
     for index, result in enumerate(raw_results):
+        if not _has_meaningful_data_service_result(result):
+            logger.debug('Ignoring empty result returned by data service %s.', data_service_name)
+            continue
         result_id = f'{cache_prefix}_{data_service_name}_{index}'
         cached_result = dict(result)
         cached_result['id'] = result_id
@@ -325,6 +337,18 @@ def _run_single_data_service_query(data_service_name, parameters, *, query_id=''
 
 
 def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all'):
+    shared_parameters = dict(parameters)
+    if (
+        shared_parameters.get('target_name')
+        and (shared_parameters.get('ra') in (None, '') or shared_parameters.get('dec') in (None, ''))
+    ):
+        local_target = resolve_target_by_name(shared_parameters['target_name'])
+        if local_target is not None:
+            if shared_parameters.get('ra') in (None, ''):
+                shared_parameters['ra'] = local_target.ra
+            if shared_parameters.get('dec') in (None, ''):
+                shared_parameters['dec'] = local_target.dec
+
     rows = []
     feedback = []
     for service_name in sorted(get_data_service_classes().keys()):
@@ -332,7 +356,7 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
             rows.extend(
                 _run_single_data_service_query(
                     service_name,
-                    parameters,
+                    shared_parameters,
                     query_id=query_id,
                     cache_prefix=f'{cache_prefix}_{service_name}',
                 )

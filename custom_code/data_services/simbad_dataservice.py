@@ -99,8 +99,11 @@ class SimbadDataService(DataService):
         return self.query_parameters
 
     def query_service(self, query_parameters, **kwargs):
-        ra = float(query_parameters['ra'])
-        dec = float(query_parameters['dec'])
+        ra = _clean_number(query_parameters.get('ra'))
+        dec = _clean_number(query_parameters.get('dec'))
+        if ra is None or dec is None:
+            self.query_results = None
+            return self.query_results
         coord = SkyCoord(ra, dec, unit='deg')
         self.query_results = self.simbad.query_region(coord, radius=3.0 * u.arcsec)
         return self.query_results
