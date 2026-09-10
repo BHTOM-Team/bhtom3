@@ -311,6 +311,38 @@ def _backfill_data_service_result_coordinates(result, *parameter_sets):
     return normalized
 
 
+def _parameters_for_data_service(data_service_name, parameters):
+    """Adapt shared query fields to service-specific public API contracts."""
+    adapted = dict(parameters)
+    if data_service_name == 'TNS':
+        # TOM Toolkit's TNS DataService requires the IAU name without its SN/AT prefix.
+        target_name = str(adapted.get('target_name') or '').strip()
+        adapted['target_name'] = re.sub(r'^(?:SN|AT)\s*', '', target_name, flags=re.IGNORECASE)
+        if adapted.get('radius') in (None, '') and adapted.get('radius_arcsec') not in (None, ''):
+            adapted['radius'] = adapted['radius_arcsec']
+            adapted['units'] = 'arcsec'
+    return adapted
+
+
+def _normalize_data_service_result(result, data_service_name):
+    """Normalize upstream service field names before rendering and target creation."""
+    if not isinstance(result, dict):
+        return result
+    normalized = dict(result)
+    if data_service_name == 'TNS':
+        objname = str(normalized.get('objname') or '').strip()
+        prefix = str(normalized.get('name_prefix') or '').strip()
+        if objname and not str(normalized.get('name') or '').strip():
+            normalized['name'] = f'{prefix} {objname}'.strip()
+        if normalized.get('ra') in (None, ''):
+            normalized['ra'] = normalized.get('radeg')
+        if normalized.get('dec') in (None, ''):
+            normalized['dec'] = normalized.get('decdeg')
+        if objname and not normalized.get('source_location'):
+            normalized['source_location'] = f'https://www.wis-tns.org/object/{quote(objname)}'
+    return normalized
+
+
 def _save_bhtom2_upload_preference(user, token, oname, calibration_filter):
     if user is None or not getattr(user, 'is_authenticated', False):
         return None
@@ -351,11 +383,15 @@ def _upload_dataproduct_to_bhtom2(dataproduct, *, user, token, oname, calibratio
 
 def _run_single_data_service_query(data_service_name, parameters, *, query_id='', cache_prefix='query'):
     service = get_data_service_class(data_service_name)()
-    query_parameters = service.build_query_parameters(parameters)
+    service_parameters = _parameters_for_data_service(data_service_name, parameters)
+    query_parameters = service.build_query_parameters(service_parameters)
     raw_results = service.query_targets(query_parameters) or []
     rows = []
     for index, result in enumerate(raw_results):
-        result = _backfill_data_service_result_coordinates(result, query_parameters, parameters)
+        result = _normalize_data_service_result(result, data_service_name)
+        result = _backfill_data_service_result_coordinates(
+            result, query_parameters, service_parameters, parameters
+        )
         if not _has_meaningful_data_service_result(result):
             logger.debug('Ignoring empty result returned by data service %s.', data_service_name)
             continue
@@ -396,6 +432,7 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
         0.1,
         float(getattr(settings, 'ALL_DATA_SERVICES_QUERY_TIMEOUT', 12.0)),
     )
+    shared_parameters['_all_data_services_query'] = True
     shared_parameters['_query_deadline_monotonic'] = time.monotonic() + timeout_seconds
     max_workers = max(
         1,

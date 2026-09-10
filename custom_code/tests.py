@@ -164,6 +164,8 @@ from custom_code.views import (
     _serialize_query_parameters,
     _backfill_data_service_result_coordinates,
     _has_meaningful_data_service_result,
+    _normalize_data_service_result,
+    _parameters_for_data_service,
     _run_all_data_services_query,
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
@@ -795,6 +797,31 @@ class DataServiceQuerySerializationTests(TestCase):
 
         self.assertEqual(result['ra'], 183.741913)
         self.assertEqual(result['dec'], 63.787784)
+
+    def test_tns_query_removes_required_iau_prefix(self):
+        parameters = _parameters_for_data_service('TNS', {
+            'target_name': 'SN2026fvx',
+            'ra': 183.741913,
+            'dec': 63.787784,
+            'radius_arcsec': 5.0,
+        })
+
+        self.assertEqual(parameters['target_name'], '2026fvx')
+        self.assertEqual(parameters['radius'], 5.0)
+        self.assertEqual(parameters['units'], 'arcsec')
+
+    def test_tns_result_fields_are_normalized_for_combined_table(self):
+        result = _normalize_data_service_result({
+            'name_prefix': 'SN',
+            'objname': '2026fvx',
+            'radeg': 183.74221,
+            'decdeg': 63.78789,
+        }, 'TNS')
+
+        self.assertEqual(result['name'], 'SN 2026fvx')
+        self.assertEqual(result['ra'], 183.74221)
+        self.assertEqual(result['dec'], 63.78789)
+        self.assertEqual(result['source_location'], 'https://www.wis-tns.org/object/2026fvx')
 
     def test_all_data_services_returns_fast_results_within_global_timeout(self):
         slow_release = threading.Event()

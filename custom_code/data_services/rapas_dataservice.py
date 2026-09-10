@@ -3,6 +3,7 @@ import io
 import logging
 import math
 import re
+import time
 import unicodedata
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -13,7 +14,7 @@ import requests
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 
 from tom_dataservices.dataservices import DataService
 from tom_dataproducts.models import ReducedDatum
@@ -363,21 +364,79 @@ def _configured_spreadsheets():
     return [item for item in output if item.get('url')]
 
 
-def _fetch_records():
+def _rapas_cache_backend():
+    try:
+        return caches['rapas']
+    except Exception:
+        return cache
+
+
+def _fetch_records(cache_only=False):
+    """Return parsed records, retaining a stale copy so web queries never need Google Sheets."""
     all_records = []
-    cache_seconds = int(getattr(settings, 'RAPAS_CACHE_SECONDS', 14400))
+    refresh_seconds = int(getattr(settings, 'RAPAS_REFRESH_SECONDS', 86400))
+    backend = _rapas_cache_backend()
     for spreadsheet in _configured_spreadsheets():
         url = spreadsheet['url']
         year = spreadsheet.get('year')
         cache_identity = f'{year}|{url}'
         cache_key = f'rapas-workbook-{hashlib.sha256(cache_identity.encode()).hexdigest()}'
-        records = cache.get(cache_key)
-        if records is None:
+        refreshed_key = f'{cache_key}-refreshed-at'
+        lock_key = f'{cache_key}-refresh-lock'
+        records = backend.get(cache_key)
+        refreshed_at = _to_float(backend.get(refreshed_key))
+        if records is None and backend is not cache:
+            # Preserve a warm cache created by releases that used Django's default backend.
+            records = cache.get(cache_key)
+            if records is not None:
+                backend.set(cache_key, records, timeout=None)
+                backend.set(refreshed_key, time.time(), timeout=None)
+                refreshed_at = time.time()
+        is_fresh = refreshed_at is not None and time.time() - refreshed_at < refresh_seconds
+
+        # The combined web query is deliberately cache-only. The daily target refresh (or a
+        # direct RAPAS query) owns network refreshes and leaves the last good copy available.
+        if records is not None and (cache_only or is_fresh):
+            all_records.extend(records)
+            continue
+        if cache_only:
+            logger.warning('RAPAS cache is not populated for spreadsheet year=%s.', year)
+            warmup_key = f'{cache_key}-warmup-requested'
+            if backend.add(warmup_key, True, timeout=300):
+                try:
+                    from custom_code.tasks import refresh_rapas_workbook_cache
+                    refresh_rapas_workbook_cache.enqueue()
+                except Exception:
+                    backend.delete(warmup_key)
+                    logger.warning('Could not enqueue RAPAS cache warmup.', exc_info=True)
+            continue
+
+        acquired_lock = backend.add(lock_key, True, timeout=120)
+        if not acquired_lock and records is not None:
+            all_records.extend(records)
+            continue
+        try:
             response = requests.get(_download_url(url), timeout=DATA_SERVICE_HTTP_TIMEOUT)
             response.raise_for_status()
-            records = parse_rapas_workbook(response.content, year)
-            cache.set(cache_key, records, cache_seconds)
-        all_records.extend(records)
+            refreshed_records = parse_rapas_workbook(response.content, year)
+            if refreshed_records:
+                records = refreshed_records
+                # No expiry: retain stale data until a successful daily refresh replaces it.
+                backend.set(cache_key, records, timeout=None)
+                backend.set(refreshed_key, time.time(), timeout=None)
+        except Exception:
+            if records is None:
+                raise
+            logger.warning(
+                'RAPAS refresh failed for year=%s; using the last cached workbook.',
+                year,
+                exc_info=True,
+            )
+        finally:
+            if acquired_lock:
+                backend.delete(lock_key)
+        if records is not None:
+            all_records.extend(records)
     return all_records
 
 
@@ -405,11 +464,12 @@ class RAPASDataService(DataService):
             'dec': _to_float(dec),
             'radius_arcsec': _to_float(parameters.get('radius_arcsec')) or 5.0,
             'include_photometry': bool(parameters.get('include_photometry', True)),
+            'cache_only': bool(parameters.get('_all_data_services_query')),
         }
         return self.query_parameters
 
     def query_service(self, query_parameters, **kwargs):
-        records = _fetch_records()
+        records = _fetch_records(cache_only=query_parameters.get('cache_only', False))
         names = {_normalized_name(name) for name in query_parameters.get('target_names') or []}
         is_target_refresh = bool(query_parameters.get('target_id'))
         matches = []

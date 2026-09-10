@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
 from custom_code.data_services.rapas_dataservice import (
     RAPASDataService,
+    _fetch_records,
     _sheet_measurements,
     _spreadsheet_id,
     _to_float,
@@ -36,6 +37,25 @@ class RAPASDataServiceTests(SimpleTestCase):
         self.assertEqual(_spreadsheet_id(url), 'abc_123')
         self.assertEqual(_to_float('61 184,94'), 61184.94)
         self.assertEqual(_to_float('0'), 0.0)
+
+    def test_combined_query_uses_cached_workbook_without_network(self):
+        backend = Mock()
+        backend.get.side_effect = lambda key: (
+            [self.record] if not key.endswith('-refreshed-at') else None
+        )
+        with patch(
+            'custom_code.data_services.rapas_dataservice._configured_spreadsheets',
+            return_value=[{'year': 2026, 'url': 'https://docs.google.com/spreadsheets/d/abc/edit'}],
+        ), patch(
+            'custom_code.data_services.rapas_dataservice._rapas_cache_backend',
+            return_value=backend,
+        ), patch(
+            'custom_code.data_services.rapas_dataservice.requests.get'
+        ) as request:
+            records = _fetch_records(cache_only=True)
+
+        self.assertEqual(records, [self.record])
+        request.assert_not_called()
 
     def test_exact_name_match_returns_private_alias_and_labeled_photometry(self):
         service = RAPASDataService()

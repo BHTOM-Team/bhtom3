@@ -657,6 +657,16 @@ def update_target_dataservices_for_target(target_id, include_create_only=True, f
 
 
 @task
+def refresh_rapas_workbook_cache():
+    """Refresh the shared RAPAS workbook cache independently of target importance."""
+    from custom_code.data_services.rapas_dataservice import _fetch_records
+
+    records = _fetch_records(cache_only=False)
+    logger.info('RAPAS workbook cache refreshed with %s targets.', len(records))
+    return {'targets': len(records)}
+
+
+@task
 def update_target_dataservice_for_target(target_id, service_name, include_create_only=True, force_all_services=False):
     run_target_dataservice_for_target(
         target_id,

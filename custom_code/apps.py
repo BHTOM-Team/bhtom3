@@ -43,6 +43,8 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.galah_dataservice.GALAHDataService'},
             {'class': f'{self.name}.data_services.atlas_dataservice.ATLASDataService'},
             {'class': f'{self.name}.data_services.aavso_dataservice.AAVSODataService'},
+            # Override TOM Toolkit's TNS adapter with prefix normalization and HTTP timeouts.
+            {'class': f'{self.name}.data_services.tns_dataservice.TNSDataService'},
             {'class': f'{self.name}.data_services.gemini_spectra_dataservice.GeminiSpectraDataService'},
             {'class': f'{self.name}.data_services.hipparcos_dataservice.HipparcosDataService'},
             {'class': f'{self.name}.data_services.tess_dataservice.TESSDataService'}

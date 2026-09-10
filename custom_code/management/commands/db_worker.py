@@ -16,7 +16,11 @@ from django.db.utils import OperationalError
 from django.utils import timezone
 from tom_targets.models import Target
 
-from custom_code.tasks import enqueue_target_dataservices_update, run_observation_status_update
+from custom_code.tasks import (
+    enqueue_target_dataservices_update,
+    refresh_rapas_workbook_cache,
+    run_observation_status_update,
+)
 from django_tasks import DEFAULT_TASK_BACKEND_ALIAS
 from django_tasks.backends.database.management.commands.db_worker import (
     package_logger,
@@ -159,6 +163,9 @@ class ScheduledStatusWorker:
         self.next_dataservices_enqueue_at = now + self.dataservices_interval
 
         try:
+            # Warm RAPAS even when no target passes the importance threshold. Web-facing
+            # all-service queries are cache-only and never wait on Google Sheets.
+            refresh_rapas_workbook_cache.enqueue()
             target_ids = list(
                 Target.objects
                 .filter(importance__gt=self.dataservices_importance_gt)

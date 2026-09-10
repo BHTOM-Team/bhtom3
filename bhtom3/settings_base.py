@@ -33,6 +33,14 @@ ALL_DATA_SERVICES_QUERY_MAX_WORKERS = int(secret.get(
     os.environ.get('ALL_DATA_SERVICES_QUERY_MAX_WORKERS', '12'),
 ))
 RAPAS_CACHE_SECONDS = int(secret.get('RAPAS_CACHE_SECONDS', os.environ.get('RAPAS_CACHE_SECONDS', '14400')))
+RAPAS_REFRESH_SECONDS = int(secret.get(
+    'RAPAS_REFRESH_SECONDS',
+    os.environ.get('RAPAS_REFRESH_SECONDS', '86400'),
+))
+RAPAS_CACHE_LOCATION = secret.get(
+    'RAPAS_CACHE_LOCATION',
+    os.environ.get('RAPAS_CACHE_LOCATION', os.path.join(tempfile.gettempdir(), 'bhtom3-rapas-cache')),
+)
 RAPAS_SPREADSHEETS = [
     {
         'year': 2026,
@@ -255,6 +263,16 @@ CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
         'LOCATION': tempfile.gettempdir()
+    },
+    # Keep the parsed RAPAS workbooks away from short-lived query-result cache entries.
+    # Set RAPAS_CACHE_LOCATION to shared storage when web and worker run in separate containers.
+    'rapas': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': RAPAS_CACHE_LOCATION,
+        'OPTIONS': {
+            'MAX_ENTRIES': 20,
+            'CULL_FREQUENCY': 0,
+        },
     }
 }
 
@@ -368,6 +386,11 @@ TOM_ALERT_CLASSES = [
 TNS_SERVICE_CONFIGURATION = {
     # BHTOM_Bot TNS API
     'api_key': secret.get('TNS_API_KEY', ''),
+    # TOM Toolkit defaults to the sandbox when this is omitted.
+    'base_url': secret.get(
+        'TNS_BASE_URL',
+        os.environ.get('TNS_BASE_URL', 'https://www.wis-tns.org'),
+    ),
     'user_agent': 'tns_marker{"tns_id":99624,"type": "bot", "name":"BHTOM_Bot"}',
     'bot_id': 99624,
     'bot_name': "BHTOM_Bot",
