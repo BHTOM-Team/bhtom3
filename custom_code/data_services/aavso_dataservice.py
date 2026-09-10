@@ -72,9 +72,12 @@ _REQUEST_HEADERS = {'User-Agent': 'bhtom3 AAVSO dataservice', 'Accept': 'text/pl
 # responses for this idempotent API call.
 _RETRYABLE_HTTP_STATUSES = (405, 408, 425, 429, 500, 502, 503, 504)
 _TRANSIENT_YEAR_RE = re.compile(r'^(?:SN|AT)?\s*((?:19|20)\d{2})[a-z]+$', re.IGNORECASE)
+_TRANSIENT_IDENTIFIER_RE = re.compile(
+    r'^(?:(SN|AT)\s*)?(((?:19|20)\d{2})[a-z]+)$', re.IGNORECASE
+)
 
 
-class _AAVSOIdentifierUnavailable(RuntimeError):
+class _AAVSOIdentifierUnavailable(requests.HTTPError):
     """The API repeatedly rejected a GET for one identifier; another alias may still work."""
 
 
@@ -117,6 +120,26 @@ def _transient_discovery_from_jd(names):
         if match:
             return float(Time(f'{match.group(1)}-01-01T00:00:00', scale='utc').jd)
     return _DEFAULT_FROM_JD
+
+
+def _aavso_identifier_variants(names):
+    """Return distinct AAVSO spellings, including compact and canonical spaced transients."""
+    variants = []
+    for name in names:
+        original = str(name or '').strip()
+        if not original:
+            continue
+        candidates = [original]
+        match = _TRANSIENT_IDENTIFIER_RE.match(original)
+        if match:
+            prefix, designation = match.group(1), match.group(2)
+            if prefix:
+                prefix = prefix.upper()
+                candidates.extend((f'{prefix}{designation}', f'{prefix} {designation}', designation))
+        for candidate in candidates:
+            if candidate and candidate not in variants:
+                variants.append(candidate)
+    return variants
 
 
 def _reduced_datum_identity(timestamp, value):
@@ -381,7 +404,7 @@ class AAVSODataService(DataService):
         # Candidate identifiers: VSX-resolved names first (coordinate match), then the
         # target's own name/aliases as a fallback.
         idents = list(vsx_names)
-        for name in target_names:
+        for name in _aavso_identifier_variants(target_names):
             if name not in idents:
                 idents.append(name)
 
@@ -443,14 +466,18 @@ class AAVSODataService(DataService):
         vsx_name = query_parameters.get('vsx_name')
         from_jd = query_parameters.get('fromjd') or _DEFAULT_FROM_JD
         to_jd = query_parameters.get('tojd')
+        unavailable_error = None
         for ident in idents:
             try:
                 rows, star_name = self._fetch_photometry(ident, from_jd, to_jd)
-            except _AAVSOIdentifierUnavailable:
+            except _AAVSOIdentifierUnavailable as exc:
+                unavailable_error = exc
                 continue
             if rows:
                 self.query_results = {'rows': rows, 'star_name': star_name, 'ident': ident, 'vsx_name': vsx_name}
                 return self.query_results
+        if unavailable_error is not None:
+            raise unavailable_error
         self.query_results = {'rows': [], 'star_name': None, 'ident': None, 'vsx_name': vsx_name}
         return self.query_results
 
@@ -519,7 +546,9 @@ class AAVSODataService(DataService):
                     from_jd,
                     f'{to_jd:.5f}' if to_jd is not None else 'latest',
                 )
-                raise _AAVSOIdentifierUnavailable(ident)
+                raise _AAVSOIdentifierUnavailable(
+                    f'AAVSO rejected identifier {ident!r} after retries.', response=resp
+                )
             raise
         return self._parse_delim(resp.text)
 
@@ -620,6 +649,7 @@ class AAVSODataService(DataService):
             except Target.DoesNotExist:
                 target = None
 
+        unavailable_error = None
         for ident in idents:
             try:
                 added, star_name, accumulated, saw_any = self._fetch_chunked(
@@ -629,7 +659,8 @@ class AAVSODataService(DataService):
                     target,
                     deadline_monotonic=query_parameters.get('_query_deadline_monotonic'),
                 )
-            except _AAVSOIdentifierUnavailable:
+            except _AAVSOIdentifierUnavailable as exc:
+                unavailable_error = exc
                 continue
             if not saw_any:
                 continue  # this identifier had no AAVSO data; try the next candidate
@@ -659,6 +690,8 @@ class AAVSODataService(DataService):
                 logger.info('AAVSO: ingested %s new points for target id=%s (ident=%s).', added, target_id, ident)
             return [result]
 
+        if unavailable_error is not None:
+            raise unavailable_error
         return []
 
     def create_target_from_query(self, target_result, **kwargs):

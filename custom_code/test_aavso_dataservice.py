@@ -10,6 +10,7 @@ from custom_code.data_services.aavso_dataservice import (
     _AAVSOIdentifierUnavailable,
     _REQUEST_HEADERS,
     _RETRYABLE_HTTP_STATUSES,
+    _aavso_identifier_variants,
     _aavso_object_url,
     _ingest_photometry,
     _transient_discovery_from_jd,
@@ -22,6 +23,12 @@ class AAVSODataServiceTests(SimpleTestCase):
         self.assertEqual(
             _transient_discovery_from_jd(['SN2026fvx']),
             2461041.5,
+        )
+
+    def test_transient_identifier_variants_include_aavso_canonical_spelling(self):
+        self.assertEqual(
+            _aavso_identifier_variants(['SN2026fvx']),
+            ['SN2026fvx', 'SN 2026fvx', '2026fvx'],
         )
 
     def test_object_url_uses_human_vsx_detail_page_when_oid_is_known(self):
@@ -154,6 +161,20 @@ class AAVSODataServiceTests(SimpleTestCase):
         self.assertEqual(result['rows'], [row])
         self.assertEqual(fetch.call_count, 2)
 
+    def test_query_service_reports_405_when_every_identifier_is_rejected(self):
+        service = AAVSODataService()
+        response = Mock(status_code=405)
+        unavailable = _AAVSOIdentifierUnavailable('rejected', response=response)
+        with patch.object(service, '_fetch_photometry', side_effect=unavailable):
+            with self.assertRaises(_AAVSOIdentifierUnavailable) as raised:
+                service.query_service({
+                    'idents': ['SN2026fvx', 'SN 2026fvx'],
+                    'fromjd': 2461041.5,
+                    'tojd': 2461294.5,
+                })
+
+        self.assertEqual(raised.exception.response.status_code, 405)
+
     def test_non_405_http_error_is_not_hidden(self):
         response = Mock(status_code=500)
         error = requests.HTTPError('500 Server Error', response=response)
@@ -202,7 +223,7 @@ class AAVSODataServiceTests(SimpleTestCase):
             parameters = service.build_query_parameters({'target_name': 'SN2026fvx'})
 
         resolve_vsx.assert_not_called()
-        self.assertEqual(parameters['idents'], ['SN2026fvx'])
+        self.assertEqual(parameters['idents'], ['SN2026fvx', 'SN 2026fvx', '2026fvx'])
 
     def test_expired_deadline_before_first_aavso_request_reports_timeout(self):
         service = AAVSODataService()
