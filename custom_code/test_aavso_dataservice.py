@@ -12,11 +12,18 @@ from custom_code.data_services.aavso_dataservice import (
     _RETRYABLE_HTTP_STATUSES,
     _aavso_object_url,
     _ingest_photometry,
+    _transient_discovery_from_jd,
 )
 from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 
 
 class AAVSODataServiceTests(SimpleTestCase):
+    def test_transient_query_starts_at_discovery_year(self):
+        self.assertEqual(
+            _transient_discovery_from_jd(['SN2026fvx']),
+            2461041.5,
+        )
+
     def test_object_url_uses_human_vsx_detail_page_when_oid_is_known(self):
         self.assertEqual(
             _aavso_object_url('SN 2026fvx', '10875707'),
@@ -189,7 +196,7 @@ class AAVSODataServiceTests(SimpleTestCase):
         row = {'timestamp': Mock(), 'value': {'filter': 'AAVSO(V)', 'magnitude': 12.3}}
         with patch.object(
             service, '_fetch_chunked', return_value=(0, 'SN 2026fvx', [row], True)
-        ), patch.object(service, '_fetch_vsx_object', return_value={
+        ) as fetch_chunked, patch.object(service, '_fetch_vsx_object', return_value={
             'name': 'SN 2026fvx',
             'oid': '10875707',
             'ra': 183.74221,
@@ -206,6 +213,7 @@ class AAVSODataServiceTests(SimpleTestCase):
 
         self.assertEqual(results[0]['ra'], 183.741913)
         self.assertEqual(results[0]['dec'], 63.787784)
+        self.assertIsNone(fetch_chunked.call_args.kwargs['deadline_monotonic'])
         self.assertEqual(
             results[0]['source_location'],
             'https://vsx.aavso.org/index.php?view=detail.top&oid=10875707',

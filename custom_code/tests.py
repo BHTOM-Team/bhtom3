@@ -1,6 +1,7 @@
 import gzip
 import json
 import requests
+import threading
 import time
 from io import BytesIO
 from datetime import datetime, timedelta
@@ -163,6 +164,7 @@ from custom_code.views import (
     _serialize_query_parameters,
     _backfill_data_service_result_coordinates,
     _has_meaningful_data_service_result,
+    _run_all_data_services_query,
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
     EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
@@ -793,6 +795,39 @@ class DataServiceQuerySerializationTests(TestCase):
 
         self.assertEqual(result['ra'], 183.741913)
         self.assertEqual(result['dec'], 63.787784)
+
+    def test_all_data_services_returns_fast_results_within_global_timeout(self):
+        slow_release = threading.Event()
+
+        def run_service(service_name, parameters, **kwargs):
+            if service_name == 'Slow':
+                slow_release.wait(1.0)
+            return [{'service': service_name, 'name': f'{service_name} result'}]
+
+        try:
+            with self.settings(
+                ALL_DATA_SERVICES_QUERY_TIMEOUT=0.1,
+                ALL_DATA_SERVICES_QUERY_MAX_WORKERS=2,
+            ), patch(
+                'custom_code.views.get_data_service_classes',
+                return_value={'Slow': object, 'Fast': object},
+            ), patch(
+                'custom_code.views._run_single_data_service_query',
+                side_effect=run_service,
+            ):
+                started = time.monotonic()
+                rows, feedback = _run_all_data_services_query({
+                    'target_name': 'SN 2026fvx',
+                    'ra': 183.741913,
+                    'dec': 63.787784,
+                })
+                elapsed = time.monotonic() - started
+        finally:
+            slow_release.set()
+
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual([row['service'] for row in rows], ['Fast'])
+        self.assertIn('Timed out: Slow', feedback)
 
 
 class ObservationStatusTaskTests(TestCase):

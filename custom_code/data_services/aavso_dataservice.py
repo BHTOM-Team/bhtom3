@@ -27,6 +27,8 @@ incremental ``fromjd`` (latest stored point) resumes where it stopped. Dedup is 
 
 import json
 import logging
+import re
+import time
 import xml.etree.ElementTree as ET
 from collections import Counter
 from datetime import timezone as dt_timezone
@@ -69,6 +71,7 @@ _REQUEST_HEADERS = {'User-Agent': 'bhtom3 AAVSO dataservice', 'Accept': 'text/pl
 # when the identical request is repeated). Treat it like the other transient edge/server
 # responses for this idempotent API call.
 _RETRYABLE_HTTP_STATUSES = (405, 408, 425, 429, 500, 502, 503, 504)
+_TRANSIENT_YEAR_RE = re.compile(r'^(?:SN|AT)?\s*((?:19|20)\d{2})[a-z]+$', re.IGNORECASE)
 
 
 class _AAVSOIdentifierUnavailable(RuntimeError):
@@ -105,6 +108,15 @@ def _aavso_object_url(identifier=None, oid=None):
         query = urlencode({'view': 'api.object', 'ident': identifier})
         return f'{AAVSO_API_URL}?{query}'
     return AAVSO_INFO_URL
+
+
+def _transient_discovery_from_jd(names):
+    """Use a transient's discovery year instead of scanning empty AAVSO years since 1900."""
+    for name in names:
+        match = _TRANSIENT_YEAR_RE.match(str(name or '').strip())
+        if match:
+            return float(Time(f'{match.group(1)}-01-01T00:00:00', scale='utc').jd)
+    return _DEFAULT_FROM_JD
 
 
 def _reduced_datum_identity(timestamp, value):
@@ -217,7 +229,7 @@ def _band_label(band):
     return f'AAVSO({band})' if band else 'AAVSO(Vis)'
 
 
-def _resolve_vsx_names(ra, dec, radius_arcsec):
+def _resolve_vsx_names(ra, dec, radius_arcsec, timeout_seconds=None):
     """Resolve coordinates to nearby VSX star name(s) via the VizieR B/vsx mirror, nearest first.
 
     api.delim is keyed by star name, and the VizieR B/vsx 'Name' column is that name. Returns an
@@ -232,7 +244,7 @@ def _resolve_vsx_names(ra, dec, radius_arcsec):
     try:
         vizier = Vizier(catalog=_VSX_VIZIER_CATALOG, columns=['Name', 'RAJ2000', 'DEJ2000'])
         vizier.ROW_LIMIT = 50
-        vizier.TIMEOUT = int(DATA_SERVICE_READ_TIMEOUT)
+        vizier.TIMEOUT = max(1, int(timeout_seconds or DATA_SERVICE_READ_TIMEOUT))
         center = SkyCoord(ra, dec, unit='deg')
         result = vizier.query_region(center, radius=radius_arcsec * u.arcsec)
     except Exception as exc:
@@ -342,12 +354,20 @@ class AAVSODataService(DataService):
         target_name, ra, dec = resolve_query_coordinates(parameters)
         target_id = parameters.get('target_id')
         radius = _to_float(parameters.get('radius_arcsec')) or _DEFAULT_MATCH_RADIUS
+        query_deadline = _to_float(parameters.get('_query_deadline_monotonic'))
 
         # Resolve coordinates -> nearest VSX star name(s) via the VizieR B/vsx mirror.
         vsx_names = []
         ra_f, dec_f = _to_float(ra), _to_float(dec)
         if ra_f is not None and dec_f is not None:
-            vsx_names = _resolve_vsx_names(ra_f, dec_f, radius)
+            remaining = query_deadline - time.monotonic() if query_deadline else None
+            if remaining is None or remaining > 0:
+                vsx_names = _resolve_vsx_names(
+                    ra_f,
+                    dec_f,
+                    radius,
+                    timeout_seconds=(min(DATA_SERVICE_READ_TIMEOUT, remaining) if remaining else None),
+                )
 
         # Candidate identifiers: VSX-resolved names first (coordinate match), then the
         # target's own name/aliases as a fallback.
@@ -360,6 +380,8 @@ class AAVSODataService(DataService):
         if from_jd is None:
             if parameters.get('force'):
                 from_jd = self._historical_from_jd(target_id)
+            elif not target_id:
+                from_jd = _transient_discovery_from_jd(idents)
             else:
                 from_jd = self._incremental_from_jd(target_id)
 
@@ -373,6 +395,7 @@ class AAVSODataService(DataService):
             'tojd': _to_float(parameters.get('tojd')),
             'include_photometry': bool(parameters.get('include_photometry', True)),
             'force': bool(parameters.get('force')),
+            '_query_deadline_monotonic': query_deadline,
         }
         return self.query_parameters
 
@@ -422,7 +445,7 @@ class AAVSODataService(DataService):
         self.query_results = {'rows': [], 'star_name': None, 'ident': None, 'vsx_name': vsx_name}
         return self.query_results
 
-    def _fetch_chunked(self, ident, from_jd, to_jd, target):
+    def _fetch_chunked(self, ident, from_jd, to_jd, target, deadline_monotonic=None):
         """Fetch [from_jd, to_jd] for one identifier in bounded JD chunks.
 
         When ``target`` is set, each chunk is inserted immediately (durable and resumable: a
@@ -439,6 +462,9 @@ class AAVSODataService(DataService):
 
         lo = from_jd
         while lo < to_jd:
+            if deadline_monotonic and time.monotonic() >= deadline_monotonic:
+                logger.info('AAVSO: stopped chunk scan at the all-services query deadline.')
+                break
             hi = min(lo + chunk, to_jd)
             rows, star_name = self._fetch_photometry(ident, lo, hi)
             if rows:
@@ -586,7 +612,11 @@ class AAVSODataService(DataService):
         for ident in idents:
             try:
                 added, star_name, accumulated, saw_any = self._fetch_chunked(
-                    ident, from_jd, to_jd, target
+                    ident,
+                    from_jd,
+                    to_jd,
+                    target,
+                    deadline_monotonic=query_parameters.get('_query_deadline_monotonic'),
                 )
             except _AAVSOIdentifierUnavailable:
                 continue

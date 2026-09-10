@@ -4,6 +4,7 @@ import math
 import os
 import re
 import requests
+import time
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta, timezone
@@ -171,6 +172,7 @@ ALL_CATALOG_QUERY_SERVICE_NAMES = (
     'TNS',
 )
 ALL_CATALOG_QUERY_TIMEOUT_SECONDS = 12.0
+ALL_DATA_SERVICES_PRIORITY = ('RAPAS', 'AAVSO', 'TNS', 'Simbad')
 
 
 def _normalize_json_safe_value(value):
@@ -381,19 +383,73 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
 
     rows = []
     feedback = []
-    for service_name in sorted(get_data_service_classes().keys()):
-        try:
-            rows.extend(
-                _run_single_data_service_query(
-                    service_name,
-                    shared_parameters,
-                    query_id=query_id,
-                    cache_prefix=f'{cache_prefix}_{service_name}',
-                )
+    installed_service_names = list(get_data_service_classes().keys())
+    priority = {name: index for index, name in enumerate(ALL_DATA_SERVICES_PRIORITY)}
+    service_names = sorted(
+        installed_service_names,
+        key=lambda name: (priority.get(name, len(priority)), str(name)),
+    )
+    if not service_names:
+        return rows, feedback
+
+    timeout_seconds = max(
+        0.1,
+        float(getattr(settings, 'ALL_DATA_SERVICES_QUERY_TIMEOUT', 12.0)),
+    )
+    shared_parameters['_query_deadline_monotonic'] = time.monotonic() + timeout_seconds
+    max_workers = max(
+        1,
+        min(
+            len(service_names),
+            int(getattr(settings, 'ALL_DATA_SERVICES_QUERY_MAX_WORKERS', 12)),
+        ),
+    )
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    future_map = {
+        executor.submit(
+            _run_single_data_service_query,
+            service_name,
+            shared_parameters,
+            query_id=query_id,
+            cache_prefix=f'{cache_prefix}_{service_name}',
+        ): service_name
+        for service_name in service_names
+    }
+    timed_out = False
+    collected_futures = set()
+    try:
+        for future in as_completed(future_map, timeout=timeout_seconds):
+            collected_futures.add(future)
+            service_name = future_map[future]
+            try:
+                rows.extend(future.result())
+            except Exception as exc:
+                logger.warning('All-data-services query failed for %s: %s', service_name, exc)
+                feedback.append(f'{service_name}: query failed')
+    except FuturesTimeoutError:
+        timed_out = True
+    finally:
+        if timed_out:
+            feedback.append(
+                f'Returned available results after {timeout_seconds:g}s; some services are still slow'
             )
-        except Exception as exc:
-            logger.warning('All-data-services query failed for %s: %s', service_name, exc)
-            feedback.append(f'{service_name}: query failed')
+        timed_out_services = []
+        for future, service_name in future_map.items():
+            if future in collected_futures:
+                continue
+            if future.done():
+                try:
+                    rows.extend(future.result())
+                except Exception as exc:
+                    logger.warning('All-data-services query failed for %s: %s', service_name, exc)
+                    feedback.append(f'{service_name}: query failed')
+                continue
+            future.cancel()
+            logger.warning('All-data-services query timed out for %s', service_name)
+            timed_out_services.append(service_name)
+        if timed_out_services:
+            feedback.append(f'Timed out: {", ".join(timed_out_services)}')
+        executor.shutdown(wait=False, cancel_futures=True)
     rows.sort(key=lambda row: (str(row.get('name') or ''), str(row.get('service') or '')))
     return rows, feedback
 
