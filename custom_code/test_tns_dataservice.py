@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 from tom_dataservices.data_services.tns import TNSDataService as BaseTNSDataService
 
 from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
-from custom_code.data_services.tns_dataservice import TNSDataService
+from custom_code.data_services.tns_dataservice import TNSDataService, _parse_tns_photometry
 
 
 class TNSDataServiceTests(SimpleTestCase):
@@ -41,7 +41,7 @@ class TNSDataServiceTests(SimpleTestCase):
         )
         response.raise_for_status.assert_called_once_with()
 
-    def test_query_targets_replaces_non_numeric_display_coordinates(self):
+    def test_query_targets_normalizes_metadata_and_photometry(self):
         service = TNSDataService()
         upstream_result = {
             'name_prefix': 'SN',
@@ -50,6 +50,19 @@ class TNSDataServiceTests(SimpleTestCase):
             'dec': '',
             'radeg': '183.742210',
             'decdeg': '63.787890',
+            'object_type': {'name': 'SN Ia'},
+            'photometry': [
+                {
+                    'id': 17,
+                    'jd': 2461293.5,
+                    'flux': 18.42,
+                    'fluxerr': 0.08,
+                    'flux_unit': {'name': 'mag'},
+                    'filters': {'name': 'L-GOTO'},
+                    'source_group': {'group_name': 'GOTO', 'name': 'GOTO'},
+                    'observer': 'Example Observer',
+                },
+            ],
         }
         with patch.object(
             BaseTNSDataService,
@@ -60,3 +73,43 @@ class TNSDataServiceTests(SimpleTestCase):
 
         self.assertEqual(result['ra'], 183.74221)
         self.assertEqual(result['dec'], 63.78789)
+        self.assertEqual(result['classification'], 'SN Ia')
+        self.assertEqual(result['source_location'], 'https://www.wis-tns.org/object/2026fvx')
+        datum = result['reduced_datums']['photometry'][0]['value']
+        self.assertEqual(datum['filter'], 'GOTO-L')
+        self.assertEqual(datum['magnitude'], 18.42)
+        self.assertEqual(datum['observer'], 'TNS')
+        self.assertEqual(datum['facility'], 'TNS')
+        self.assertEqual(datum['tns_observer'], 'Example Observer')
+
+    def test_parse_tns_photometry_normalizes_survey_filters_and_limits(self):
+        rows = _parse_tns_photometry({
+            'photometry': [
+                {'jd': 2461293.5, 'flux': 18.4, 'flux_unit': {'name': 'mag'},
+                 'filters': {'name': 'g-Sloan'}, 'source_group': {'name': 'ASAS-SN'}},
+                {'jd': 2461294.5, 'flux': 19.1, 'flux_unit': {'name': 'mag'},
+                 'filters': {'name': 'cyan-ATLAS'}, 'source_group': {'name': 'ATLAS'}},
+                {'jd': 2461295.5, 'limflux': 20.2, 'flux_unit': {'name': 'mag'},
+                 'filters': {'name': 'r-ZTF'}, 'source_group': {'name': 'ZTF'}},
+            ],
+        })
+
+        self.assertEqual([row['value']['filter'] for row in rows], ['ASASSN-g', 'ATLAS-c', 'ZTF-r'])
+        self.assertEqual(rows[-1]['value']['limit'], 20.2)
+        self.assertTrue(rows[-1]['value']['upper_limit'])
+
+    @patch('custom_code.data_services.tns_dataservice.requests.post')
+    def test_object_request_enables_photometry(self, post):
+        response = Mock()
+        response.json.return_value = {'data': {}}
+        post.return_value = response
+        service = TNSDataService()
+
+        service.query_service(
+            {'api_key': 'secret', 'data': json.dumps({'objname': '2026fvx', 'photometry': '0'})},
+            url='https://www.wis-tns.org/api/get/object',
+        )
+
+        sent = json.loads(post.call_args.kwargs['data']['data'])
+        self.assertEqual(sent['photometry'], '1')
+        self.assertEqual(sent['spectra'], '0')

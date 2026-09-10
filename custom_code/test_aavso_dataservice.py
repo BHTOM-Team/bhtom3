@@ -191,6 +191,25 @@ class AAVSODataServiceTests(SimpleTestCase):
         historical_from_jd.assert_called_once_with(7)
         incremental_from_jd.assert_not_called()
 
+    def test_transient_name_skips_slow_vsx_coordinate_lookup(self):
+        service = AAVSODataService()
+        with patch(
+            'custom_code.data_services.aavso_dataservice.resolve_query_coordinates',
+            return_value=('SN2026fvx', 183.74221, 63.78789),
+        ), patch.object(service, '_target_names', return_value=['SN2026fvx']), patch(
+            'custom_code.data_services.aavso_dataservice._resolve_vsx_names'
+        ) as resolve_vsx:
+            parameters = service.build_query_parameters({'target_name': 'SN2026fvx'})
+
+        resolve_vsx.assert_not_called()
+        self.assertEqual(parameters['idents'], ['SN2026fvx'])
+
+    def test_expired_deadline_before_first_aavso_request_reports_timeout(self):
+        service = AAVSODataService()
+        with patch('custom_code.data_services.aavso_dataservice.time.monotonic', return_value=10.0):
+            with self.assertRaises(requests.Timeout):
+                service._fetch_chunked('SN2026fvx', 2461000.0, 2461001.0, None, deadline_monotonic=9.0)
+
     def test_query_target_has_coordinates_and_direct_vsx_link(self):
         service = AAVSODataService()
         row = {'timestamp': Mock(), 'value': {'filter': 'AAVSO(V)', 'magnitude': 12.3}}

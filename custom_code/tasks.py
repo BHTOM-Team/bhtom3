@@ -876,6 +876,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
     elif 'target_name' in form_fields and service_name == 'RAPAS':
         query_parameters['target_name'] = target.name
         query_parameters['target_names'] = list(dict.fromkeys(_iter_target_names(target)))
+    elif 'target_name' in form_fields and service_name == 'TNS':
+        query_parameters['target_name'] = target.name
+        query_parameters['radius'] = 5.0
+        query_parameters['units'] = 'arcsec'
     elif 'target_name' in form_fields and service_name == 'FRAM':
         query_parameters['target_name'] = target.name
         query_parameters['radius_arcsec'] = 3.0

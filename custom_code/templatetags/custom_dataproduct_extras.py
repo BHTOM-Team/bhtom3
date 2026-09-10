@@ -95,6 +95,14 @@ PHOTOMETRY_COLOR_MAP = {
     'MOA(Blue)': ['#3b82f6', 'diamond-wide', 4],
     'ATLAS(c)': ['#1f7e7d', 'circle', 4],
     'ATLAS(o)': ['#f88f1e', 'circle', 4],
+    'GOTO-L': ['#9467bd', 'circle-open', 5],
+    'ASASSN-g': ['green', 'circle-open', 5],
+    'ASASSN-V': ['darkgreen', 'circle-open', 5],
+    'ATLAS-c': ['#1f7e7d', 'circle-open', 5],
+    'ATLAS-o': ['#f88f1e', 'circle-open', 5],
+    'ZTF-g': ['#2ca02c', 'circle-open', 5],
+    'ZTF-r': ['#d62728', 'circle-open', 5],
+    'ZTF-i': ['#800000', 'circle-open', 5],
     'AAVSO(U)': ['#8000ff', 'circle-open', 5],
     'AAVSO(B)': ['blue', 'circle-open', 5],
     'AAVSO(V)': ['green', 'circle-open', 5],
@@ -223,6 +231,14 @@ PHOTOMETRY_LIMITS_COLOR_MAP = {
     'MOA(Blue)': ['#3b82f6', 'arrow-down-open', 4],
     'ATLAS(c)': ['#1f7e7d', 'arrow-down-open', 4],
     'ATLAS(o)': ['#f88f1e', 'arrow-down-open', 4],
+    'GOTO-L': ['#9467bd', 'arrow-down-open', 5],
+    'ASASSN-g': ['green', 'arrow-down-open', 5],
+    'ASASSN-V': ['darkgreen', 'arrow-down-open', 5],
+    'ATLAS-c': ['#1f7e7d', 'arrow-down-open', 5],
+    'ATLAS-o': ['#f88f1e', 'arrow-down-open', 5],
+    'ZTF-g': ['#2ca02c', 'arrow-down-open', 5],
+    'ZTF-r': ['#d62728', 'arrow-down-open', 5],
+    'ZTF-i': ['#800000', 'arrow-down-open', 5],
     'AAVSO(U)': ['#8000ff', 'arrow-down-open', 5],
     'AAVSO(B)': ['blue', 'arrow-down-open', 5],
     'AAVSO(V)': ['green', 'arrow-down-open', 5],
@@ -321,7 +337,9 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             link = reverse('aavso-measurement-detail', args=(datum.id,))
         else:
             link = f"/dataproducts/data/{datum.data_product_id}/" if datum.data_product_id else ''
-        if datum.source_name == 'AAVSO' and observer:
+        if datum.source_name == 'TNS':
+            custom = 'TNS'
+        elif datum.source_name == 'AAVSO' and observer:
             custom = f'AAVSO<br>Observer: {observer}'
         else:
             custom = f"{facility}, {observer}".strip(', ')

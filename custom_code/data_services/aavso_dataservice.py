@@ -356,10 +356,19 @@ class AAVSODataService(DataService):
         radius = _to_float(parameters.get('radius_arcsec')) or _DEFAULT_MATCH_RADIUS
         query_deadline = _to_float(parameters.get('_query_deadline_monotonic'))
 
+        target_names = self._target_names(target_name, target_id)
+
+        # Transient names are valid AAVSO identifiers and should be tried immediately.
+        # A remote VSX lookup can otherwise consume the complete per-service window before
+        # the actual AAVSO request starts.
+        has_transient_name = any(
+            _TRANSIENT_YEAR_RE.match(str(name or '').strip()) for name in target_names
+        )
+
         # Resolve coordinates -> nearest VSX star name(s) via the VizieR B/vsx mirror.
         vsx_names = []
         ra_f, dec_f = _to_float(ra), _to_float(dec)
-        if ra_f is not None and dec_f is not None:
+        if not has_transient_name and ra_f is not None and dec_f is not None:
             remaining = query_deadline - time.monotonic() if query_deadline else None
             if remaining is None or remaining > 0:
                 vsx_names = _resolve_vsx_names(
@@ -372,7 +381,7 @@ class AAVSODataService(DataService):
         # Candidate identifiers: VSX-resolved names first (coordinate match), then the
         # target's own name/aliases as a fallback.
         idents = list(vsx_names)
-        for name in self._target_names(target_name, target_id):
+        for name in target_names:
             if name not in idents:
                 idents.append(name)
 
@@ -464,6 +473,8 @@ class AAVSODataService(DataService):
         while lo < to_jd:
             if deadline_monotonic and time.monotonic() >= deadline_monotonic:
                 logger.info('AAVSO: stopped chunk scan at the all-services query deadline.')
+                if not saw_any:
+                    raise requests.Timeout('AAVSO query exhausted its per-service time window.')
                 break
             hi = min(lo + chunk, to_jd)
             rows, star_name = self._fetch_photometry(ident, lo, hi)
