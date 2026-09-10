@@ -3787,6 +3787,7 @@ class BhtomCreateTargetFromQueryView(CreateTargetFromQueryView):
     @staticmethod
     def _build_create_url(target, cached_result):
         target_params = _target_create_params(target)
+        target_params['permissions'] = Target.Permissions.PUBLIC
         for target_key, cache_keys in (
             ('pm_ra', ('pm_ra', 'pmra')),
             ('pm_dec', ('pm_dec', 'pmdec')),

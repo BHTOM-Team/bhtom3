@@ -63,6 +63,42 @@ def _record_matches_partial_name(record, query):
     return any(compact_query in _compact_name(name) for name in _record_names(record))
 
 
+def _record_coordinate(record, coordinate):
+    value = _to_float(record.get(coordinate))
+    if value is not None:
+        return value
+    for measurement in record.get('measurements') or []:
+        measurement_value = measurement.get('value') if isinstance(measurement, dict) else None
+        if isinstance(measurement_value, dict):
+            value = _to_float(measurement_value.get(coordinate))
+            if value is not None:
+                return value
+    return None
+
+
+def _rapas_description(metadata):
+    metadata = metadata if isinstance(metadata, dict) else {}
+    fields = (
+        ('nature', 'nature'),
+        ('redshift', 'redshift'),
+        ('host_galaxy', 'host galaxy'),
+        ('discovery_magnitude', 'discovery magnitude'),
+        ('alert_date', 'alert date'),
+        ('rapas_status', 'status'),
+        ('alert_end_date', 'alert end date'),
+        ('alert_comment', 'comment'),
+    )
+    details = [
+        f'{label} {_clean_text(metadata.get(key))}'
+        for key, label in fields
+        if _clean_text(metadata.get(key))
+    ]
+    description = 'RAPAS target'
+    if details:
+        description += f', {", ".join(details)}'
+    return description[:200]
+
+
 def _to_float(value):
     if isinstance(value, (int, float)):
         number = float(value)
@@ -488,9 +524,11 @@ class RAPASDataService(DataService):
             radius_arcsec = query_parameters.get('radius_arcsec') or 5.0
             candidates = []
             for record in records:
-                if record.get('ra') is None or record.get('dec') is None:
+                record_ra = _record_coordinate(record, 'ra')
+                record_dec = _record_coordinate(record, 'dec')
+                if record_ra is None or record_dec is None:
                     continue
-                separation = center.separation(SkyCoord(record['ra'], record['dec'], unit='deg')).arcsecond
+                separation = center.separation(SkyCoord(record_ra, record_dec, unit='deg')).arcsecond
                 if separation <= radius_arcsec:
                     candidates.append((separation, record))
             if candidates:
@@ -503,15 +541,17 @@ class RAPASDataService(DataService):
         matches = self.query_service(query_parameters, **kwargs).get('matches') or []
         results = []
         for match in matches:
+            metadata = match.get('metadata') or {}
             result = {
                 'name': match['name'],
-                'ra': match['ra'],
-                'dec': match['dec'],
+                'ra': _record_coordinate(match, 'ra'),
+                'dec': _record_coordinate(match, 'dec'),
                 'aliases': [{'name': match['name'], 'source_name': self.name}],
                 'source_location': '',
+                'rapas_metadata': metadata,
+                'description': _rapas_description(metadata),
             }
             if query_parameters.get('include_photometry', True):
-                metadata = match.get('metadata') or {}
                 datums = []
                 for datum in match.get('measurements') or []:
                     value = dict(datum['value'])
@@ -522,13 +562,17 @@ class RAPASDataService(DataService):
         return results
 
     def create_target_from_query(self, target_result, **kwargs):
-        return Target(
+        target = Target(
             name=target_result['name'],
             type='SIDEREAL',
-            ra=target_result.get('ra'),
-            dec=target_result.get('dec'),
+            ra=_to_float(target_result.get('ra')),
+            dec=_to_float(target_result.get('dec')),
             epoch=2000.0,
         )
+        target.description = target_result.get('description') or _rapas_description(
+            target_result.get('rapas_metadata')
+        )
+        return target
 
     def create_aliases_from_query(self, alias_results, **kwargs):
         return [

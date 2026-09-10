@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 AIP_TAP_URL = 'https://gaia.aip.de/tap'
 GAIA_DR3_RELEASE_TIMESTAMP = datetime(2022, 6, 13, tzinfo=timezone.utc)
+GAIA_DR3_REFERENCE_EPOCH = 2016.0
 GAIA_XP_WAVELENGTH_NM = [336.0 + (2.0 * idx) for idx in range(343)]
 PREFERRED_GAIA_VARIABILITY_CLASSIFIER = 'n_transits:5+'
 
@@ -345,7 +346,7 @@ class GaiaDR3DataService(DataService):
                 for key, value in {
                     'ra': _to_float(source.get('ra')),
                     'dec': _to_float(source.get('dec')),
-                    'epoch': 2000.0,
+                    'epoch': GAIA_DR3_REFERENCE_EPOCH,
                     'pm_ra': _to_float(source.get('pmra')),
                     'pm_dec': _to_float(source.get('pmdec')),
                     'parallax': _to_float(source.get('parallax')),
@@ -369,7 +370,7 @@ class GaiaDR3DataService(DataService):
             type='SIDEREAL',
             ra=target_result.get('ra'),
             dec=target_result.get('dec'),
-            epoch=2000.0,
+            epoch=GAIA_DR3_REFERENCE_EPOCH,
             pm_ra=target_result.get('pmra'),
             pm_dec=target_result.get('pmdec'),
             parallax=target_result.get('parallax'),

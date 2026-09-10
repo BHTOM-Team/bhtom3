@@ -1680,8 +1680,10 @@ class GaiaDR3DataServiceTests(TestCase):
         self.assertEqual(result['target_updates']['parallax_error'], 0.33)
         self.assertEqual(result['target_updates']['pm_ra_error'], 0.11)
         self.assertEqual(result['target_updates']['pm_dec_error'], 0.22)
+        self.assertEqual(result['target_updates']['epoch'], 2016.0)
         self.assertEqual(result['gaia_variability_type'], 'RR')
         self.assertEqual(result['target_updates']['gaia_variability_type'], 'RR')
+        self.assertEqual(service.create_target_from_query(result).epoch, 2016.0)
 
     def test_query_service_backfills_variability_type_when_preferred_classifier_missing(self):
         service = GaiaDR3DataService()
@@ -3701,6 +3703,7 @@ class PlanetaryTransitTargetCreateTests(TestCase):
         self.assertEqual(response.status_code, 302)
         location = response['Location']
         self.assertIn('epoch=2000.0', location)
+        self.assertIn('permissions=PUBLIC', location)
         self.assertIn('description=TNS+target%2C+classification+SN+Ia%2C+redshift+0.01234.', location)
         self.assertIn('importance=9.99', location)
         self.assertIn('cadence=1.0', location)

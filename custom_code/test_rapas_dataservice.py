@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 from custom_code.data_services.rapas_dataservice import (
     RAPASDataService,
     _fetch_records,
+    _rapas_description,
     _sheet_measurements,
     _spreadsheet_id,
     _to_float,
@@ -76,6 +77,49 @@ class RAPASDataServiceTests(SimpleTestCase):
         self.assertEqual(value['filter'], 'RAPAS(G)')
         self.assertEqual(value['nature'], 'SN Ia')
         self.assertNotIn('url', results[0]['aliases'][0])
+        self.assertEqual(results[0]['description'], 'RAPAS target, nature SN Ia, host galaxy NGC4205')
+
+        target = service.create_target_from_query(results[0])
+        self.assertEqual(target.ra, self.record['ra'])
+        self.assertEqual(target.dec, self.record['dec'])
+        self.assertEqual(target.epoch, 2000.0)
+        self.assertEqual(target.description, 'RAPAS target, nature SN Ia, host galaxy NGC4205')
+
+    def test_rapas_coordinates_fall_back_to_measurement_columns(self):
+        record = dict(self.record, ra=None, dec=None)
+        record['measurements'] = [{
+            'timestamp': datetime(2026, 3, 20, 22, tzinfo=timezone.utc),
+            'value': {
+                'filter': 'RAPAS(G)',
+                'magnitude': 15.95,
+                'ra': self.record['ra'],
+                'dec': self.record['dec'],
+            },
+        }]
+        service = RAPASDataService()
+        parameters = service.build_query_parameters({
+            'target_name': 'SN2026fvx',
+            'target_names': ['SN2026fvx'],
+        })
+        with patch('custom_code.data_services.rapas_dataservice._fetch_records', return_value=[record]):
+            result = service.query_targets(parameters)[0]
+
+        self.assertEqual(result['ra'], self.record['ra'])
+        self.assertEqual(result['dec'], self.record['dec'])
+
+    def test_rapas_description_includes_available_metadata_and_respects_model_limit(self):
+        description = _rapas_description({
+            'nature': 'SN Ia',
+            'redshift': 0.0123,
+            'host_galaxy': 'NGC4205',
+            'discovery_magnitude': 16.2,
+            'alert_date': '17/03/2026',
+            'rapas_status': 'active',
+            'alert_comment': 'A' * 300,
+        })
+
+        self.assertTrue(description.startswith('RAPAS target, nature SN Ia, redshift 0.0123'))
+        self.assertLessEqual(len(description), 200)
 
     def test_coordinate_match_is_used_when_names_do_not_match(self):
         service = RAPASDataService()
