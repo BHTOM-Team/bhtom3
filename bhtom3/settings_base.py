@@ -44,8 +44,14 @@ RAPAS_CACHE_LOCATION = secret.get(
 )
 RAPAS_SPREADSHEETS = [
     {
+        'label': '2026',
         'year': 2026,
         'url': 'https://docs.google.com/spreadsheets/d/1mHIkJlG_h_yyJclj8tR3nSIXfX9AlhUH7Q6V9qsvOmY/edit?gid=2033371005',
+    },
+    {
+        'label': 'pre-2026',
+        'year': None,
+        'url': 'https://docs.google.com/spreadsheets/d/1HLOTZhRiT7iKXjrh4V7tPXaek-0o6apcN8DxVpdpsGI/edit?gid=1498269461',
     },
 ]
 DB_WORKER_HEARTBEAT_INTERVAL = int(secret.get('DB_WORKER_HEARTBEAT_INTERVAL', os.environ.get('DB_WORKER_HEARTBEAT_INTERVAL', '300')))

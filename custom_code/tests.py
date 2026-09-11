@@ -169,6 +169,8 @@ from custom_code.views import (
     _normalize_data_service_result,
     _parameters_for_data_service,
     _run_all_data_services_query,
+    _merge_data_service_rows,
+    BhtomRunQueryView,
     BhtomTargetCreateView,
     BhtomTargetUpdateView,
     EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
@@ -854,11 +856,11 @@ class DataServiceQuerySerializationTests(TestCase):
                 side_effect=run_service,
             ):
                 started = time.monotonic()
-                rows, feedback = _run_all_data_services_query({
+                rows, feedback, timed_out_services = _run_all_data_services_query({
                     'target_name': 'SN 2026fvx',
                     'ra': 183.741913,
                     'dec': 63.787784,
-                })
+                }, include_timed_out=True)
                 elapsed = time.monotonic() - started
         finally:
             slow_release.set()
@@ -866,6 +868,65 @@ class DataServiceQuerySerializationTests(TestCase):
         self.assertLess(elapsed, 0.5)
         self.assertEqual([row['service'] for row in rows], ['Fast'])
         self.assertIn('Timed out: Slow', feedback)
+        self.assertEqual(timed_out_services, ['Slow'])
+
+    def test_retry_query_runs_only_timed_out_services_and_preserves_rows(self):
+        parameters = {
+            'data_service': ALL_DATA_SERVICES_VALUE,
+            'target_name': 'SN 2026fvx',
+            'query_save': False,
+            'query_name': '',
+        }
+        first_rows = [{
+            'id': 'dataservices_all_RAPAS_0',
+            'service': 'RAPAS',
+            'name': 'SN 2026fvx',
+            'ra': 183.741913,
+            'dec': 63.787784,
+            'summary': '179 photometry measurements',
+        }]
+        retry_rows = [{
+            'id': 'dataservices_all_AAVSO_0',
+            'service': 'AAVSO',
+            'name': 'SN 2026fvx',
+            'ra': 183.74221,
+            'dec': 63.78789,
+            'summary': '1399 photometry measurements',
+        }]
+        session = {'query_parameters': parameters}
+        user = get_user_model().objects.create_user(username='retry-data-services', password='secret')
+
+        first_request = RequestFactory().get(reverse('dataservices:run'))
+        first_request.user = user
+        first_request.session = session
+        retry_request = RequestFactory().get(reverse('dataservices:run'), {'retry_timed_out': '1'})
+        retry_request.user = user
+        retry_request.session = session
+
+        with patch(
+            'custom_code.views._run_all_data_services_query',
+            side_effect=[
+                (first_rows, ['Timed out: AAVSO'], ['AAVSO']),
+                (retry_rows, [], []),
+            ],
+        ) as run_query:
+            first_response = BhtomRunQueryView.as_view()(first_request)
+            retry_response = BhtomRunQueryView.as_view()(retry_request)
+
+        self.assertContains(first_response, 'Try again')
+        self.assertContains(first_response, 'AAVSO')
+        self.assertNotIn(
+            'reduced_datums',
+            session['all_data_services_retry_state']['rows'][0],
+        )
+        self.assertContains(retry_response, 'RAPAS')
+        self.assertContains(retry_response, '1399 photometry measurements')
+        self.assertNotContains(retry_response, 'Try again')
+        self.assertEqual(run_query.call_args_list[1].kwargs['only_services'], ['AAVSO'])
+        self.assertEqual(
+            [row['service'] for row in _merge_data_service_rows(first_rows, retry_rows)],
+            ['AAVSO', 'RAPAS'],
+        )
 
 
 class ObservationStatusTaskTests(TestCase):

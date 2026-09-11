@@ -145,6 +145,7 @@ from custom_code.sun_separation import get_live_target_values
 logger = logging.getLogger(__name__)
 CATALOG_RESULTS_SESSION_KEY = 'catalog_query_results'
 CATALOG_FORM_SESSION_KEY = 'catalog_query_form_data'
+ALL_DATA_SERVICES_RETRY_SESSION_KEY = 'all_data_services_retry_state'
 JPL_HORIZONS_SERVICE_NAME = 'JPL Horizons'
 JPL_NON_SIDEREAL_DESCRIPTION = 'Non-sidereal object from JPL'
 SOLAR_SYSTEM_CLASSIFICATION = 'SSO'
@@ -437,7 +438,14 @@ def _run_single_data_service_query(
     return _annotate_results_with_existing_targets(rows)
 
 
-def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all'):
+def _run_all_data_services_query(
+    parameters,
+    *,
+    query_id='',
+    cache_prefix='all',
+    only_services=None,
+    include_timed_out=False,
+):
     shared_parameters = dict(parameters)
     if (
         shared_parameters.get('target_name')
@@ -458,8 +466,11 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
         installed_service_names,
         key=lambda name: (priority.get(name, len(priority)), str(name)),
     )
+    if only_services is not None:
+        requested_services = set(only_services)
+        service_names = [name for name in service_names if name in requested_services]
     if not service_names:
-        return rows, feedback
+        return (rows, feedback, []) if include_timed_out else (rows, feedback)
 
     timeout_seconds = max(
         0.1,
@@ -485,6 +496,7 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
         for service_name in service_names
     }
     timed_out = False
+    timed_out_services = []
     collected_futures = set()
     try:
         for future in as_completed(future_map, timeout=timeout_seconds):
@@ -495,6 +507,8 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
             except Exception as exc:
                 logger.warning('All-data-services query failed for %s: %s', service_name, exc)
                 feedback.append(_data_service_failure_feedback(service_name, exc))
+                if isinstance(exc, (requests.Timeout, TimeoutError)):
+                    timed_out_services.append(service_name)
     except FuturesTimeoutError:
         timed_out = True
     finally:
@@ -503,7 +517,6 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
                 f'Returned available results after a {timeout_seconds:g}s per-service window; '
                 'some services are still slow'
             )
-        timed_out_services = []
         for future, service_name in future_map.items():
             if future in collected_futures:
                 continue
@@ -513,15 +526,71 @@ def _run_all_data_services_query(parameters, *, query_id='', cache_prefix='all')
                 except Exception as exc:
                     logger.warning('All-data-services query failed for %s: %s', service_name, exc)
                     feedback.append(_data_service_failure_feedback(service_name, exc))
+                    if isinstance(exc, (requests.Timeout, TimeoutError)):
+                        timed_out_services.append(service_name)
                 continue
             future.cancel()
             logger.warning('All-data-services query timed out for %s', service_name)
-            timed_out_services.append(service_name)
+            if service_name not in timed_out_services:
+                timed_out_services.append(service_name)
         if timed_out_services:
             feedback.append(f'Timed out: {", ".join(timed_out_services)}')
         executor.shutdown(wait=False, cancel_futures=True)
     rows.sort(key=lambda row: (str(row.get('name') or ''), str(row.get('service') or '')))
+    if include_timed_out:
+        return rows, feedback, timed_out_services
     return rows, feedback
+
+
+def _all_data_services_retry_signature(parameters, query_id=''):
+    payload = {
+        'query_id': str(query_id or ''),
+        'parameters': parameters,
+    }
+    return json.dumps(payload, sort_keys=True, cls=DjangoJSONEncoder)
+
+
+def _merge_data_service_rows(existing_rows, retry_rows):
+    merged = {}
+    for row in [*(existing_rows or []), *(retry_rows or [])]:
+        key = str(row.get('id') or '')
+        if not key:
+            key = json.dumps(
+                [row.get('service'), row.get('name'), row.get('ra'), row.get('dec')],
+                cls=DjangoJSONEncoder,
+            )
+        merged[key] = row
+    return sorted(
+        merged.values(),
+        key=lambda row: (str(row.get('name') or ''), str(row.get('service') or '')),
+    )
+
+
+def _retry_state_rows(rows):
+    display_keys = (
+        'id',
+        'service',
+        'name',
+        'ra',
+        'dec',
+        'summary',
+        'url',
+        'query_id',
+        'existing_target_pk',
+        'existing_target_url',
+        'create_url',
+    )
+    return [
+        {key: row.get(key) for key in display_keys if row.get(key) not in (None, '')}
+        for row in rows or []
+    ]
+
+
+def _non_timeout_feedback(feedback):
+    return [
+        message for message in feedback
+        if 'timed out' not in message.lower() and 'still slow' not in message.lower()
+    ]
 
 
 def _run_single_catalog_service_query(service_name, cleaned_data):
@@ -4005,17 +4074,56 @@ class BhtomRunQueryView(RunQueryView):
     def get(self, request, *args, **kwargs):
         query, parameters = self._get_query_source()
         if parameters.get('data_service') == ALL_DATA_SERVICES_VALUE:
-            rows, feedback = _run_all_data_services_query(
-                parameters,
-                query_id=getattr(query, 'id', ''),
-                cache_prefix='dataservices_all',
+            query_id = getattr(query, 'id', '')
+            signature = _all_data_services_retry_signature(parameters, query_id)
+            retry_state = request.session.get(ALL_DATA_SERVICES_RETRY_SESSION_KEY) or {}
+            retry_requested = request.GET.get('retry_timed_out') == '1'
+            can_retry = (
+                retry_requested
+                and retry_state.get('signature') == signature
+                and bool(retry_state.get('timed_out_services'))
             )
+            if can_retry:
+                retry_rows, retry_feedback, timed_out_services = _run_all_data_services_query(
+                    parameters,
+                    query_id=query_id,
+                    cache_prefix='dataservices_all',
+                    only_services=retry_state['timed_out_services'],
+                    include_timed_out=True,
+                )
+                rows = _merge_data_service_rows(retry_state.get('rows'), retry_rows)
+                persistent_feedback = list(dict.fromkeys([
+                    *(retry_state.get('persistent_feedback') or []),
+                    *_non_timeout_feedback(retry_feedback),
+                ]))
+                feedback = list(dict.fromkeys([
+                    *(retry_state.get('persistent_feedback') or []),
+                    *retry_feedback,
+                ]))
+            else:
+                rows, feedback, timed_out_services = _run_all_data_services_query(
+                    parameters,
+                    query_id=query_id,
+                    cache_prefix='dataservices_all',
+                    include_timed_out=True,
+                )
+                persistent_feedback = _non_timeout_feedback(feedback)
+
+            request.session[ALL_DATA_SERVICES_RETRY_SESSION_KEY] = {
+                'signature': signature,
+                # Keep the session small: full query payloads (notably AAVSO photometry)
+                # remain in the existing per-result cache used by the Create button.
+                'rows': _retry_state_rows(rows),
+                'timed_out_services': timed_out_services,
+                'persistent_feedback': persistent_feedback,
+            }
             context = {
                 'data_service': ALL_DATA_SERVICES_LABEL,
                 'query': parameters.get('target_name') or '',
                 'results': rows,
                 'query_object': query,
                 'query_feedback': ' | '.join(feedback),
+                'timed_out_services': timed_out_services,
             }
             return render(request, 'tom_dataservices/query_result.html', context)
         return super().get(request, *args, **kwargs)

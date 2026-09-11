@@ -113,6 +113,41 @@ def _to_float(value):
     return number if math.isfinite(number) else None
 
 
+def _to_mjd(value):
+    """Parse an MJD with either decimal convention and optional thousands grouping."""
+    if isinstance(value, (int, float)):
+        candidates = [float(value)]
+    else:
+        text = _clean_text(value).replace('\u00a0', '').replace(' ', '').replace("'", '')
+        if not text:
+            return None
+        candidates = []
+        if ',' in text and '.' in text:
+            if text.rfind('.') > text.rfind(','):
+                normalized = text.replace(',', '')
+            else:
+                normalized = text.replace('.', '').replace(',', '.')
+            try:
+                candidates.append(float(normalized))
+            except ValueError:
+                return None
+        elif ',' in text:
+            for normalized in (text.replace(',', '.'), text.replace(',', '')):
+                try:
+                    candidates.append(float(normalized))
+                except ValueError:
+                    continue
+        else:
+            try:
+                candidates.append(float(text))
+            except ValueError:
+                return None
+
+    # Reject implausible values before passing them to astropy. This also resolves
+    # ambiguous strings such as "61,119" in favour of MJD 61119, not MJD 61.119.
+    return next((number for number in candidates if math.isfinite(number) and 20000 <= number <= 100000), None)
+
+
 def _excel_date_text(value):
     number = _to_float(value)
     if number is not None and 20000 <= number <= 80000:
@@ -267,26 +302,18 @@ def _band_columns(rows, header_index):
 
 
 def _timestamp(row):
-    mjd = _to_float(_cell(row, 2))
+    # The workbook's displayed date/time has no reliable timezone. MJD is the
+    # authoritative instant and is therefore the only accepted timestamp source.
+    mjd = _to_mjd(_cell(row, 2))
     if mjd is not None:
         try:
             return Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc), mjd
         except Exception:
             pass
-
-    date_text = _clean_text(_cell(row, 0))
-    time_text = _clean_text(_cell(row, 1)) or '00:00:00'
-    for date_format in ('%d/%m/%Y', '%Y-%m-%d'):
-        try:
-            parsed = datetime.strptime(f'{date_text} {time_text}', f'{date_format} %H:%M:%S')
-            timestamp = parsed.replace(tzinfo=timezone.utc)
-            return timestamp, float(Time(timestamp).mjd)
-        except ValueError:
-            continue
     return None, None
 
 
-def _sheet_measurements(rows, hyperlinks, year, sheet_name, alert_name):
+def _sheet_measurements(rows, hyperlinks, year, sheet_name, alert_name, source_label=None):
     header_index = _find_measurement_header(rows)
     if header_index is None:
         return []
@@ -310,14 +337,16 @@ def _sheet_measurements(rows, hyperlinks, year, sheet_name, alert_name):
             contributor_key = hashlib.sha1(
                 f'{_normalized_name(observer)}|{_normalized_name(comment)}'.encode()
             ).hexdigest()[:12]
-            measurement_id = f'{year}:{sheet_name}:{mjd:.8f}:{band}:{contributor_key}'
+            observation_year = timestamp.year
+            measurement_namespace = source_label or year or observation_year
+            measurement_id = f'{measurement_namespace}:{sheet_name}:{mjd:.8f}:{band}:{contributor_key}'
             value = {
                 'filter': f'RAPAS({band})',
                 'magnitude': magnitude,
                 'error': error,
                 'measurement_id': measurement_id,
                 'rapas_name': alert_name,
-                'rapas_year': year,
+                'rapas_year': observation_year,
                 'rapas_sheet': sheet_name,
                 'rapas_row': row_index,
                 'mjd': mjd,
@@ -335,7 +364,7 @@ def _sheet_measurements(rows, hyperlinks, year, sheet_name, alert_name):
     return measurements
 
 
-def parse_rapas_workbook(content, year):
+def parse_rapas_workbook(content, year, source_label=None):
     records = []
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         shared_strings = _shared_strings(archive)
@@ -364,7 +393,14 @@ def parse_rapas_workbook(content, year):
             if not alert_name:
                 continue
             hyperlinks = _worksheet_hyperlinks(archive, worksheet_path, root)
-            measurements = _sheet_measurements(rows, hyperlinks, year, sheet_name, alert_name)
+            measurements = _sheet_measurements(
+                rows,
+                hyperlinks,
+                year,
+                sheet_name,
+                alert_name,
+                source_label=source_label,
+            )
             if not measurements:
                 continue
             records.append({
@@ -394,9 +430,13 @@ def _configured_spreadsheets():
     output = []
     for item in configured:
         if isinstance(item, str):
-            output.append({'year': None, 'url': item})
+            output.append({'label': None, 'year': None, 'url': item})
         else:
-            output.append({'year': item.get('year'), 'url': item.get('url')})
+            output.append({
+                'label': item.get('label'),
+                'year': item.get('year'),
+                'url': item.get('url'),
+            })
     return [item for item in output if item.get('url')]
 
 
@@ -415,7 +455,8 @@ def _fetch_records(cache_only=False):
     for spreadsheet in _configured_spreadsheets():
         url = spreadsheet['url']
         year = spreadsheet.get('year')
-        cache_identity = f'{year}|{url}'
+        source_label = spreadsheet.get('label') or year
+        cache_identity = f'{source_label}|{url}'
         cache_key = f'rapas-workbook-{hashlib.sha256(cache_identity.encode()).hexdigest()}'
         refreshed_key = f'{cache_key}-refreshed-at'
         lock_key = f'{cache_key}-refresh-lock'
@@ -436,7 +477,7 @@ def _fetch_records(cache_only=False):
             all_records.extend(records)
             continue
         if cache_only:
-            logger.warning('RAPAS cache is not populated for spreadsheet year=%s.', year)
+            logger.warning('RAPAS cache is not populated for spreadsheet %s.', source_label)
             warmup_key = f'{cache_key}-warmup-requested'
             if backend.add(warmup_key, True, timeout=300):
                 try:
@@ -454,7 +495,11 @@ def _fetch_records(cache_only=False):
         try:
             response = requests.get(_download_url(url), timeout=DATA_SERVICE_HTTP_TIMEOUT)
             response.raise_for_status()
-            refreshed_records = parse_rapas_workbook(response.content, year)
+            refreshed_records = parse_rapas_workbook(
+                response.content,
+                year,
+                source_label=source_label,
+            )
             if refreshed_records:
                 records = refreshed_records
                 # No expiry: retain stale data until a successful daily refresh replaces it.
@@ -464,8 +509,8 @@ def _fetch_records(cache_only=False):
             if records is None:
                 raise
             logger.warning(
-                'RAPAS refresh failed for year=%s; using the last cached workbook.',
-                year,
+                'RAPAS refresh failed for spreadsheet %s; using the last cached workbook.',
+                source_label,
                 exc_info=True,
             )
         finally:

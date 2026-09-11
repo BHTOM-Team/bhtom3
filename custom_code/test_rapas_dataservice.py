@@ -9,7 +9,9 @@ from custom_code.data_services.rapas_dataservice import (
     _rapas_description,
     _sheet_measurements,
     _spreadsheet_id,
+    _timestamp,
     _to_float,
+    _to_mjd,
 )
 
 
@@ -39,6 +41,17 @@ class RAPASDataServiceTests(SimpleTestCase):
         self.assertEqual(_to_float('61 184,94'), 61184.94)
         self.assertEqual(_to_float('0'), 0.0)
 
+    def test_mjd_accepts_decimal_and_thousands_separator_variants(self):
+        for value in ('61184.94', '61184,94', '61,184.94', '61.184,94', '61 184,94'):
+            self.assertEqual(_to_mjd(value), 61184.94)
+        self.assertEqual(_to_mjd('61,184'), 61184.0)
+
+    def test_timestamp_uses_only_mjd_not_the_timezone_ambiguous_date_columns(self):
+        timestamp, mjd = _timestamp(['01/01/1999', '01:02:03', '61,184.5'])
+        self.assertEqual(mjd, 61184.5)
+        self.assertEqual(timestamp, datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc))
+        self.assertEqual(_timestamp(['20/03/2026', '22:00:00', '']), (None, None))
+
     def test_combined_query_uses_cached_workbook_without_network(self):
         backend = Mock()
         backend.get.side_effect = lambda key: (
@@ -57,6 +70,45 @@ class RAPASDataServiceTests(SimpleTestCase):
 
         self.assertEqual(records, [self.record])
         request.assert_not_called()
+
+    def test_first_use_caches_pre_2026_workbook_without_expiry(self):
+        backend = Mock()
+        backend.get.return_value = None
+        backend.add.return_value = True
+        response = Mock(content=b'older workbook')
+        response.raise_for_status.return_value = None
+        with patch(
+            'custom_code.data_services.rapas_dataservice._configured_spreadsheets',
+            return_value=[{
+                'label': 'pre-2026',
+                'year': None,
+                'url': 'https://docs.google.com/spreadsheets/d/older/edit',
+            }],
+        ), patch(
+            'custom_code.data_services.rapas_dataservice._rapas_cache_backend',
+            return_value=backend,
+        ), patch(
+            'custom_code.data_services.rapas_dataservice.cache',
+            backend,
+        ), patch(
+            'custom_code.data_services.rapas_dataservice.requests.get',
+            return_value=response,
+        ), patch(
+            'custom_code.data_services.rapas_dataservice.parse_rapas_workbook',
+            return_value=[self.record],
+        ) as parse_workbook:
+            records = _fetch_records(cache_only=False)
+
+        self.assertEqual(records, [self.record])
+        parse_workbook.assert_called_once_with(
+            b'older workbook',
+            None,
+            source_label='pre-2026',
+        )
+        self.assertTrue(any(
+            cache_call.args[1] == [self.record] and cache_call.kwargs == {'timeout': None}
+            for cache_call in backend.set.call_args_list
+        ))
 
     def test_exact_name_match_returns_private_alias_and_labeled_photometry(self):
         service = RAPASDataService()
@@ -217,3 +269,22 @@ class RAPASDataServiceTests(SimpleTestCase):
         )
         self.assertEqual(measurements[0]['value']['observer'], 'Jean-Louis Dumont')
         self.assertEqual(measurements[0]['value']['upper_limit_g'], 19.0)
+
+    def test_pre_2026_measurement_uses_observation_year_and_source_namespace(self):
+        rows = [[], ['Filtre A / G', '', '', '', '', 'Filtre A / G']]
+        rows.append(['Date(JJ/MM/AAAA)', 'UTC(HH:MM:SS)', 'MJD'])
+        rows.append(['not authoritative', 'unknown timezone', '60,500.25', 1.0, 2.0, 17.3, 0.1])
+
+        measurements = _sheet_measurements(
+            rows,
+            {},
+            None,
+            'SN2024example',
+            'SN2024example',
+            source_label='pre-2026',
+        )
+
+        value = measurements[0]['value']
+        self.assertEqual(value['mjd'], 60500.25)
+        self.assertEqual(value['rapas_year'], 2024)
+        self.assertTrue(value['measurement_id'].startswith('pre-2026:SN2024example:60500.25000000:G:'))

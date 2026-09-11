@@ -317,8 +317,8 @@ def _spectrum_time_traces(datums):
             yaxis='y2',
             mode='lines',
             connectgaps=False,
-            line=dict(width=2),
-            name=source,
+            line=dict(width=2, dash='dash'),
+            name=f'{source} (Spec)',
             hovertemplate='Spectrum: %{fullData.name}<br>'
                           '%{x|%Y/%m/%d %H:%M:%S.%L}<extra></extra>',
         ))

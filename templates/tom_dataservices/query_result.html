@@ -13,5 +13,13 @@
 {% if query_feedback %}
   <div class="alert alert-danger" role="alert">{{query_feedback |safe }}</div>
 {% endif %}
+{% if timed_out_services %}
+  <form method="get" class="mt-3">
+    <button type="submit" name="retry_timed_out" value="1" class="btn btn-primary">
+      Try again
+    </button>
+    <span class="ml-2 text-muted">Retry timed-out services only: {{ timed_out_services|join:", " }}</span>
+  </form>
+{% endif %}
 
 {% endblock %}
