@@ -287,6 +287,44 @@ ALERCE_SPECIAL_COLOR_MAP = {
 }
 
 
+def _spectrum_source_label(datum):
+    """Return the source label used by both photometry and spectroscopy plots."""
+    value = datum.value if isinstance(datum.value, dict) else {}
+    return str(value.get('filter') or datum.source_name or 'Spectrum').strip()
+
+
+def _spectrum_time_traces(datums):
+    """Build fixed-height timeline markers, grouped into one legend item per source."""
+    timestamps_by_source = {}
+    for datum in datums:
+        if datum.timestamp is None:
+            continue
+        source = _spectrum_source_label(datum)
+        timestamps_by_source.setdefault(source, []).append(datum.timestamp)
+
+    traces = []
+    for source, timestamps in timestamps_by_source.items():
+        x_values = []
+        y_values = []
+        for timestamp in timestamps:
+            # None separates the individual short line segments in a single trace.
+            x_values.extend((timestamp, timestamp, None))
+            y_values.extend((0.92, 0.99, None))
+
+        traces.append(go.Scatter(
+            x=x_values,
+            y=y_values,
+            yaxis='y2',
+            mode='lines',
+            connectgaps=False,
+            line=dict(width=2),
+            name=source,
+            hovertemplate='Spectrum: %{fullData.name}<br>'
+                          '%{x|%Y/%m/%d %H:%M:%S.%L}<extra></extra>',
+        ))
+    return traces
+
+
 @register.inclusion_tag('tom_dataproducts/partials/photometry_for_target.html', takes_context=True)
 def custom_photometry_for_target(context, target, width=1000, height=600, background=None, label_color=None, grid=True):
     try:
@@ -481,6 +519,23 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             )
         )
 
+    try:
+        spectroscopy_data_type = settings.DATA_PRODUCT_TYPES['spectroscopy'][0]
+    except (AttributeError, KeyError):
+        spectroscopy_data_type = 'spectroscopy'
+
+    spectroscopy_datums = ReducedDatum.objects.filter(
+        target=target,
+        data_type=spectroscopy_data_type,
+    ).order_by('timestamp')
+    if not settings.TARGET_PERMISSIONS_ONLY:
+        spectroscopy_datums = get_objects_for_user(
+            context['request'].user,
+            'tom_dataproducts.view_reduceddatum',
+            klass=spectroscopy_datums,
+        )
+    plot_data.extend(_spectrum_time_traces(spectroscopy_datums))
+
     fig = go.Figure(
         data=plot_data,
         layout=go.Layout(
@@ -513,6 +568,13 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             linecolor=label_color,
             mirror=True,
             zeroline=False,
+        ),
+        yaxis2=dict(
+            overlaying='y',
+            side='right',
+            range=[0, 1],
+            fixedrange=True,
+            visible=False,
         ),
         legend=dict(
             yanchor='top',
@@ -707,7 +769,7 @@ def custom_spectroscopy_for_target(context, target, dataproduct=None):
         except Exception:
             continue
 
-        label = f"{datum.value.get('filter')} {datum.timestamp.strftime('%Y-%m-%d %H:%M')}"
+        label = f"{_spectrum_source_label(datum)} {datum.timestamp.strftime('%Y-%m-%d %H:%M')}"
 
         # Separate by flux units
         if str(spectrum.flux.unit) == 'ct' or str(spectrum.flux.unit) == u.ct:
