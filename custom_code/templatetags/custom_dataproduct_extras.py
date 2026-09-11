@@ -309,7 +309,7 @@ def _spectrum_time_traces(datums):
         for timestamp in timestamps:
             # None separates the individual short line segments in a single trace.
             x_values.extend((timestamp, timestamp, None))
-            y_values.extend((0.92, 0.99, None))
+            y_values.extend((0.85, 0.99, None))
 
         traces.append(go.Scatter(
             x=x_values,
@@ -317,7 +317,7 @@ def _spectrum_time_traces(datums):
             yaxis='y2',
             mode='lines',
             connectgaps=False,
-            line=dict(width=2, dash='dash'),
+            line=dict(width=1, dash='dot'),
             name=f'{source} (Spec)',
             hovertemplate='Spectrum: %{fullData.name}<br>'
                           '%{x|%Y/%m/%d %H:%M:%S.%L}<extra></extra>',

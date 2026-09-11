@@ -24,10 +24,11 @@ class SpectrumTimeTraceTests(SimpleTestCase):
 
         self.assertEqual([trace.name for trace in traces], ['LAMOST (Spec)', 'GALAH (Spec)'])
         self.assertEqual(list(traces[0].x), [first, first, None, second, second, None])
-        self.assertEqual(list(traces[0].y), [0.92, 0.99, None, 0.92, 0.99, None])
+        self.assertEqual(list(traces[0].y), [0.85, 0.99, None, 0.85, 0.99, None])
         self.assertEqual(traces[0].yaxis, 'y2')
         self.assertEqual(traces[0].mode, 'lines')
-        self.assertEqual(traces[0].line.dash, 'dash')
+        self.assertEqual(traces[0].line.width, 1)
+        self.assertEqual(traces[0].line.dash, 'dot')
 
     def test_uses_source_name_when_spectrum_filter_is_missing(self):
         datum = SimpleNamespace(value={}, source_name='Imported spectra', timestamp=None)
