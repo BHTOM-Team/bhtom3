@@ -73,12 +73,8 @@ Each has to have env setup and run on python3.11 ("type -a python" to check)
 
 `./manage.py db_worker`
 
-DB_Worker runs background DataServices jobs and refreshes observation statuses
-every 3 minutes.
-
-For a one-shot status refresh, for example from cron or launchd:
-
-`./manage.py observation_status_scheduler --run-once`
+DB_Worker runs background DataServices jobs and schedules archival survey refreshes.
+Telescope observation-status polling is intentionally disabled in this worker.
 
 After March 26: LW added a cron-like job for updating data services and Sun distance.
 

@@ -1439,12 +1439,13 @@ class DataServicePersistenceTests(TestCase):
             batch=False,
             backend_name='default',
             startup_delay=False,
-            status_interval=0,
             dataservices_interval=0,
             dataservices_importance_gt=0,
             configure_signal_handlers=False,
         )
         worker.stale_running_after = 7200
+
+        self.assertFalse(hasattr(worker, 'run_due_status_update'))
 
         stale_queryset = Mock()
         stale_queryset.values_list.return_value = ['task-1']

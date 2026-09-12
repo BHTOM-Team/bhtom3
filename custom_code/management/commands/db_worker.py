@@ -19,7 +19,6 @@ from tom_targets.models import Target
 from custom_code.tasks import (
     enqueue_target_dataservices_update,
     refresh_rapas_workbook_cache,
-    run_observation_status_update,
 )
 from django_tasks import DEFAULT_TASK_BACKEND_ALIAS
 from django_tasks.backends.database.management.commands.db_worker import (
@@ -78,7 +77,6 @@ class ScheduledStatusWorker:
         batch,
         backend_name,
         startup_delay,
-        status_interval,
         dataservices_interval,
         dataservices_importance_gt,
         atlas_poll_interval=0,
@@ -92,11 +90,9 @@ class ScheduledStatusWorker:
         self.batch = batch
         self.backend_name = backend_name
         self.startup_delay = startup_delay
-        self.status_interval = status_interval
         self.dataservices_interval = dataservices_interval
         self.dataservices_importance_gt = dataservices_importance_gt
         self.atlas_poll_interval = atlas_poll_interval
-        self.next_status_enqueue_at = 0.0 if status_interval else None
         self.next_dataservices_enqueue_at = 0.0 if dataservices_interval else None
         self.next_atlas_poll_at = 0.0 if atlas_poll_interval else None
         self.heartbeat_interval = getattr(settings, "DB_WORKER_HEARTBEAT_INTERVAL", 300)
@@ -135,25 +131,6 @@ class ScheduledStatusWorker:
         if hasattr(signal, "SIGQUIT"):
             signal.signal(signal.SIGQUIT, self.shutdown)
 
-    def run_due_status_update(self) -> None:
-        if self.next_status_enqueue_at is None:
-            return
-        now = time.monotonic()
-        if now < self.next_status_enqueue_at:
-            return
-        self.next_status_enqueue_at = now + self.status_interval
-        try:
-            logger.info("Starting scheduled observation status update.")
-            result = run_observation_status_update()
-        except Exception:
-            logger.exception("Scheduled observation status update failed.")
-            return
-        logger.info(
-            "Finished scheduled observation status update; next update in %s seconds: %s",
-            self.status_interval,
-            result,
-        )
-
     def run_due_dataservices_update(self) -> None:
         if self.next_dataservices_enqueue_at is None:
             return
@@ -163,6 +140,7 @@ class ScheduledStatusWorker:
         self.next_dataservices_enqueue_at = now + self.dataservices_interval
 
         try:
+            logger.info("Starting scheduled DataServices refresh enqueue.")
             # Warm RAPAS even when no target passes the importance threshold. Web-facing
             # all-service queries are cache-only and never wait on Google Sheets.
             refresh_rapas_workbook_cache.enqueue()
@@ -304,7 +282,6 @@ class ScheduledStatusWorker:
         while self.running:
             self.log_heartbeat()
             self.recover_stale_running_tasks()
-            self.run_due_status_update()
             self.run_due_dataservices_update()
             self.run_due_atlas_poll()
 
@@ -401,7 +378,7 @@ class ScheduledStatusWorker:
 
 
 class Command(BaseCommand):
-    help = "Run the database worker and refresh observation statuses periodically."
+    help = "Run the database worker and schedule archival DataServices refreshes."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -440,8 +417,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--status-interval",
             type=int,
-            default=getattr(settings, "OBSERVATION_STATUS_UPDATE_INTERVAL_SECONDS", 180),
-            help="Seconds between observation status refresh jobs. Use 0 to disable (default: 180).",
+            default=0,
+            help="Deprecated and ignored; telescope status polling is disabled in db_worker.",
         )
         parser.add_argument(
             "--dataservices-interval",
@@ -523,16 +500,19 @@ class Command(BaseCommand):
     ) -> None:
         self.configure_logging(verbosity)
         worker_count = max(1, int(workers))
-        status_interval = max(0, int(status_interval))
+        if status_interval:
+            logger.warning(
+                "Ignoring --status-interval=%s; telescope status polling is disabled in db_worker.",
+                status_interval,
+            )
         dataservices_interval = max(0, int(dataservices_interval))
         dataservices_importance_gt = float(dataservices_importance_gt)
         atlas_poll_interval = max(0, int(atlas_poll_interval))
         queue_names = queue_name.split(",")
         logger.info(
-            "Configured BHTOM db_worker workers=%s queues=%s status_interval=%s dataservices_interval=%s dataservices_importance_gt=%s bhtom2_token_configured=%s bhtom2_upload_url_configured=%s",
+            "Configured BHTOM db_worker workers=%s queues=%s telescope_status_polling=disabled dataservices_interval=%s dataservices_importance_gt=%s bhtom2_token_configured=%s bhtom2_upload_url_configured=%s",
             worker_count,
             ",".join(queue_names),
-            status_interval,
             dataservices_interval,
             dataservices_importance_gt,
             bool(str(getattr(settings, "BHTOM2_API_TOKEN", "") or "").strip()),
@@ -546,7 +526,6 @@ class Command(BaseCommand):
                 batch=batch,
                 backend_name=backend_name,
                 startup_delay=startup_delay,
-                status_interval=status_interval,
                 dataservices_interval=dataservices_interval,
                 dataservices_importance_gt=dataservices_importance_gt,
                 atlas_poll_interval=atlas_poll_interval,
@@ -564,7 +543,6 @@ class Command(BaseCommand):
             batch=False,
             backend_name=backend_name,
             startup_delay=startup_delay,
-            status_interval=status_interval,
             dataservices_interval=dataservices_interval,
             dataservices_importance_gt=dataservices_importance_gt,
             atlas_poll_interval=atlas_poll_interval,
@@ -580,7 +558,6 @@ class Command(BaseCommand):
                 batch=batch,
                 backend_name=backend_name,
                 startup_delay=startup_delay,
-                status_interval=0,
                 dataservices_interval=0,
                 dataservices_importance_gt=dataservices_importance_gt,
                 atlas_poll_interval=0,
