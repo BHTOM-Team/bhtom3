@@ -330,13 +330,13 @@ def _parameters_for_data_service(data_service_name, parameters):
 
 
 def _gaia_source_id_from_parameters(parameters):
-    """Extract a Gaia source ID from either the dedicated field or shared target name."""
+    """Extract a Gaia source ID from a dedicated value or a shared search field."""
     explicit_source_id = str(parameters.get('source_id') or '').strip()
     if explicit_source_id:
         match = re.search(r'\d+', explicit_source_id)
         return match.group(0) if match else ''
 
-    target_name = str(parameters.get('target_name') or '').strip()
+    target_name = str(parameters.get('target_name') or parameters.get('term') or '').strip()
     match = re.fullmatch(
         r'(?:(?:gaia\s*dr3)[\s_:-]*(\d+)|(\d{15,20}))',
         target_name,
@@ -649,6 +649,9 @@ def _catalog_query_services_for_input(cleaned_data):
     term = str(cleaned_data.get('term') or '').strip()
     if not term:
         return service_names
+    if _gaia_source_id_from_parameters(cleaned_data) and 'Gaia DR3' in service_names:
+        # A Gaia source_id is authoritative and is not a useful query for the other catalogs.
+        return ['Gaia DR3']
 
     lowered_term = term.lower()
     is_tns_like = bool(re.match(r'^(sn|at)\s*\d{4}[a-z]+$', lowered_term)) or bool(re.match(r'^\d{4}[a-z]+$', lowered_term))
@@ -4155,7 +4158,7 @@ class BhtomRunQueryView(RunQueryView):
             }
             context = {
                 'data_service': ALL_DATA_SERVICES_LABEL,
-                'query': parameters.get('target_name') or parameters.get('source_id') or '',
+                'query': parameters.get('target_name') or '',
                 'results': rows,
                 'query_object': query,
                 'query_feedback': ' | '.join(feedback),

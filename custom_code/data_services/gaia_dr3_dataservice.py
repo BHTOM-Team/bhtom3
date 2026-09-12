@@ -112,16 +112,13 @@ def _build_box_prefilter(ra_deg, dec_deg, radius_deg, column_prefix=''):
 def _build_source_query(where_clause, extra_columns=''):
     columns = (
         'g.source_id, g.ra, g.dec, g.pmra, g.pmdec, g.parallax, '
-        'g.pmra_error, g.pmdec_error, g.parallax_error, g.has_xp_sampled, '
-        'vcr.best_class_name AS gaia_variability_type'
+        'g.pmra_error, g.pmdec_error, g.parallax_error, g.has_xp_sampled'
     )
     if extra_columns:
         columns = f'{columns}, {extra_columns}'
     return (
         f'SELECT TOP 1 {columns} '
-        'FROM gaiadr3.gaia_source AS g '
-        'LEFT OUTER JOIN gaiadr3.vari_classifier_result AS vcr '
-        f"ON g.source_id = vcr.source_id AND vcr.classifier_name = '{PREFERRED_GAIA_VARIABILITY_CLASSIFIER}' "
+        'FROM gaiadr3.gaia_source_lite AS g '
         f'WHERE {where_clause}'
     )
 
@@ -233,6 +230,15 @@ class GaiaDR3DataService(DataService):
     def build_query_parameters(self, parameters, **kwargs):
         from custom_code.data_services.service_utils import resolve_query_coordinates
         source_id = (parameters.get('source_id') or '').strip()
+        target_name_input = str(parameters.get('target_name') or '').strip()
+        if not source_id:
+            match = re.fullmatch(
+                r'(?:(?:gaia\s*dr3)[\s_:-]*(\d+)|(\d{15,20}))',
+                target_name_input,
+                re.IGNORECASE,
+            )
+            if match:
+                source_id = match.group(1) or match.group(2)
         if source_id:
             match = re.search(r'(\d+)', source_id)
             source_id = match.group(1) if match else source_id
@@ -258,11 +264,13 @@ class GaiaDR3DataService(DataService):
 
         if source_id and str(source_id).isdigit():
             query = _build_source_query(f'g.source_id = {source_id}')
-            source_row = self._query_source_esa(query)
-            source_origin = 'esa' if source_row else None
-            if source_row is None:
-                source_row = self._query_source_aip(query)
-                source_origin = 'aip' if source_row else None
+            try:
+                from custom_code.bhtom_catalogs.harvesters.gaia_dr3 import _run_gaia_query
+                rows = _run_gaia_query(query)
+                source_row = dict(rows[0]) if rows else None
+                source_origin = 'tap' if source_row else None
+            except Exception as exc:
+                logger.warning('Gaia DR3 source_id lookup failed: %s', exc)
 
         if source_row is None and ra is not None and dec is not None:
             ra_deg = float(ra)
@@ -283,7 +291,7 @@ class GaiaDR3DataService(DataService):
                 source_row = self._query_source_aip(query)
                 source_origin = 'aip' if source_row else None
 
-        if source_row:
+        if source_row and not source_id:
             self._ensure_variability_type(source_row, source_origin)
 
         phot_rows = []

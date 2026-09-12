@@ -101,7 +101,6 @@ from custom_code.bhtom_catalogs.harvesters.moa import MOAHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ocvs import OGLEOCVSHarvester
 from custom_code.data_services.forms import (
-    AllDataServicesQueryForm,
     ExoClockQueryForm,
     GaiaDR3QueryForm,
     GALAHQueryForm,
@@ -1654,12 +1653,6 @@ class DataServiceCoordinateFormTests(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors)
 
-    def test_all_data_services_form_accepts_gaia_source_id_only(self):
-        form = AllDataServicesQueryForm(data={'source_id': '394976501194687488'})
-
-        self.assertTrue(form.is_valid(), form.errors)
-
-
 class CatalogQueryCoordinateFormTests(TestCase):
     def test_catalog_query_accepts_decimal_degrees(self):
         form = BhtomCatalogQueryForm(data={
@@ -1748,6 +1741,26 @@ class TwoMASSDataServiceTests(TestCase):
 
 
 class GaiaDR3DataServiceTests(TestCase):
+    def test_build_parameters_accepts_source_id_in_target_name(self):
+        service = GaiaDR3DataService()
+
+        parameters = service.build_query_parameters({
+            'target_name': '394976501194687488',
+            'ra': None,
+            'dec': None,
+        })
+
+        self.assertEqual(parameters['source_id'], '394976501194687488')
+
+    def test_source_query_uses_lite_table_without_variability_join(self):
+        from custom_code.data_services.gaia_dr3_dataservice import _build_source_query
+
+        query = _build_source_query('g.source_id = 394976501194687488')
+
+        self.assertIn('FROM gaiadr3.gaia_source_lite AS g', query)
+        self.assertNotIn('vari_classifier_result', query)
+        self.assertNotIn('JOIN', query)
+
     def test_query_targets_maps_astrometry_and_errors(self):
         service = GaiaDR3DataService()
 
@@ -1797,13 +1810,12 @@ class GaiaDR3DataServiceTests(TestCase):
             'gaia_variability_type': None,
         }
 
-        with patch.object(service, '_query_source_esa', return_value=source_row.copy()), \
-             patch.object(service, '_query_variability_esa', return_value=[
-                 {'source_id': '123', 'best_class_name': 'EA', 'classifier_name': 'general'},
-             ]):
-            result = service.query_service({'source_id': '123', 'include_photometry': False, 'include_spectroscopy': False})
+        with patch.object(service, '_query_variability_esa', return_value=[
+            {'source_id': '123', 'best_class_name': 'EA', 'classifier_name': 'general'},
+        ]):
+            service._ensure_variability_type(source_row, 'esa')
 
-        self.assertEqual(result['source']['gaia_variability_type'], 'EA')
+        self.assertEqual(source_row['gaia_variability_type'], 'EA')
 
 
 class AliasHandlingTests(TestCase):
@@ -2480,7 +2492,7 @@ class SimbadHarvesterTests(TestCase):
         )
         self.assertEqual(int(result[0]['source_id']), 123)
 
-    def test_gaia_dr3_keeps_base_result_when_variability_query_times_out(self):
+    def test_gaia_dr3_source_id_returns_base_result_without_slow_enrichment(self):
         class ResultRow(dict):
             @property
             def colnames(self):
@@ -2498,12 +2510,13 @@ class SimbadHarvesterTests(TestCase):
         with patch.object(
             gaia_dr3_harvester,
             '_run_gaia_query',
-            side_effect=[[base_row], RuntimeError('statement timeout')],
-        ):
+            return_value=[base_row],
+        ) as run_query:
             result = gaia_dr3_harvester.search_term_in_gaia('394976501194687488')
 
         self.assertEqual(result['source_id'], 394976501194687488)
         self.assertEqual(result['ra'], 12.3)
+        run_query.assert_called_once()
 
     def test_exoclock_harvester_maps_target_and_host_alias(self):
         exoclock = ExoClockHarvester()
@@ -2605,7 +2618,6 @@ class DataServiceSelectorViewTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, 'All Data Services Query Form')
                 self.assertContains(response, 'Target name')
-                self.assertContains(response, 'Gaia DR3 source_id')
                 self.assertEqual(response.context['selected_service'], ALL_DATA_SERVICES_VALUE)
                 self.assertTrue(response.context['is_all_data_services'])
 
@@ -2849,6 +2861,26 @@ class DataServiceSelectorViewTests(TestCase):
             service_names = _catalog_query_services_for_input({'term': '80P'})
 
         self.assertEqual(service_names, ['JPL Horizons'])
+
+    def test_catalog_all_services_routes_gaia_source_id_only_to_gaia_dr3(self):
+        class FakeGaiaDR3Harvester:
+            name = 'Gaia DR3'
+
+        class FakeJPLHarvester:
+            name = 'JPL Horizons'
+
+        with patch(
+            'custom_code.views.get_service_classes',
+            return_value={
+                'Gaia DR3': FakeGaiaDR3Harvester,
+                'JPL Horizons': FakeJPLHarvester,
+            },
+        ):
+            service_names = _catalog_query_services_for_input({
+                'term': '394976501194687488',
+            })
+
+        self.assertEqual(service_names, ['Gaia DR3'])
 
     def test_ogle_ews_harvester_maps_target_name_and_coordinates(self):
         harvester = OGLEEWSHarvester()

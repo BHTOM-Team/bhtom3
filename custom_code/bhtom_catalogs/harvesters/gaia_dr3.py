@@ -78,8 +78,8 @@ def _build_source_query(where_clause, extra_columns=''):
 
 def _run_gaia_query(query):
     """Run ADQL through TAP with a hard HTTP deadline shorter than the web proxy timeout."""
-    connect_timeout = max(1.0, float(getattr(settings, 'GAIA_QUERY_CONNECT_TIMEOUT', 2.0)))
-    read_timeout = max(1.0, float(getattr(settings, 'GAIA_QUERY_READ_TIMEOUT', 4.0)))
+    connect_timeout = max(1.0, float(getattr(settings, 'GAIA_QUERY_CONNECT_TIMEOUT', 1.5)))
+    read_timeout = max(1.0, float(getattr(settings, 'GAIA_QUERY_READ_TIMEOUT', 3.0)))
     configured_urls = getattr(settings, 'GAIA_TAP_SYNC_URLS', ())
     if isinstance(configured_urls, str):
         configured_urls = configured_urls.split(',')
@@ -184,7 +184,10 @@ def search_term_in_gaia(term):
 
     if len(result) == 0:
         return {}
-    return _enrich_missing_variability_types([_row_to_dict(result[0])])[0]
+    # The source lookup is the required result. Variability is optional and used to add a
+    # second full TAP fallback cycle here, which could make the web request exceed its gateway
+    # deadline even though the source had already been found.
+    return _row_to_dict(result[0])
 
 
 def cone_search(coordinates, radius):
