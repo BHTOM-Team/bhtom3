@@ -2414,12 +2414,12 @@ class SimbadHarvesterTests(TestCase):
         response.raise_for_status.assert_called_once_with()
         self.assertEqual(int(result[0]['source_id']), 123)
 
-    def test_gaia_dr3_tap_query_falls_back_after_esa_504(self):
-        esa_response = Mock(status_code=504)
-        esa_response.raise_for_status.side_effect = requests.HTTPError(
-            '504 Gateway Timeout', response=esa_response
+    def test_gaia_dr3_tap_query_falls_back_after_primary_504(self):
+        primary_response = Mock(status_code=504)
+        primary_response.raise_for_status.side_effect = requests.HTTPError(
+            '504 Gateway Timeout', response=primary_response
         )
-        ari_response = Mock(text='source_id,ra,dec\n123,12.3,-45.6\n')
+        fallback_response = Mock(text='source_id,ra,dec\n123,12.3,-45.6\n')
         with self.settings(
             GAIA_QUERY_CONNECT_TIMEOUT=2,
             GAIA_QUERY_READ_TIMEOUT=5,
@@ -2430,7 +2430,7 @@ class SimbadHarvesterTests(TestCase):
         ), patch.object(
             gaia_dr3_harvester.requests,
             'post',
-            side_effect=[esa_response, ari_response],
+            side_effect=[primary_response, fallback_response],
         ) as post:
             result = gaia_dr3_harvester._run_gaia_query(
                 'SELECT TOP 1 source_id, ra, dec FROM gaiadr3.gaia_source'

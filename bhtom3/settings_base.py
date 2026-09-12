@@ -32,7 +32,7 @@ GAIA_TAP_SYNC_URLS = [
         secret.get('GAIA_TAP_SYNC_URLS')
         or os.environ.get(
             'GAIA_TAP_SYNC_URLS',
-            'https://gea.esac.esa.int/tap-server/tap/sync,https://gaia.ari.uni-heidelberg.de/tap/sync',
+            'https://gaia.ari.uni-heidelberg.de/tap/sync,https://gea.esac.esa.int/tap-server/tap/sync',
         )
     ).split(',')
     if url.strip()

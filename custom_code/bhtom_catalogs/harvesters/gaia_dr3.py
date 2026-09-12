@@ -1,3 +1,4 @@
+import csv
 import io
 import logging
 import math
@@ -5,7 +6,6 @@ import re
 
 import requests
 from astropy.coordinates import Angle, SkyCoord
-from astropy.table import Table
 from django.conf import settings
 from tom_catalogs.harvester import AbstractHarvester
 
@@ -13,8 +13,12 @@ from tom_catalogs.harvester import AbstractHarvester
 logger = logging.getLogger(__name__)
 PREFERRED_GAIA_VARIABILITY_CLASSIFIER = 'n_transits:5+'
 GAIA_SOURCE_TABLE = 'gaiadr3.gaia_source_lite'
-GAIA_TAP_SYNC_URL = 'https://gea.esac.esa.int/tap-server/tap/sync'
-GAIA_TAP_FALLBACK_SYNC_URL = 'https://gaia.ari.uni-heidelberg.de/tap/sync'
+GAIA_TAP_SYNC_URL = 'https://gaia.ari.uni-heidelberg.de/tap/sync'
+GAIA_TAP_FALLBACK_SYNC_URL = 'https://gea.esac.esa.int/tap-server/tap/sync'
+
+
+class GaiaDR3QueryUnavailable(RuntimeError):
+    """All configured Gaia TAP endpoints failed within their request deadlines."""
 
 
 def _row_to_dict(row):
@@ -97,7 +101,7 @@ def _run_gaia_query(query):
                 timeout=(connect_timeout, read_timeout),
             )
             response.raise_for_status()
-            return Table.read(io.StringIO(response.text), format='ascii.csv')
+            return list(csv.DictReader(io.StringIO(response.text)))
         except Exception as exc:
             last_error = exc
             if request_number >= len(tap_urls):
@@ -176,7 +180,7 @@ def search_term_in_gaia(term):
         result = _run_gaia_query(query)
     except Exception as exc:
         logger.error('Error while querying Gaia DR3 for %s: %s', term, exc)
-        return {}
+        raise GaiaDR3QueryUnavailable(str(exc)) from exc
 
     if len(result) == 0:
         return {}
@@ -203,7 +207,7 @@ def cone_search(coordinates, radius):
         return _enrich_missing_variability_types([_row_to_dict(result[0])])[0]
     except Exception as exc:
         logger.error('Error when running Gaia DR3 cone search: %s', exc)
-        return {}
+        raise GaiaDR3QueryUnavailable(str(exc)) from exc
 
 
 def cone_search_all(coordinates, radius, limit=100):
@@ -225,7 +229,7 @@ def cone_search_all(coordinates, radius, limit=100):
         return _enrich_missing_variability_types([_row_to_dict(row) for row in result])
     except Exception as exc:
         logger.error('Error when running Gaia DR3 multi cone search: %s', exc)
-        return []
+        raise GaiaDR3QueryUnavailable(str(exc)) from exc
 
 
 def get(term):

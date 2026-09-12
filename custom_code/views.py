@@ -3808,7 +3808,20 @@ class BhtomCatalogQueryView(FormView):
             })
             return render(self.request, 'tom_catalogs/query_result.html', context)
 
-        matches = _get_catalog_matches(service_name, form.cleaned_data)
+        try:
+            matches = _get_catalog_matches(service_name, form.cleaned_data)
+        except Exception as exc:
+            if service_name != 'Gaia DR3':
+                raise
+            from custom_code.bhtom_catalogs.harvesters.gaia_dr3 import GaiaDR3QueryUnavailable
+            if not isinstance(exc, GaiaDR3QueryUnavailable):
+                raise
+            logger.warning('Gaia DR3 catalog query unavailable: %s', exc)
+            form.add_error(
+                'term',
+                ValidationError('Gaia DR3 is temporarily unavailable; please try again.'),
+            )
+            return self.form_invalid(form)
         if matches:
             return self._render_catalog_results(form, matches)
 
