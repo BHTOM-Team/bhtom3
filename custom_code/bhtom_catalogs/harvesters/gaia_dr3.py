@@ -1,18 +1,25 @@
+import io
 import logging
 import math
 import re
-import time
 
+import requests
 from astropy.coordinates import Angle, SkyCoord
+from astropy.table import Table
 from django.conf import settings
 from tom_catalogs.harvester import AbstractHarvester
 
 
 logger = logging.getLogger(__name__)
 PREFERRED_GAIA_VARIABILITY_CLASSIFIER = 'n_transits:5+'
+GAIA_SOURCE_TABLE = 'gaiadr3.gaia_source_lite'
+GAIA_TAP_SYNC_URL = 'https://gea.esac.esa.int/tap-server/tap/sync'
+GAIA_TAP_FALLBACK_SYNC_URL = 'https://gaia.ari.uni-heidelberg.de/tap/sync'
 
 
 def _row_to_dict(row):
+    if isinstance(row, dict):
+        return dict(row)
     data = {}
     for key in row.colnames:
         value = row[key]
@@ -60,33 +67,48 @@ def _build_source_query(where_clause, extra_columns=''):
         columns = f'{columns}, {extra_columns}'
     return (
         f'SELECT TOP 1 {columns} '
-        'FROM gaiadr3.gaia_source AS g '
+        f'FROM {GAIA_SOURCE_TABLE} AS g '
         f'WHERE {where_clause}'
     )
 
 
 def _run_gaia_query(query):
-    """Run generated ADQL with bounded retries for transient Gaia Archive failures."""
-    from astroquery.gaia import Gaia
+    """Run ADQL through TAP with a hard HTTP deadline shorter than the web proxy timeout."""
+    connect_timeout = max(1.0, float(getattr(settings, 'GAIA_QUERY_CONNECT_TIMEOUT', 2.0)))
+    read_timeout = max(1.0, float(getattr(settings, 'GAIA_QUERY_READ_TIMEOUT', 4.0)))
+    configured_urls = getattr(settings, 'GAIA_TAP_SYNC_URLS', ())
+    if isinstance(configured_urls, str):
+        configured_urls = configured_urls.split(',')
+    tap_urls = [str(url).strip() for url in configured_urls if str(url).strip()]
+    if not tap_urls:
+        tap_urls = [GAIA_TAP_SYNC_URL, GAIA_TAP_FALLBACK_SYNC_URL]
 
-    attempts = max(1, int(getattr(settings, 'GAIA_QUERY_ATTEMPTS', 3)))
-    backoff = max(0.0, float(getattr(settings, 'GAIA_QUERY_RETRY_BACKOFF', 1.0)))
     last_error = None
-    for attempt in range(1, attempts + 1):
+    for request_number, tap_url in enumerate(tap_urls, start=1):
         try:
-            return Gaia.launch_job(query).get_results()
+            response = requests.post(
+                tap_url,
+                data={
+                    'REQUEST': 'doQuery',
+                    'LANG': 'ADQL',
+                    'FORMAT': 'csv',
+                    'QUERY': query,
+                },
+                timeout=(connect_timeout, read_timeout),
+            )
+            response.raise_for_status()
+            return Table.read(io.StringIO(response.text), format='ascii.csv')
         except Exception as exc:
             last_error = exc
-            if attempt >= attempts:
+            if request_number >= len(tap_urls):
                 raise
             logger.warning(
-                'Gaia DR3 query attempt %s/%s failed: %s; retrying.',
-                attempt,
-                attempts,
+                'Gaia DR3 TAP request %s/%s to %s failed: %s; trying the next endpoint.',
+                request_number,
+                len(tap_urls),
+                tap_url,
                 exc,
             )
-            if backoff:
-                time.sleep(backoff * attempt)
     raise last_error
 
 
@@ -194,7 +216,7 @@ def cone_search_all(coordinates, radius, limit=100):
             f'SELECT TOP {int(limit)} '
             'g.source_id, g.ra, g.dec, g.parallax, g.pmra, g.pmdec, g.has_xp_sampled, '
             f'DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) AS dist '
-            'FROM gaiadr3.gaia_source AS g '
+            f'FROM {GAIA_SOURCE_TABLE} AS g '
             f'WHERE {box_prefilter} '
             f'  AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) <= {radius_deg} '
             'ORDER BY dist ASC'

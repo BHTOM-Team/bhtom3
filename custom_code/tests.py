@@ -2382,9 +2382,66 @@ class SimbadHarvesterTests(TestCase):
     def test_gaia_dr3_base_source_query_does_not_join_variability_table(self):
         query = gaia_dr3_harvester._build_source_query('g.source_id = 123')
 
-        self.assertIn('FROM gaiadr3.gaia_source AS g', query)
+        self.assertIn('FROM gaiadr3.gaia_source_lite AS g', query)
         self.assertNotIn('vari_classifier_result', query)
         self.assertNotIn('JOIN', query)
+
+    def test_gaia_dr3_tap_query_has_strict_http_timeout(self):
+        response = Mock(text='source_id,ra,dec\n123,12.3,-45.6\n')
+        with self.settings(
+            GAIA_QUERY_CONNECT_TIMEOUT=4,
+            GAIA_QUERY_READ_TIMEOUT=9,
+            GAIA_TAP_SYNC_URLS=[gaia_dr3_harvester.GAIA_TAP_SYNC_URL],
+        ), patch.object(
+            gaia_dr3_harvester.requests,
+            'post',
+            return_value=response,
+        ) as post:
+            result = gaia_dr3_harvester._run_gaia_query(
+                'SELECT TOP 1 source_id, ra, dec FROM gaiadr3.gaia_source'
+            )
+
+        post.assert_called_once_with(
+            gaia_dr3_harvester.GAIA_TAP_SYNC_URL,
+            data={
+                'REQUEST': 'doQuery',
+                'LANG': 'ADQL',
+                'FORMAT': 'csv',
+                'QUERY': 'SELECT TOP 1 source_id, ra, dec FROM gaiadr3.gaia_source',
+            },
+            timeout=(4.0, 9.0),
+        )
+        response.raise_for_status.assert_called_once_with()
+        self.assertEqual(int(result[0]['source_id']), 123)
+
+    def test_gaia_dr3_tap_query_falls_back_after_esa_504(self):
+        esa_response = Mock(status_code=504)
+        esa_response.raise_for_status.side_effect = requests.HTTPError(
+            '504 Gateway Timeout', response=esa_response
+        )
+        ari_response = Mock(text='source_id,ra,dec\n123,12.3,-45.6\n')
+        with self.settings(
+            GAIA_QUERY_CONNECT_TIMEOUT=2,
+            GAIA_QUERY_READ_TIMEOUT=5,
+            GAIA_TAP_SYNC_URLS=[
+                gaia_dr3_harvester.GAIA_TAP_SYNC_URL,
+                gaia_dr3_harvester.GAIA_TAP_FALLBACK_SYNC_URL,
+            ],
+        ), patch.object(
+            gaia_dr3_harvester.requests,
+            'post',
+            side_effect=[esa_response, ari_response],
+        ) as post:
+            result = gaia_dr3_harvester._run_gaia_query(
+                'SELECT TOP 1 source_id, ra, dec FROM gaiadr3.gaia_source'
+            )
+
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(
+            post.call_args_list[1].args[0],
+            gaia_dr3_harvester.GAIA_TAP_FALLBACK_SYNC_URL,
+        )
+        self.assertEqual(int(result[0]['source_id']), 123)
 
     def test_gaia_dr3_keeps_base_result_when_variability_query_times_out(self):
         class ResultRow(dict):

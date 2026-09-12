@@ -24,8 +24,19 @@ PUBLIC_UPLOAD_PASSWORD = secret.get('PUBLIC_UPLOAD_PASSWORD', '')
 DATA_SERVICE_CONNECT_TIMEOUT = int(secret.get('DATA_SERVICE_CONNECT_TIMEOUT', os.environ.get('DATA_SERVICE_CONNECT_TIMEOUT', '10')))
 DATA_SERVICE_READ_TIMEOUT = int(secret.get('DATA_SERVICE_READ_TIMEOUT', os.environ.get('DATA_SERVICE_READ_TIMEOUT', '60')))
 DATA_SERVICE_JOB_TIMEOUT = int(secret.get('DATA_SERVICE_JOB_TIMEOUT', os.environ.get('DATA_SERVICE_JOB_TIMEOUT', '300')))
-GAIA_QUERY_ATTEMPTS = int(secret.get('GAIA_QUERY_ATTEMPTS', os.environ.get('GAIA_QUERY_ATTEMPTS', '3')))
-GAIA_QUERY_RETRY_BACKOFF = float(secret.get('GAIA_QUERY_RETRY_BACKOFF', os.environ.get('GAIA_QUERY_RETRY_BACKOFF', '1')))
+GAIA_QUERY_CONNECT_TIMEOUT = float(secret.get('GAIA_QUERY_CONNECT_TIMEOUT', os.environ.get('GAIA_QUERY_CONNECT_TIMEOUT', '2')))
+GAIA_QUERY_READ_TIMEOUT = float(secret.get('GAIA_QUERY_READ_TIMEOUT', os.environ.get('GAIA_QUERY_READ_TIMEOUT', '4')))
+GAIA_TAP_SYNC_URLS = [
+    url.strip()
+    for url in str(
+        secret.get('GAIA_TAP_SYNC_URLS')
+        or os.environ.get(
+            'GAIA_TAP_SYNC_URLS',
+            'https://gea.esac.esa.int/tap-server/tap/sync,https://gaia.ari.uni-heidelberg.de/tap/sync',
+        )
+    ).split(',')
+    if url.strip()
+]
 ALL_DATA_SERVICES_QUERY_TIMEOUT = float(secret.get(
     'ALL_DATA_SERVICES_QUERY_TIMEOUT',
     os.environ.get('ALL_DATA_SERVICES_QUERY_TIMEOUT', '12'),
