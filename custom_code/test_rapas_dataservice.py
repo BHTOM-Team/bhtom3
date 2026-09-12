@@ -186,6 +186,53 @@ class RAPASDataServiceTests(SimpleTestCase):
             results = service.query_targets(parameters)
         self.assertEqual([result['name'] for result in results], ['SN 2026fvx'])
 
+    def test_coordinate_match_skips_cached_record_with_invalid_declination(self):
+        malformed_record = dict(
+            self.record,
+            name='Malformed workbook row',
+            sheet_name='Malformed workbook row',
+            dec=45801.337905092594,
+            measurements=[],
+        )
+        service = RAPASDataService()
+        parameters = service.build_query_parameters({
+            'target_id': 123,
+            'target_name': 'Unrelated target name',
+            'target_names': ['Unrelated target name'],
+            'ra': self.record['ra'] + 0.0001,
+            'dec': self.record['dec'],
+            'radius_arcsec': 5.0,
+        })
+
+        with patch(
+            'custom_code.data_services.rapas_dataservice._fetch_records',
+            return_value=[malformed_record, self.record],
+        ):
+            results = service.query_targets(parameters)
+
+        self.assertEqual([result['name'] for result in results], ['SN 2026fvx'])
+
+    def test_invalid_sheet_coordinate_falls_back_to_valid_measurement_coordinate(self):
+        record = dict(self.record, dec=45801.337905092594)
+        record['measurements'] = [{
+            **self.record['measurements'][0],
+            'value': {
+                **self.record['measurements'][0]['value'],
+                'ra': self.record['ra'],
+                'dec': self.record['dec'],
+            },
+        }]
+
+        service = RAPASDataService()
+        parameters = service.build_query_parameters({
+            'target_name': 'SN2026fvx',
+            'target_names': ['SN2026fvx'],
+        })
+        with patch('custom_code.data_services.rapas_dataservice._fetch_records', return_value=[record]):
+            result = service.query_targets(parameters)[0]
+
+        self.assertEqual(result['dec'], self.record['dec'])
+
     def test_general_query_accepts_compact_and_partial_names(self):
         second_record = dict(self.record, name='AT 2026abc', sheet_name='AT 2026abc')
         records = [self.record, second_record]

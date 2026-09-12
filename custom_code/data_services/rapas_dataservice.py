@@ -64,13 +64,13 @@ def _record_matches_partial_name(record, query):
 
 
 def _record_coordinate(record, coordinate):
-    value = _to_float(record.get(coordinate))
+    value = _coordinate_value(record.get(coordinate), coordinate)
     if value is not None:
         return value
     for measurement in record.get('measurements') or []:
         measurement_value = measurement.get('value') if isinstance(measurement, dict) else None
         if isinstance(measurement_value, dict):
-            value = _to_float(measurement_value.get(coordinate))
+            value = _coordinate_value(measurement_value.get(coordinate), coordinate)
             if value is not None:
                 return value
     return None
@@ -111,6 +111,18 @@ def _to_float(value):
         except (TypeError, ValueError):
             return None
     return number if math.isfinite(number) else None
+
+
+def _coordinate_value(value, coordinate):
+    """Return a decimal coordinate only when it is within the ICRS domain."""
+    number = _to_float(value)
+    if number is None:
+        return None
+    if coordinate == 'ra':
+        return number if 0 <= number <= 360 else None
+    if coordinate == 'dec':
+        return number if -90 <= number <= 90 else None
+    raise ValueError(f'Unknown coordinate component: {coordinate}')
 
 
 def _to_mjd(value):
@@ -156,15 +168,19 @@ def _excel_date_text(value):
 
 
 def _coordinates(ra_value, dec_value):
-    ra = _to_float(ra_value)
-    dec = _to_float(dec_value)
+    ra = _coordinate_value(ra_value, 'ra')
+    dec = _coordinate_value(dec_value, 'dec')
     if ra is not None and dec is not None:
         return ra, dec
     try:
         coordinate = SkyCoord(_clean_text(ra_value), _clean_text(dec_value))
-        return float(coordinate.ra.deg), float(coordinate.dec.deg)
+        parsed_ra = _coordinate_value(coordinate.ra.deg, 'ra')
+        parsed_dec = _coordinate_value(coordinate.dec.deg, 'dec')
+        if parsed_ra is not None and parsed_dec is not None:
+            return parsed_ra, parsed_dec
     except Exception:
-        return ra, dec
+        pass
+    return ra, dec
 
 
 def _column_index(cell_reference):
@@ -541,8 +557,8 @@ class RAPASDataService(DataService):
             'target_id': parameters.get('target_id'),
             'target_name': target_name,
             'target_names': [_clean_text(name) for name in target_names if _clean_text(name)],
-            'ra': _to_float(ra),
-            'dec': _to_float(dec),
+            'ra': _coordinate_value(ra, 'ra'),
+            'dec': _coordinate_value(dec, 'dec'),
             'radius_arcsec': _to_float(parameters.get('radius_arcsec')) or 5.0,
             'include_photometry': bool(parameters.get('include_photometry', True)),
             'cache_only': bool(parameters.get('_all_data_services_query')),
