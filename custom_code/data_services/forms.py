@@ -22,14 +22,16 @@ def has_coords(cleaned):
 
 class AllDataServicesQueryForm(BaseQueryForm):
     target_name = target_name_field()
+    source_id = forms.CharField(required=False, label='Gaia DR3 source_id')
     ra = ra_field()
     dec = dec_field()
     radius_arcsec = forms.FloatField(required=False, initial=3.0, min_value=0.1, label='Search radius (arcsec)')
 
     def clean(self):
         cleaned = super().clean()
-        if not has_target_name(cleaned) and not has_coords(cleaned):
-            raise forms.ValidationError('Provide target name or RA+Dec.')
+        has_source_id = bool((cleaned.get('source_id') or '').strip())
+        if not has_source_id and not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name, Gaia DR3 source_id or RA+Dec.')
         if cleaned.get('radius_arcsec') is None:
             cleaned['radius_arcsec'] = 3.0
         return cleaned

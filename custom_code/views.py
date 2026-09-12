@@ -315,6 +315,10 @@ def _backfill_data_service_result_coordinates(result, *parameter_sets):
 def _parameters_for_data_service(data_service_name, parameters):
     """Adapt shared query fields to service-specific public API contracts."""
     adapted = dict(parameters)
+    if data_service_name == 'GaiaDR3':
+        source_id = _gaia_source_id_from_parameters(adapted)
+        if source_id:
+            adapted['source_id'] = source_id
     if data_service_name == 'TNS':
         # TOM Toolkit's TNS DataService requires the IAU name without its SN/AT prefix.
         target_name = str(adapted.get('target_name') or '').strip()
@@ -323,6 +327,22 @@ def _parameters_for_data_service(data_service_name, parameters):
             adapted['radius'] = adapted['radius_arcsec']
             adapted['units'] = 'arcsec'
     return adapted
+
+
+def _gaia_source_id_from_parameters(parameters):
+    """Extract a Gaia source ID from either the dedicated field or shared target name."""
+    explicit_source_id = str(parameters.get('source_id') or '').strip()
+    if explicit_source_id:
+        match = re.search(r'\d+', explicit_source_id)
+        return match.group(0) if match else ''
+
+    target_name = str(parameters.get('target_name') or '').strip()
+    match = re.fullmatch(
+        r'(?:(?:gaia\s*dr3)[\s_:-]*(\d+)|(\d{15,20}))',
+        target_name,
+        re.IGNORECASE,
+    )
+    return (match.group(1) or match.group(2)) if match else ''
 
 
 def _normalize_data_service_result(result, data_service_name):
@@ -469,6 +489,9 @@ def _run_all_data_services_query(
     if only_services is not None:
         requested_services = set(only_services)
         service_names = [name for name in service_names if name in requested_services]
+    elif _gaia_source_id_from_parameters(shared_parameters) and 'GaiaDR3' in service_names:
+        # A Gaia source_id is not meaningful input to the other data services.
+        service_names = ['GaiaDR3']
     if not service_names:
         return (rows, feedback, []) if include_timed_out else (rows, feedback)
 
@@ -4132,7 +4155,7 @@ class BhtomRunQueryView(RunQueryView):
             }
             context = {
                 'data_service': ALL_DATA_SERVICES_LABEL,
-                'query': parameters.get('target_name') or '',
+                'query': parameters.get('target_name') or parameters.get('source_id') or '',
                 'results': rows,
                 'query_object': query,
                 'query_feedback': ' | '.join(feedback),

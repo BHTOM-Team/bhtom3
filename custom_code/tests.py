@@ -101,6 +101,7 @@ from custom_code.bhtom_catalogs.harvesters.moa import MOAHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ews import OGLEEWSHarvester
 from custom_code.bhtom_catalogs.harvesters.ogle_ocvs import OGLEOCVSHarvester
 from custom_code.data_services.forms import (
+    AllDataServicesQueryForm,
     ExoClockQueryForm,
     GaiaDR3QueryForm,
     GALAHQueryForm,
@@ -814,6 +815,37 @@ class DataServiceQuerySerializationTests(TestCase):
         self.assertEqual(parameters['target_name'], '2026fvx')
         self.assertEqual(parameters['radius'], 5.0)
         self.assertEqual(parameters['units'], 'arcsec')
+
+    def test_all_data_services_maps_gaia_source_id_to_gaia_parameters(self):
+        parameters = _parameters_for_data_service('GaiaDR3', {
+            'target_name': '394976501194687488',
+            'source_id': '',
+        })
+
+        self.assertEqual(parameters['source_id'], '394976501194687488')
+
+    def test_all_data_services_runs_only_gaia_for_a_gaia_source_id(self):
+        calls = []
+
+        def run_service(service_name, parameters, **kwargs):
+            calls.append(service_name)
+            return [{'service': service_name, 'name': 'GaiaDR3_394976501194687488'}]
+
+        with patch(
+            'custom_code.views.get_data_service_classes',
+            return_value={'GaiaDR3': object, 'Simbad': object, 'AAVSO': object},
+        ), patch(
+            'custom_code.views._run_single_data_service_query',
+            side_effect=run_service,
+        ):
+            rows, feedback = _run_all_data_services_query({
+                'target_name': '',
+                'source_id': '394976501194687488',
+            })
+
+        self.assertEqual(calls, ['GaiaDR3'])
+        self.assertEqual([row['service'] for row in rows], ['GaiaDR3'])
+        self.assertEqual(feedback, [])
 
     def test_tns_result_fields_are_normalized_for_combined_table(self):
         result = _normalize_data_service_result({
@@ -1619,6 +1651,11 @@ class DataServiceCoordinateFormTests(TestCase):
 
     def test_gaia_form_accepts_target_name_only(self):
         form = GaiaDR3QueryForm(data={'target_name': 'GaiaDR3_123'})
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_all_data_services_form_accepts_gaia_source_id_only(self):
+        form = AllDataServicesQueryForm(data={'source_id': '394976501194687488'})
 
         self.assertTrue(form.is_valid(), form.errors)
 
@@ -2568,6 +2605,7 @@ class DataServiceSelectorViewTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, 'All Data Services Query Form')
                 self.assertContains(response, 'Target name')
+                self.assertContains(response, 'Gaia DR3 source_id')
                 self.assertEqual(response.context['selected_service'], ALL_DATA_SERVICES_VALUE)
                 self.assertTrue(response.context['is_all_data_services'])
 
