@@ -1,8 +1,10 @@
 import logging
 import math
 import re
+import time
 
 from astropy.coordinates import Angle, SkyCoord
+from django.conf import settings
 from tom_catalogs.harvester import AbstractHarvester
 
 
@@ -52,18 +54,40 @@ def _build_box_prefilter(ra_deg, dec_deg, radius_deg):
 
 def _build_source_query(where_clause, extra_columns=''):
     columns = (
-        'g.source_id, g.ra, g.dec, g.parallax, g.pmra, g.pmdec, g.has_xp_sampled, '
-        'vcr.best_class_name AS gaia_variability_type'
+        'g.source_id, g.ra, g.dec, g.parallax, g.pmra, g.pmdec, g.has_xp_sampled'
     )
     if extra_columns:
         columns = f'{columns}, {extra_columns}'
     return (
         f'SELECT TOP 1 {columns} '
         'FROM gaiadr3.gaia_source AS g '
-        'LEFT OUTER JOIN gaiadr3.vari_classifier_result AS vcr '
-        f"ON g.source_id = vcr.source_id AND vcr.classifier_name = '{PREFERRED_GAIA_VARIABILITY_CLASSIFIER}' "
         f'WHERE {where_clause}'
     )
+
+
+def _run_gaia_query(query):
+    """Run generated ADQL with bounded retries for transient Gaia Archive failures."""
+    from astroquery.gaia import Gaia
+
+    attempts = max(1, int(getattr(settings, 'GAIA_QUERY_ATTEMPTS', 3)))
+    backoff = max(0.0, float(getattr(settings, 'GAIA_QUERY_RETRY_BACKOFF', 1.0)))
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return Gaia.launch_job(query).get_results()
+        except Exception as exc:
+            last_error = exc
+            if attempt >= attempts:
+                raise
+            logger.warning(
+                'Gaia DR3 query attempt %s/%s failed: %s; retrying.',
+                attempt,
+                attempts,
+                exc,
+            )
+            if backoff:
+                time.sleep(backoff * attempt)
+    raise last_error
 
 
 def _build_variability_query(source_ids):
@@ -103,8 +127,7 @@ def _enrich_missing_variability_types(rows):
         return rows
 
     try:
-        from astroquery.gaia import Gaia
-        result = Gaia.launch_job(query).get_results()
+        result = _run_gaia_query(query)
     except Exception as exc:
         logger.warning('Error when backfilling Gaia DR3 variability class: %s', exc)
         return rows
@@ -127,10 +150,8 @@ def search_term_in_gaia(term):
         return {}
 
     try:
-        from astroquery.gaia import Gaia
         query = _build_source_query(f'g.source_id = {term_str}')
-        job = Gaia.launch_job(query)
-        result = job.get_results()
+        result = _run_gaia_query(query)
     except Exception as exc:
         logger.error('Error while querying Gaia DR3 for %s: %s', term, exc)
         return {}
@@ -154,8 +175,7 @@ def cone_search(coordinates, radius):
             )
             + ' ORDER BY dist ASC'
         )
-        from astroquery.gaia import Gaia
-        result = Gaia.launch_job(query).get_results()
+        result = _run_gaia_query(query)
         if len(result) == 0:
             return {}
         return _enrich_missing_variability_types([_row_to_dict(result[0])])[0]
@@ -173,17 +193,13 @@ def cone_search_all(coordinates, radius, limit=100):
         query = (
             f'SELECT TOP {int(limit)} '
             'g.source_id, g.ra, g.dec, g.parallax, g.pmra, g.pmdec, g.has_xp_sampled, '
-            'vcr.best_class_name AS gaia_variability_type, '
             f'DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) AS dist '
             'FROM gaiadr3.gaia_source AS g '
-            'LEFT OUTER JOIN gaiadr3.vari_classifier_result AS vcr '
-            "ON g.source_id = vcr.source_id AND vcr.classifier_name = 'n_transits:5+' "
             f'WHERE {box_prefilter} '
             f'  AND DISTANCE(POINT({ra_deg}, {dec_deg}), POINT(g.ra, g.dec)) <= {radius_deg} '
             'ORDER BY dist ASC'
         )
-        from astroquery.gaia import Gaia
-        result = Gaia.launch_job(query).get_results()
+        result = _run_gaia_query(query)
         return _enrich_missing_variability_types([_row_to_dict(row) for row in result])
     except Exception as exc:
         logger.error('Error when running Gaia DR3 multi cone search: %s', exc)

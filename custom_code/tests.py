@@ -2379,6 +2379,38 @@ class SimbadHarvesterTests(TestCase):
         self.assertEqual(variability['123'], 'RR')
         self.assertEqual(variability['456'], 'CEP')
 
+    def test_gaia_dr3_base_source_query_does_not_join_variability_table(self):
+        query = gaia_dr3_harvester._build_source_query('g.source_id = 123')
+
+        self.assertIn('FROM gaiadr3.gaia_source AS g', query)
+        self.assertNotIn('vari_classifier_result', query)
+        self.assertNotIn('JOIN', query)
+
+    def test_gaia_dr3_keeps_base_result_when_variability_query_times_out(self):
+        class ResultRow(dict):
+            @property
+            def colnames(self):
+                return list(self.keys())
+
+        base_row = ResultRow({
+            'source_id': 394976501194687488,
+            'ra': 12.3,
+            'dec': -45.6,
+            'parallax': None,
+            'pmra': None,
+            'pmdec': None,
+            'has_xp_sampled': False,
+        })
+        with patch.object(
+            gaia_dr3_harvester,
+            '_run_gaia_query',
+            side_effect=[[base_row], RuntimeError('statement timeout')],
+        ):
+            result = gaia_dr3_harvester.search_term_in_gaia('394976501194687488')
+
+        self.assertEqual(result['source_id'], 394976501194687488)
+        self.assertEqual(result['ra'], 12.3)
+
     def test_exoclock_harvester_maps_target_and_host_alias(self):
         exoclock = ExoClockHarvester()
         exoclock.catalog_data = {
