@@ -71,9 +71,16 @@ _REQUEST_HEADERS = {'User-Agent': 'bhtom3 AAVSO dataservice', 'Accept': 'text/pl
 # when the identical request is repeated). Treat it like the other transient edge/server
 # responses for this idempotent API call.
 _RETRYABLE_HTTP_STATUSES = (405, 408, 425, 429, 500, 502, 503, 504)
-_TRANSIENT_YEAR_RE = re.compile(r'^(?:SN|AT)?\s*((?:19|20)\d{2})[a-z]+$', re.IGNORECASE)
+_TRANSIENT_YEAR_RE = re.compile(
+    r'^(?:(?:SN|AT)\s*)?(?P<long_year>(?:19|20)\d{2})[a-z]+$'
+    r'|^GAIA\s*(?P<short_year>\d{2})[a-z]+$',
+    re.IGNORECASE,
+)
 _TRANSIENT_IDENTIFIER_RE = re.compile(
     r'^(?:(SN|AT)\s*)?(((?:19|20)\d{2})[a-z]+)$', re.IGNORECASE
+)
+_SYNTHETIC_SWIFT_COORDINATE_RE = re.compile(
+    r'^SWIFT\+J[+-]?\d+(?:\.\d+)?_[+-]?\d+(?:\.\d+)?$', re.IGNORECASE
 )
 
 
@@ -118,7 +125,10 @@ def _transient_discovery_from_jd(names):
     for name in names:
         match = _TRANSIENT_YEAR_RE.match(str(name or '').strip())
         if match:
-            return float(Time(f'{match.group(1)}-01-01T00:00:00', scale='utc').jd)
+            year = match.group('long_year')
+            if year is None:
+                year = str(2000 + int(match.group('short_year')))
+            return float(Time(f'{year}-01-01T00:00:00', scale='utc').jd)
     return _DEFAULT_FROM_JD
 
 
@@ -127,7 +137,7 @@ def _aavso_identifier_variants(names):
     variants = []
     for name in names:
         original = str(name or '').strip()
-        if not original:
+        if not original or _SYNTHETIC_SWIFT_COORDINATE_RE.match(original):
             continue
         candidates = [original]
         match = _TRANSIENT_IDENTIFIER_RE.match(original)
@@ -337,7 +347,7 @@ class AAVSODataService(DataService):
                 logger.info('AAVSO: target id=%s not found while building idents.', target_id)
         return [n for n in names if n]
 
-    def _incremental_from_jd(self, target_id):
+    def _incremental_from_jd(self, target_id, names=()):
         """Only fetch observations newer than the latest AAVSO point already stored."""
         if not target_id:
             return _DEFAULT_FROM_JD
@@ -349,7 +359,7 @@ class AAVSODataService(DataService):
             .first()
         )
         if not latest:
-            return _DEFAULT_FROM_JD
+            return _transient_discovery_from_jd(names)
         try:
             return float(Time(latest, scale='utc').mjd) + _MJD_TO_JD
         except Exception:
@@ -385,7 +395,7 @@ class AAVSODataService(DataService):
         # A remote VSX lookup can otherwise consume the complete per-service window before
         # the actual AAVSO request starts.
         has_transient_name = any(
-            _TRANSIENT_YEAR_RE.match(str(name or '').strip()) for name in target_names
+            _TRANSIENT_IDENTIFIER_RE.match(str(name or '').strip()) for name in target_names
         )
 
         # Resolve coordinates -> nearest VSX star name(s) via the VizieR B/vsx mirror.
@@ -415,7 +425,7 @@ class AAVSODataService(DataService):
             elif not target_id:
                 from_jd = _transient_discovery_from_jd(idents)
             else:
-                from_jd = self._incremental_from_jd(target_id)
+                from_jd = self._incremental_from_jd(target_id, idents)
 
         self.query_parameters = {
             'idents': idents,
@@ -466,18 +476,22 @@ class AAVSODataService(DataService):
         vsx_name = query_parameters.get('vsx_name')
         from_jd = query_parameters.get('fromjd') or _DEFAULT_FROM_JD
         to_jd = query_parameters.get('tojd')
-        unavailable_error = None
+        unavailable_count = 0
         for ident in idents:
             try:
                 rows, star_name = self._fetch_photometry(ident, from_jd, to_jd)
-            except _AAVSOIdentifierUnavailable as exc:
-                unavailable_error = exc
+            except _AAVSOIdentifierUnavailable:
+                unavailable_count += 1
                 continue
             if rows:
                 self.query_results = {'rows': rows, 'star_name': star_name, 'ident': ident, 'vsx_name': vsx_name}
                 return self.query_results
-        if unavailable_error is not None:
-            raise unavailable_error
+        if unavailable_count:
+            logger.warning(
+                'AAVSO rejected %s/%s candidate identifiers; treating the query as no match.',
+                unavailable_count,
+                len(idents),
+            )
         self.query_results = {'rows': [], 'star_name': None, 'ident': None, 'vsx_name': vsx_name}
         return self.query_results
 
@@ -649,7 +663,7 @@ class AAVSODataService(DataService):
             except Target.DoesNotExist:
                 target = None
 
-        unavailable_error = None
+        unavailable_count = 0
         for ident in idents:
             try:
                 added, star_name, accumulated, saw_any = self._fetch_chunked(
@@ -659,8 +673,8 @@ class AAVSODataService(DataService):
                     target,
                     deadline_monotonic=query_parameters.get('_query_deadline_monotonic'),
                 )
-            except _AAVSOIdentifierUnavailable as exc:
-                unavailable_error = exc
+            except _AAVSOIdentifierUnavailable:
+                unavailable_count += 1
                 continue
             if not saw_any:
                 continue  # this identifier had no AAVSO data; try the next candidate
@@ -696,8 +710,13 @@ class AAVSODataService(DataService):
                 logger.info('AAVSO: ingested %s new points for target id=%s (ident=%s).', added, target_id, ident)
             return [result]
 
-        if unavailable_error is not None:
-            raise unavailable_error
+        if unavailable_count:
+            logger.warning(
+                'AAVSO rejected %s/%s candidate identifiers for target id=%s; treating the query as no match.',
+                unavailable_count,
+                len(idents),
+                target_id,
+            )
         return []
 
     def create_target_from_query(self, target_result, **kwargs):

@@ -24,11 +24,24 @@ class AAVSODataServiceTests(SimpleTestCase):
             _transient_discovery_from_jd(['SN2026fvx']),
             2461041.5,
         )
+        self.assertEqual(
+            _transient_discovery_from_jd(['Gaia24amv']),
+            2460310.5,
+        )
 
     def test_transient_identifier_variants_include_aavso_canonical_spelling(self):
         self.assertEqual(
             _aavso_identifier_variants(['SN2026fvx']),
             ['SN2026fvx', 'SN 2026fvx', '2026fvx'],
+        )
+
+    def test_identifier_variants_exclude_synthetic_swift_coordinate_alias(self):
+        self.assertEqual(
+            _aavso_identifier_variants([
+                'Gaia24amv',
+                'SWIFT+J275.96902219811926_23.526770098663604',
+            ]),
+            ['Gaia24amv'],
         )
 
     def test_object_url_uses_human_vsx_detail_page_when_oid_is_known(self):
@@ -161,19 +174,36 @@ class AAVSODataServiceTests(SimpleTestCase):
         self.assertEqual(result['rows'], [row])
         self.assertEqual(fetch.call_count, 2)
 
-    def test_query_service_reports_405_when_every_identifier_is_rejected(self):
+    def test_query_service_treats_all_rejected_identifiers_as_no_match(self):
         service = AAVSODataService()
         response = Mock(status_code=405)
         unavailable = _AAVSOIdentifierUnavailable('rejected', response=response)
         with patch.object(service, '_fetch_photometry', side_effect=unavailable):
-            with self.assertRaises(_AAVSOIdentifierUnavailable) as raised:
-                service.query_service({
-                    'idents': ['SN2026fvx', 'SN 2026fvx'],
-                    'fromjd': 2461041.5,
-                    'tojd': 2461294.5,
-                })
+            result = service.query_service({
+                'idents': ['SN2026fvx', 'SN 2026fvx'],
+                'fromjd': 2461041.5,
+                'tojd': 2461294.5,
+            })
 
-        self.assertEqual(raised.exception.response.status_code, 405)
+        self.assertEqual(result['rows'], [])
+        self.assertIsNone(result['ident'])
+
+    def test_query_targets_treats_all_rejected_identifiers_as_no_match(self):
+        service = AAVSODataService()
+        with patch.object(
+            service,
+            '_fetch_chunked',
+            side_effect=_AAVSOIdentifierUnavailable('rejected'),
+        ):
+            result = service.query_targets({
+                'idents': ['Gaia24amv'],
+                'target_id': None,
+                'fromjd': 2460310.5,
+                'tojd': 2460311.5,
+                'include_photometry': True,
+            })
+
+        self.assertEqual(result, [])
 
     def test_non_405_http_error_is_not_hidden(self):
         response = Mock(status_code=500)
@@ -224,6 +254,21 @@ class AAVSODataServiceTests(SimpleTestCase):
 
         resolve_vsx.assert_not_called()
         self.assertEqual(parameters['idents'], ['SN2026fvx', 'SN 2026fvx', '2026fvx'])
+
+    def test_gaia_alert_still_uses_vsx_coordinate_resolution(self):
+        service = AAVSODataService()
+        with patch(
+            'custom_code.data_services.aavso_dataservice.resolve_query_coordinates',
+            return_value=('Gaia24amv', 275.969, 23.527),
+        ), patch.object(service, '_target_names', return_value=['Gaia24amv']), patch(
+            'custom_code.data_services.aavso_dataservice._resolve_vsx_names',
+            return_value=['Resolved VSX Star'],
+        ) as resolve_vsx:
+            parameters = service.build_query_parameters({'target_name': 'Gaia24amv'})
+
+        resolve_vsx.assert_called_once()
+        self.assertEqual(parameters['idents'], ['Resolved VSX Star', 'Gaia24amv'])
+        self.assertEqual(parameters['fromjd'], 2460310.5)
 
     def test_expired_deadline_before_first_aavso_request_reports_timeout(self):
         service = AAVSODataService()
