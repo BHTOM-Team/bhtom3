@@ -76,6 +76,12 @@ DEFAULT_MAX_SECTORS = 12
 # the per-sector files; ingesting both would double-count every cadence.
 _MULTISECTOR_OBS_ID = re.compile(r'-s\d{4}-s\d{4}-')
 
+# SPOC target light curves live in two MAST collections. The original cadence
+# products use ``TESS``/``SPOC``, while light curves extracted from FFIs use the
+# HLSP collection and the ``TESS-SPOC`` provenance label.
+_SPOC_OBS_COLLECTIONS = ('TESS', 'HLSP')
+_SPOC_PROVENANCE_NAMES = ('SPOC', 'TESS-SPOC')
+
 
 def _to_float(value):
     try:
@@ -219,7 +225,8 @@ class TESSDataService(DataService):
             observations = Observations.query_criteria(
                 coordinates=SkyCoord(ra, dec, unit='deg'),
                 radius=radius_arcsec * u.arcsec,
-                obs_collection='TESS',
+                obs_collection=list(_SPOC_OBS_COLLECTIONS),
+                provenance_name=list(_SPOC_PROVENANCE_NAMES),
                 dataproduct_type='timeseries',
             )
             if len(observations) == 0:
@@ -273,7 +280,7 @@ class TESSDataService(DataService):
             tic = _to_float(row['target_name'])
             if tic is None or int(tic) != best_tic:
                 continue
-            if str(row['provenance_name']).strip().upper() != 'SPOC':
+            if str(row['provenance_name']).strip().upper() not in _SPOC_PROVENANCE_NAMES:
                 continue
             if _MULTISECTOR_OBS_ID.search(str(row['obs_id'])):
                 continue
@@ -314,8 +321,20 @@ class TESSDataService(DataService):
                 lightcurves = Observations.filter_products(
                     product_list, productSubGroupDescription='LC', productType='SCIENCE'
                 )
+                # TESS-SPOC HLSP products currently leave the subgroup blank
+                # (masked/``--``), although the official product filename still
+                # ends in ``_lc.fits``. Fall back to that stable naming scheme.
                 if len(lightcurves) == 0:
-                    continue
+                    science_products = Observations.filter_products(
+                        product_list, productType='SCIENCE'
+                    )
+                    is_lightcurve = np.array([
+                        str(filename).lower().endswith('_lc.fits')
+                        for filename in science_products['productFilename']
+                    ])
+                    lightcurves = science_products[is_lightcurve]
+                    if len(lightcurves) == 0:
+                        continue
                 manifest = Observations.download_products(
                     lightcurves[:1], cache=True, download_dir=download_dir
                 )
