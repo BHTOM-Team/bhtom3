@@ -4790,6 +4790,86 @@ class TargetDownloadPhotometryApiTests(TestCase):
         self.assertLess(float(first_row[0]), float(second_row[0]))
 
 
+class TargetDataProductsApiTests(TestCase):
+    def setUp(self):
+        self.target = Target.objects.create(
+            name='Combined API Target',
+            type='SIDEREAL',
+            ra=12.3,
+            dec=-45.6,
+            epoch=2000.0,
+        )
+        self.url = reverse('target-data-products-api', kwargs={'target_id': self.target.pk})
+
+    def test_returns_all_photometry_and_spectroscopy_without_authentication(self):
+        photometry = ReducedDatum.objects.create(
+            target=self.target,
+            data_type='photometry',
+            timestamp=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+            value={'magnitude': 17.2, 'error': 0.13, 'filter': 'OGLE(I)'},
+            source_name='OGLE',
+            source_location='https://example.com/photometry',
+        )
+        spectroscopy = ReducedDatum.objects.create(
+            target=self.target,
+            data_type='spectroscopy',
+            timestamp=datetime(2024, 1, 2, 12, 0, tzinfo=timezone.utc),
+            value={
+                'wavelength': [5000.0, 5001.0],
+                'flux': [1.2e-15, 1.3e-15],
+                'flux_units': 'erg / (Angstrom s cm2)',
+            },
+            source_name='Spectrum survey',
+            source_location='https://example.com/spectrum',
+        )
+        ReducedDatum.objects.create(
+            target=self.target,
+            data_type='highenergy',
+            timestamp=datetime(2024, 1, 3, 12, 0, tzinfo=timezone.utc),
+            value={'flux': 42},
+            source_name='Ignored survey',
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response['Content-Type'].startswith('application/json'))
+        self.assertEqual(
+            response['Content-Disposition'],
+            f'attachment; filename="target_{self.target.pk}_photometry_spectroscopy.json"',
+        )
+        payload = response.json()
+        self.assertEqual(payload['target'], {'id': self.target.pk, 'name': self.target.name})
+        self.assertEqual(payload['counts'], {'photometry': 1, 'spectroscopy': 1, 'total': 2})
+        self.assertEqual(payload['products']['photometry'], [{
+            'id': photometry.pk,
+            'data_product_id': None,
+            'timestamp': '2024-01-01T12:00:00Z',
+            'mjd': 60310.5,
+            'source_name': 'OGLE',
+            'source_location': 'https://example.com/photometry',
+            'value': {'magnitude': 17.2, 'error': 0.13, 'filter': 'OGLE(I)'},
+        }])
+        self.assertEqual(payload['products']['spectroscopy'][0]['id'], spectroscopy.pk)
+        self.assertEqual(
+            payload['products']['spectroscopy'][0]['value']['wavelength'],
+            [5000.0, 5001.0],
+        )
+
+    def test_returns_empty_product_lists_for_target_without_data(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['counts'], {'photometry': 0, 'spectroscopy': 0, 'total': 0})
+        self.assertEqual(response.json()['products'], {'photometry': [], 'spectroscopy': []})
+
+    def test_returns_404_for_unknown_target(self):
+        response = self.client.get(reverse('target-data-products-api', kwargs={'target_id': 999999}))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {'detail': 'Target not found.'})
+
+
 class LCOFacilityAccountRoutingTests(TestCase):
     def setUp(self):
         cache.delete('LCO_instruments')

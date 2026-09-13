@@ -825,6 +825,70 @@ def _build_photometry_export_rows(target):
     return rows
 
 
+def _serialize_target_data_product(datum):
+    mjd = _extract_photometry_export_mjd(datum)
+    if not _is_finite_number(mjd):
+        mjd = None
+
+    timestamp = datum.timestamp
+    if timestamp is not None:
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        timestamp = timestamp.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+    return {
+        'id': datum.pk,
+        'data_product_id': datum.data_product_id,
+        'timestamp': timestamp,
+        'mjd': mjd,
+        'source_name': datum.source_name or '',
+        'source_location': datum.source_location or '',
+        'value': datum.value,
+    }
+
+
+def _build_target_data_products_payload(target):
+    try:
+        photometry_type = settings.DATA_PRODUCT_TYPES['photometry'][0]
+    except (AttributeError, KeyError):
+        photometry_type = 'photometry'
+    try:
+        spectroscopy_type = settings.DATA_PRODUCT_TYPES['spectroscopy'][0]
+    except (AttributeError, KeyError):
+        spectroscopy_type = 'spectroscopy'
+
+    products = {
+        'photometry': [],
+        'spectroscopy': [],
+    }
+    product_keys = {
+        photometry_type: 'photometry',
+        spectroscopy_type: 'spectroscopy',
+    }
+    datums = ReducedDatum.objects.filter(
+        target=target,
+        data_type__in=product_keys,
+    ).order_by('timestamp', 'id')
+
+    for datum in datums:
+        products[product_keys[datum.data_type]].append(_serialize_target_data_product(datum))
+
+    photometry_count = len(products['photometry'])
+    spectroscopy_count = len(products['spectroscopy'])
+    return {
+        'target': {
+            'id': target.pk,
+            'name': target.name,
+        },
+        'counts': {
+            'photometry': photometry_count,
+            'spectroscopy': spectroscopy_count,
+            'total': photometry_count + spectroscopy_count,
+        },
+        'products': products,
+    }
+
+
 def _authenticate_api_token_user(request):
     auth_header = (request.META.get('HTTP_AUTHORIZATION') or '').strip()
     if not auth_header or not auth_header.lower().startswith('token '):
@@ -4423,6 +4487,31 @@ class TargetDownloadPhotometryDataApiView(View):
         writer = csv.writer(response, delimiter=';')
         writer.writerow(['MJD', 'Magnitude', 'Error', 'Facility', 'Filter', 'Observer'])
         writer.writerows(_build_photometry_export_rows(target))
+        return response
+
+
+class TargetDataProductsApiView(View):
+    """
+    Download all photometry and spectroscopy reduced data for a target as JSON.
+
+    This temporary integration endpoint intentionally does not require authentication.
+    """
+
+    http_method_names = ['get']
+
+    def get(self, request, target_id, *args, **kwargs):
+        target = Target.objects.filter(pk=target_id).first()
+        if target is None:
+            return JsonResponse({'detail': 'Target not found.'}, status=404)
+
+        response = JsonResponse(
+            _build_target_data_products_payload(target),
+            json_dumps_params={'ensure_ascii': False},
+        )
+        response['Content-Disposition'] = (
+            f'attachment; filename="target_{target.pk}_photometry_spectroscopy.json"'
+        )
+        response['Cache-Control'] = 'private, no-store'
         return response
 
 

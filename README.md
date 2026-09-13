@@ -76,6 +76,22 @@ Each has to have env setup and run on python3.11 ("type -a python" to check)
 DB_Worker runs background DataServices jobs and schedules archival survey refreshes.
 Telescope observation-status polling is intentionally disabled in this worker.
 
+## Photometry and spectroscopy JSON API
+
+`GET /api/targets/<target_id>/products/` downloads all photometry and
+spectroscopy reduced data for the numeric target ID in one JSON document. The
+response contains target metadata, product counts, and the stored values grouped
+under `products.photometry` and `products.spectroscopy`.
+
+For example:
+
+```shell
+curl -OJ https://<your-bhtom3-host>/api/targets/123/products/
+```
+
+This temporary endpoint has no authentication. Treat its URL as private and add
+authentication before exposing it outside a trusted network.
+
 After March 26: LW added a cron-like job for updating data services and Sun distance.
 
 In a separate terminal and correct env (LW has bhtom3env alias) run:
