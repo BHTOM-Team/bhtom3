@@ -44,6 +44,7 @@ from datetime import timezone
 import numpy as np
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
+from astropy.table import Table
 from astropy.time import Time
 import astropy.units as u
 
@@ -99,6 +100,23 @@ def _tic_alias(ticid):
 
 def _tess_source_location(ticid):
     return f'https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html?searchQuery=TIC {int(ticid)}'
+
+
+def _nearest_tic_id(catalog_rows, ra, dec):
+    target = SkyCoord(ra, dec, unit='deg')
+    nearest = None
+    nearest_sep = None
+    for row in catalog_rows:
+        ticid = _to_float(row['ID'])
+        row_ra = _to_float(row['ra'])
+        row_dec = _to_float(row['dec'])
+        if ticid is None or row_ra is None or row_dec is None:
+            continue
+        separation = SkyCoord(row_ra, row_dec, unit='deg').separation(target).arcsec
+        if nearest_sep is None or separation < nearest_sep:
+            nearest = int(ticid)
+            nearest_sep = separation
+    return nearest
 
 
 def _mast_download_dir():
@@ -220,23 +238,44 @@ class TESSDataService(DataService):
         ticid = None
         products = None
         try:
-            from astroquery.mast import Observations
+            from astroquery.mast import Catalogs, Observations
 
-            observations = Observations.query_criteria(
-                coordinates=SkyCoord(ra, dec, unit='deg'),
-                radius=radius_arcsec * u.arcsec,
+            coordinates = SkyCoord(ra, dec, unit='deg')
+            try:
+                tic_rows = Catalogs.query_region(
+                    coordinates,
+                    radius=radius_arcsec * u.arcsec,
+                    catalog='TIC',
+                )
+                ticid = _nearest_tic_id(tic_rows, ra, dec)
+            except Exception as exc:
+                logger.warning(
+                    'TESS TIC lookup failed for RA=%s Dec=%s; falling back to a coordinate search: %s',
+                    ra, dec, exc,
+                )
+
+            observation_query = dict(
                 obs_collection=list(_SPOC_OBS_COLLECTIONS),
                 provenance_name=list(_SPOC_PROVENANCE_NAMES),
                 dataproduct_type='timeseries',
             )
-            if len(observations) == 0:
-                logger.debug('TESS returned no time series for RA=%s Dec=%s', ra, dec)
+            if ticid is not None:
+                observation_query['target_name'] = str(ticid)
             else:
-                ticid, selected = self._select_observations(observations, ra, dec, max_sectors)
+                observation_query.update(
+                    coordinates=coordinates,
+                    radius=radius_arcsec * u.arcsec,
+                )
+            observations = Observations.query_criteria(**observation_query)
+            if len(observations) == 0:
+                logger.info('TESS returned no time series for RA=%s Dec=%s TIC=%s', ra, dec, ticid)
+            else:
+                selected_ticid, selected = self._select_observations(observations, ra, dec, max_sectors)
+                ticid = selected_ticid or ticid
                 if selected is not None and len(selected):
                     products = self._collect_lightcurve_products(Observations, selected)
         except Exception as exc:
-            logger.debug('TESS MAST error %s', exc)
+            logger.warning('TESS MAST query failed for RA=%s Dec=%s: %s', ra, dec, exc, exc_info=True)
 
         self.query_results = {
             'products': products or None,
@@ -309,37 +348,68 @@ class TESSDataService(DataService):
                 best_tic, len(dropped) + len(sectors), len(sectors), dropped,
             )
 
-        return best_tic, [by_sector[s][1] for s in sectors]
+        selected = [by_sector[s][1] for s in sectors]
+        if isinstance(observations, Table):
+            selected = observations[[row.index for row in selected]]
+        return best_tic, selected
+
+    @staticmethod
+    def _filter_lightcurve_products(Observations, product_list):
+        lightcurves = Observations.filter_products(
+            product_list, productSubGroupDescription='LC', productType='SCIENCE'
+        )
+        # TESS-SPOC HLSP products currently leave the subgroup blank
+        # (masked/``--``), although the official product filename still
+        # ends in ``_lc.fits``. Fall back to that stable naming scheme.
+        if len(lightcurves) == 0:
+            science_products = Observations.filter_products(
+                product_list, productType='SCIENCE'
+            )
+            is_lightcurve = np.array([
+                str(filename).lower().endswith('_lc.fits')
+                for filename in science_products['productFilename']
+            ], dtype=bool)
+            lightcurves = science_products[is_lightcurve]
+        return lightcurves
+
+    @staticmethod
+    def _download_manifest_paths(manifest):
+        return [str(local_path) for local_path in manifest['Local Path']]
 
     def _collect_lightcurve_products(self, Observations, selected):
         """Download the _lc.fits for each selected observation."""
         download_dir = _mast_download_dir()
+
+        # Astroquery can retrieve products for a whole observation table in one
+        # request. This avoids one round trip per sector and keeps interactive
+        # all-service queries within their response window.
+        if isinstance(selected, Table):
+            try:
+                product_list = Observations.get_product_list(selected)
+                lightcurves = self._filter_lightcurve_products(Observations, product_list)
+                if len(lightcurves) == 0:
+                    return None
+                manifest = Observations.download_products(
+                    lightcurves, cache=True, download_dir=download_dir
+                )
+                return self._download_manifest_paths(manifest) or None
+            except Exception as exc:
+                logger.warning(
+                    'TESS: bulk product fetch failed for %s sectors; retrying separately: %s',
+                    len(selected), exc,
+                )
+
         paths = []
         for row in selected:
             try:
                 product_list = Observations.get_product_list(row)
-                lightcurves = Observations.filter_products(
-                    product_list, productSubGroupDescription='LC', productType='SCIENCE'
-                )
-                # TESS-SPOC HLSP products currently leave the subgroup blank
-                # (masked/``--``), although the official product filename still
-                # ends in ``_lc.fits``. Fall back to that stable naming scheme.
+                lightcurves = self._filter_lightcurve_products(Observations, product_list)
                 if len(lightcurves) == 0:
-                    science_products = Observations.filter_products(
-                        product_list, productType='SCIENCE'
-                    )
-                    is_lightcurve = np.array([
-                        str(filename).lower().endswith('_lc.fits')
-                        for filename in science_products['productFilename']
-                    ])
-                    lightcurves = science_products[is_lightcurve]
-                    if len(lightcurves) == 0:
-                        continue
+                    continue
                 manifest = Observations.download_products(
                     lightcurves[:1], cache=True, download_dir=download_dir
                 )
-                for local_path in manifest['Local Path']:
-                    paths.append(str(local_path))
+                paths.extend(self._download_manifest_paths(manifest))
             except Exception as exc:
                 logger.warning('TESS: could not fetch products for %s: %s', row['obs_id'], exc)
         return paths or None
