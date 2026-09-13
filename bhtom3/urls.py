@@ -61,6 +61,7 @@ from custom_code.views import (
     UserUpdateWithTokenView,
     UpdateReducedDataAndDataServicesView,
     TargetPeriodicityView,
+    TargetPeriodicityDataView,
     TargetPeriodicityComputeView,
 )
 
@@ -90,6 +91,7 @@ urlpatterns = [
     path('targets/<int:pk>/update/', BhtomTargetUpdateView.as_view(), name='targets-update-override'),
     path('targets/<int:pk>/', BhtomTargetDetailView.as_view(), name='targets-detail-override'),
     path('targets/<int:pk>/models/periodicity/', TargetPeriodicityView.as_view(), name='target-periodicity'),
+    path('targets/<int:pk>/models/periodicity/data/', TargetPeriodicityDataView.as_view(), name='target-periodicity-data'),
     path('targets/<int:pk>/models/periodicity/compute/', TargetPeriodicityComputeView.as_view(), name='target-periodicity-compute'),
     path('dataproducts/data/upload/', BhtomDataProductUploadView.as_view(), name='dataproduct-upload'),
     path('dataproducts/aavso/<int:pk>/', AAVSOMeasurementDetailView.as_view(), name='aavso-measurement-detail'),

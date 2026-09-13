@@ -45,20 +45,30 @@
     color: #ffffff;
     font-size: 0.82rem;
   }
+  .prd-sidebar select option,
+  .prd-sidebar select optgroup { background: #0d1117; color: #ffffff; }
   .prd-sidebar .form-control::placeholder { color: #768390; }
-  .prd-sidebar .btn-link { font-size: 0.72rem; color: #539bf5; text-decoration: none; padding: 0; }
+  .prd-sidebar .btn-link { font-size: 0.72rem; color: #539bf5; text-decoration: none; padding: 0; text-transform: none; letter-spacing: 0; }
   .prd-sidebar .btn-link:hover { color: #6cb6ff; text-decoration: underline; }
   .prd-sidebar .btn-outline-secondary {
     border-color: #444c56; color: #adbac7; font-size: 0.8rem;
   }
   .prd-sidebar .btn-outline-secondary:hover { background: #2d333b; color: #ffffff; }
-  .prd-sidebar small.text-muted { color: #768390 !important; }
+  .prd-sidebar small.text-muted { color: #768390 !important; font-size: 0.7rem; }
 
-  /* Checkbox list */
+  /* Checkbox lists */
   .cb-list { max-height: 150px; overflow-y: auto; padding-right: 2px; }
+  .cb-list-tall { max-height: 280px; }
   .cb-list::-webkit-scrollbar { width: 4px; }
   .cb-list::-webkit-scrollbar-track { background: transparent; }
   .cb-list::-webkit-scrollbar-thumb { background: #444c56; border-radius: 2px; }
+  .cb-subheading {
+    font-size: 0.68rem; color: #768390; text-transform: uppercase; letter-spacing: 0.06em;
+    border-top: 1px solid #2d333b; margin-top: 0.4rem; padding-top: 0.3rem;
+  }
+  .cb-list .cb-subheading:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+  .cb-count { color: #768390; font-size: 0.7rem; margin-left: 0.2rem; }
+  .cb-loading { color: #e3b341; font-size: 0.7rem; }
   .form-check { padding-left: 1.4rem; margin-bottom: 1px; }
   .form-check-label {
     font-size: 0.78rem;
@@ -91,6 +101,17 @@
     text-transform: uppercase;
     font-weight: 600;
   }
+  .plot-status { color: #e3b341; text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .prd-plots .btn-outline-secondary {
+    border-color: #444c56; color: #adbac7; font-size: 0.7rem; padding: 0.05rem 0.5rem; text-transform: none;
+  }
+  .prd-plots .btn-outline-secondary.active,
+  .prd-plots .btn-outline-secondary:hover { background: #2d333b; color: #ffffff; }
+
+  /* Fit table */
+  .fit-table { color: #cdd9e5; }
+  .fit-table th, .fit-table td { font-size: 0.78rem; border-color: #2d333b; padding: 0.2rem 0.5rem; }
+  .fit-table th { color: #adbac7; font-weight: 600; }
 
   /* ── Breadcrumb ── */
   .breadcrumb { background: transparent; padding: 0; font-size: 0.85rem; }
@@ -99,16 +120,14 @@
   .breadcrumb-item.active { color: #768390; }
   .breadcrumb-item + .breadcrumb-item::before { color: #444c56; }
 
-  /* ── Error alert ── */
   #error-alert { font-size: 0.82rem; }
-
-  /* ── Compute button ── */
   #btn-compute { font-size: 0.85rem; }
 </style>
 {% endblock %}
 
 {% block content %}
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+{{ periodicity_datasets|json_script:"periodicity-datasets" }}
 
 <div class="prd-page pt-2 px-2">
 
@@ -124,35 +143,27 @@
   <div class="row">
 
     <!-- ═══════════════ Controls sidebar ═══════════════ -->
-    <div class="col-xl-2 col-lg-3 col-md-3 prd-sidebar" style="min-width:190px; max-width:240px;">
+    <div class="col-xl-2 col-lg-3 col-md-3 prd-sidebar" style="min-width:210px; max-width:260px;">
 
-      <!-- Filter selection -->
+      <!-- Dataset searched for a period -->
       <div class="card mb-2">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <span>Filters</span>
-          <span>
-            <button class="btn btn-link" id="btn-all-filters">All</button>
-            &nbsp;/&nbsp;
-            <button class="btn btn-link" id="btn-none-filters">None</button>
-          </span>
-        </div>
+        <div class="card-header">Search Dataset</div>
         <div class="card-body p-2">
-          <div class="cb-list" id="filter-checkboxes"></div>
-        </div>
-      </div>
-
-      <!-- Telescope selection -->
-      <div class="card mb-2">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <span>Telescopes</span>
-          <span>
-            <button class="btn btn-link" id="btn-all-tels">All</button>
-            &nbsp;/&nbsp;
-            <button class="btn btn-link" id="btn-none-tels">None</button>
-          </span>
-        </div>
-        <div class="card-body p-2">
+          <select class="form-control form-control-sm" id="primary-select" aria-label="Dataset for the period search"></select>
+          <small class="text-muted d-block mt-1" id="primary-info"></small>
+          <div class="cb-subheading d-flex justify-content-between align-items-center">
+            <span>Telescopes</span>
+            <span>
+              <button class="btn btn-link" id="btn-all-tels">All</button>
+              &nbsp;/&nbsp;
+              <button class="btn btn-link" id="btn-none-tels">None</button>
+            </span>
+          </div>
           <div class="cb-list" id="telescope-checkboxes"></div>
+          <div class="form-check mt-1">
+            <input class="form-check-input" type="checkbox" id="split-telescopes">
+            <label class="form-check-label" for="split-telescopes" title="Fit a separate zero-point for every telescope">Offset per telescope</label>
+          </div>
         </div>
       </div>
 
@@ -161,11 +172,11 @@
         <div class="card-header">Time Range (MJD)</div>
         <div class="card-body p-2">
           <div class="form-group mb-1">
-            <label>From</label>
+            <label for="mjd-min">From</label>
             <input type="number" class="form-control form-control-sm" id="mjd-min" step="1">
           </div>
           <div class="form-group mb-1">
-            <label>To</label>
+            <label for="mjd-max">To</label>
             <input type="number" class="form-control form-control-sm" id="mjd-max" step="1">
           </div>
           <button class="btn btn-outline-secondary btn-sm btn-block" id="btn-reset-time">Full Range</button>
@@ -178,11 +189,11 @@
         <div class="card-header">Period Search</div>
         <div class="card-body p-2">
           <div class="form-group mb-1">
-            <label>Min period (days)</label>
+            <label for="min-period">Min period (days)</label>
             <input type="number" class="form-control form-control-sm" id="min-period" value="0.1" min="0.0001" step="0.01">
           </div>
           <div class="form-group mb-2">
-            <label>Max period (days)</label>
+            <label for="max-period">Max period (days)</label>
             <input type="number" class="form-control form-control-sm" id="max-period" value="1000" min="0.01" step="1">
           </div>
           <button class="btn btn-primary btn-block" id="btn-compute">
@@ -192,25 +203,56 @@
         </div>
       </div>
 
-      <!-- Results (shown after compute) -->
+      <!-- Search result (shown after compute) -->
       <div class="card d-none mb-2" id="results-card">
-        <div class="card-header">Results</div>
+        <div class="card-header">Search Result</div>
         <div class="card-body p-2">
           <table class="table table-sm table-borderless mb-0">
             <tbody>
               <tr><td>Best period</td><td class="res-value" id="res-period">—</td></tr>
-              <tr><td>Amplitude</td><td class="res-value" id="res-amplitude">—</td></tr>
-              <tr><td>Mean mag</td><td class="res-value" id="res-offset">—</td></tr>
+              <tr><td>Points</td><td class="res-value" id="res-points">—</td></tr>
               <tr><td>FAP 10%</td><td class="res-value" id="res-fap10">—</td></tr>
               <tr><td>FAP 1%</td><td class="res-value" id="res-fap1">—</td></tr>
               <tr><td>FAP 0.1%</td><td class="res-value" id="res-fap01">—</td></tr>
-              <tr id="res-fit-warn-row" class="d-none">
-                <td colspan="2" class="text-warning" style="font-size:0.75rem;">
-                  Sinusoidal fit did not converge.
-                </td>
+              <tr id="res-excluded-row" class="d-none">
+                <td colspan="2" class="text-warning" style="font-size:0.75rem;" id="res-excluded"></td>
+              </tr>
+              <tr id="res-stale-row" class="d-none">
+                <td colspan="2" class="text-warning" style="font-size:0.75rem;">Selection changed since this search. Compute LSP again to update.</td>
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Folding period -->
+      <div class="card mb-2">
+        <div class="card-header">Fold</div>
+        <div class="card-body p-2">
+          <label for="fold-period">Period (days)</label>
+          <div class="input-group input-group-sm">
+            <input type="number" class="form-control" id="fold-period" min="0" step="any" placeholder="from search or known">
+            <div class="input-group-append">
+              <button class="btn btn-outline-secondary" id="btn-fold">Fold</button>
+            </div>
+          </div>
+          <div class="btn-group btn-group-sm d-flex mt-1" role="group">
+            <button class="btn btn-outline-secondary w-100" id="btn-half">½ P</button>
+            <button class="btn btn-outline-secondary w-100" id="btn-double">2 P</button>
+          </div>
+          <small class="text-muted d-block mt-1">Click a peak in the periodogram to fold at that period.</small>
+        </div>
+      </div>
+
+      <!-- Datasets overplotted with the same period -->
+      <div class="card mb-2">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>Overplot Datasets</span>
+          <button class="btn btn-link" id="btn-clear-overlays">None</button>
+        </div>
+        <div class="card-body p-2">
+          <div class="cb-list cb-list-tall" id="overlay-checkboxes"></div>
+          <small class="text-muted d-block mt-1">Loaded when ticked and folded with the same period.</small>
         </div>
       </div>
 
@@ -221,8 +263,10 @@
     <!-- ═══════════════ Plots column ═══════════════ -->
     <div class="col prd-plots" style="min-width:0;">
 
+      <div class="alert alert-secondary d-none" id="empty-alert">This target has no photometry or high-energy data yet.</div>
+
       <div class="plot-container">
-        <div class="plot-label">Light Curve</div>
+        <div class="plot-label">Light Curve <span class="plot-status" id="lc-status"></span></div>
         <div id="lc-plot" style="height:430px;"></div>
       </div>
 
@@ -232,8 +276,29 @@
       </div>
 
       <div class="plot-container d-none" id="phase-container">
-        <div class="plot-label" id="phase-label">Phase-Folded Light Curve</div>
-        <div id="phase-plot" style="height:330px;"></div>
+        <div class="plot-label d-flex justify-content-between align-items-center">
+          <span id="phase-label">Phase-Folded Light Curve</span>
+          <span class="btn-group btn-group-sm" role="group" aria-label="Phase plot units">
+            <button type="button" class="btn btn-outline-secondary active" data-phase-view="normalised">Normalised</button>
+            <button type="button" class="btn btn-outline-secondary" data-phase-view="original">Original units</button>
+          </span>
+        </div>
+        <div id="phase-plot" style="height:360px;"></div>
+      </div>
+
+      <div class="plot-container d-none" id="fits-container">
+        <div class="plot-label" id="fits-label">Sinusoid fits</div>
+        <div class="table-responsive">
+          <table class="table table-sm fit-table mb-0">
+            <thead>
+              <tr>
+                <th>Dataset</th><th>Unit</th><th>N</th><th>Offset</th><th>Semi-amplitude</th>
+                <th>Max-light phase</th><th title="Max-light phase minus that of the search dataset">Δφ vs search</th>
+              </tr>
+            </thead>
+            <tbody id="fits-tbody"></tbody>
+          </table>
+        </div>
       </div>
 
     </div><!-- /plots -->
@@ -243,7 +308,9 @@
 
 <script>
 
-const PHOT_DATA   = {{ photometry_json|safe }};
+// [{id, product, filter, kind: 'mag'|'flux', n_points, mjd_min, mjd_max}] — points are fetched per dataset.
+const DATASETS    = JSON.parse(document.getElementById('periodicity-datasets').textContent);
+const DATA_URL    = "{% url 'target-periodicity-data' pk=target.pk %}";
 const COMPUTE_URL = "{% url 'target-periodicity-compute' pk=target.pk %}";
 const CSRF_TOKEN  = "{{ csrf_token }}";
 
@@ -257,85 +324,256 @@ const DARK = {
   sub:   '#768390',
 };
 
-
 const PALETTE = [
   '#58a6ff','#ff7b72','#3fb950','#d2a8ff','#ffa657',
   '#79c0ff','#ff9e9e','#56d364','#e8b4f8','#ffca7a',
   '#4dc4ff','#ff5c57','#34d058','#b388ff','#ffb86c',
   '#63d2ff','#ff8585','#4ae168','#ce93d8','#ffd580',
 ];
+const SYMBOLS = ['circle', 'square', 'diamond', 'triangle-up', 'x', 'star', 'triangle-down', 'cross'];
+const KIND_UNIT = { mag: 'mag', flux: 'rel. flux' };
+const PRODUCT_LABELS = { photometry: 'Photometry', highenergy: 'High-energy (rel. flux)' };
+const BAND_SEPARATOR = ' · ';
 
+const datasetById = Object.fromEntries(DATASETS.map(d => [d.id, d]));
+const colorById   = Object.fromEntries(DATASETS.map((d, i) => [d.id, PALETTE[i % PALETTE.length]]));
+const fullMjdMin  = arrMin(DATASETS.map(d => d.mjd_min));
+const fullMjdMax  = arrMax(DATASETS.map(d => d.mjd_max));
+const telSymbol   = {};
+const loaded      = {};  // dataset id -> {telescopes: {name: {mjd: [], val: [], err: []}}}
+const pending     = {};  // dataset id -> Promise while its points are being fetched
+const plotted     = new Set();
+let checkboxCount = 0;
 
-let allFilters    = [];
-let allTelescopes = [];
-let filterColorMap = {};
-let fullMjdMin = Infinity, fullMjdMax = -Infinity;
-let currentResult = null;
-let lcInitialized = false;
+const state = {
+  primary: null,         // dataset searched for a period
+  overlays: new Set(),   // datasets folded with the same period
+  period: null,          // folding period (days)
+  search: null,          // last periodogram
+  searchKey: null,       // selection that periodogram was computed for
+  phaseView: 'normalised',
+};
 
 
 function init() {
-  const filterSet = new Set(), telSet = new Set();
+  bindEvents();
+  if (!DATASETS.length) {
+    document.getElementById('empty-alert').classList.remove('d-none');
+    document.getElementById('btn-compute').disabled = true;
+    return;
+  }
+  buildPrimarySelect();
+  resetTimeInputs();
+  const requested = new URLSearchParams(window.location.search).get('dataset');
+  setPrimary(datasetById[requested] ? requested : defaultPrimaryId());
+}
 
-  for (const [fName, telData] of Object.entries(PHOT_DATA)) {
-    filterSet.add(fName);
-    for (const [tName, pts] of Object.entries(telData)) {
-      telSet.add(tName);
-      for (const p of pts) {
-        if (p.mjd < fullMjdMin) fullMjdMin = p.mjd;
-        if (p.mjd > fullMjdMax) fullMjdMax = p.mjd;
-      }
+function bindEvents() {
+  on('primary-select', 'change', e => setPrimary(e.target.value));
+  on('telescope-checkboxes', 'change', renderAll);
+  on('split-telescopes', 'change', renderAll);
+  on('mjd-min', 'change', renderAll);
+  on('mjd-max', 'change', renderAll);
+  on('btn-all-tels', 'click', () => { checkAll('t', true); renderAll(); });
+  on('btn-none-tels', 'click', () => { checkAll('t', false); renderAll(); });
+  on('btn-reset-time', 'click', () => { resetTimeInputs(); renderAll(); });
+  on('btn-compute', 'click', computeLSP);
+  on('btn-fold', 'click', () => {
+    const period = parseFloat(document.getElementById('fold-period').value);
+    if (period > 0) setPeriod(period); else showError('Enter a positive period.');
+  });
+  on('fold-period', 'keydown', e => { if (e.key === 'Enter') document.getElementById('btn-fold').click(); });
+  on('btn-half', 'click', () => { if (state.period) setPeriod(state.period / 2); });
+  on('btn-double', 'click', () => { if (state.period) setPeriod(state.period * 2); });
+  on('overlay-checkboxes', 'change', e => toggleOverlay(e.target.value, e.target.checked));
+  on('btn-clear-overlays', 'click', () => { state.overlays.clear(); buildOverlayList(); renderAll(); });
+
+  document.querySelectorAll('[data-phase-view]').forEach(btn => btn.addEventListener('click', () => {
+    state.phaseView = btn.dataset.phaseView;
+    document.querySelectorAll('[data-phase-view]').forEach(b => b.classList.toggle('active', b === btn));
+    renderAll();
+  }));
+}
+
+function on(id, type, handler) {
+  document.getElementById(id).addEventListener(type, handler);
+}
+
+// ─────────────────────────────────────────────────────────
+// Datasets
+// ─────────────────────────────────────────────────────────
+
+// The magnitude dataset with the most points (any dataset when there are no magnitudes).
+function defaultPrimaryId() {
+  const mags = DATASETS.filter(d => d.kind === 'mag');
+  return (mags.length ? mags : DATASETS).reduce((best, d) => (d.n_points > best.n_points ? d : best)).id;
+}
+
+function buildPrimarySelect() {
+  const select = document.getElementById('primary-select');
+  for (const [product, label] of Object.entries(PRODUCT_LABELS)) {
+    const items = DATASETS.filter(d => d.product === product);
+    if (!items.length) continue;
+    const group = document.createElement('optgroup');
+    group.label = label;
+    for (const d of items) {
+      const option = document.createElement('option');
+      option.value = d.id;
+      option.textContent = `${d.filter} (${d.n_points.toLocaleString()})`;
+      group.appendChild(option);
+    }
+    select.appendChild(group);
+  }
+}
+
+function buildOverlayList() {
+  const container = document.getElementById('overlay-checkboxes');
+  container.innerHTML = '';
+  for (const [product, label] of Object.entries(PRODUCT_LABELS)) {
+    const items = DATASETS.filter(d => d.product === product && d.id !== state.primary);
+    if (!items.length) continue;
+    const heading = document.createElement('div');
+    heading.className = 'cb-subheading';
+    heading.textContent = label;
+    container.appendChild(heading);
+    for (const d of items) {
+      addCheckbox(
+        container, 'o', d.id,
+        `${escHtml(d.filter)}<span class="cb-count">${d.n_points.toLocaleString()}</span>` +
+        '<span class="cb-loading d-none"> loading…</span>',
+        state.overlays.has(d.id), colorById[d.id],
+      );
     }
   }
-
-  allFilters    = Array.from(filterSet).sort();
-  allTelescopes = Array.from(telSet).sort();
-  allFilters.forEach((f, i) => { filterColorMap[f] = PALETTE[i % PALETTE.length]; });
-
-  buildCheckboxes('filter-checkboxes',    allFilters,    'f', filterColorMap);
-  buildCheckboxes('telescope-checkboxes', allTelescopes, 't', null);
-
-  const ok = isFinite(fullMjdMin);
-  document.getElementById('mjd-min').value = ok ? fullMjdMin.toFixed(1) : '';
-  document.getElementById('mjd-max').value = ok ? fullMjdMax.toFixed(1) : '';
-
-  document.getElementById('btn-all-filters').addEventListener('click',  () => { checkAll('f', true);  onSelectionChange(); });
-  document.getElementById('btn-none-filters').addEventListener('click', () => { checkAll('f', false); onSelectionChange(); });
-  document.getElementById('btn-all-tels').addEventListener('click',    () => { checkAll('t', true);  onSelectionChange(); });
-  document.getElementById('btn-none-tels').addEventListener('click',   () => { checkAll('t', false); onSelectionChange(); });
-  document.getElementById('btn-reset-time').addEventListener('click',  resetTime);
-  document.getElementById('btn-compute').addEventListener('click',     computeLSP);
-
-  document.getElementById('filter-checkboxes').addEventListener('change',    onSelectionChange);
-  document.getElementById('telescope-checkboxes').addEventListener('change', onSelectionChange);
-  document.getElementById('mjd-min').addEventListener('change', onSelectionChange);
-  document.getElementById('mjd-max').addEventListener('change', onSelectionChange);
-
-  renderLightCurve(null);
-  updateCount();
 }
 
-
-function buildCheckboxes(containerId, items, prefix, colorMap) {
-  const div = document.getElementById(containerId);
-  items.forEach((item, idx) => {
-    const color = colorMap ? colorMap[item] : '#cdd9e5';
-    const id    = `cb-${prefix}-${idx}`;
-    const row   = document.createElement('div');
-    row.className = 'form-check';
-    row.innerHTML =
-      `<input class="form-check-input" type="checkbox" id="${id}" name="${prefix}" value="${escHtml(item)}" checked>` +
-      `<label class="form-check-label" for="${id}" title="${escHtml(item)}" style="color:${color};">${escHtml(item)}</label>`;
-    div.appendChild(row);
-  });
+function buildTelescopeCheckboxes(data) {
+  const container = document.getElementById('telescope-checkboxes');
+  container.innerHTML = '';
+  if (!data) return;
+  for (const name of Object.keys(data.telescopes).sort()) {
+    const n = data.telescopes[name].mjd.length;
+    addCheckbox(container, 't', name, `${escHtml(name)}<span class="cb-count">${n.toLocaleString()}</span>`, true, DARK.axis);
+  }
 }
 
-function checkAll(prefix, state) {
-  document.querySelectorAll(`input[name="${prefix}"]`).forEach(cb => cb.checked = state);
+function addCheckbox(container, name, value, labelHtml, checked, color) {
+  const id  = `cb-${name}-${checkboxCount++}`;
+  const row = document.createElement('div');
+  row.className = 'form-check';
+  row.innerHTML =
+    `<input class="form-check-input" type="checkbox" id="${id}" name="${name}" value="${escHtml(value)}"${checked ? ' checked' : ''}>` +
+    `<label class="form-check-label" for="${id}" style="color:${color};">${labelHtml}</label>`;
+  container.appendChild(row);
 }
 
-function selectedValues(prefix) {
-  return new Set(Array.from(document.querySelectorAll(`input[name="${prefix}"]:checked`)).map(cb => cb.value));
+function overlayInput(id) {
+  return Array.from(document.querySelectorAll('input[name="o"]')).find(input => input.value === id);
+}
+
+function setOverlayLoading(id, loading) {
+  const input = overlayInput(id);
+  const badge = input && input.parentElement.querySelector('.cb-loading');
+  if (badge) badge.classList.toggle('d-none', !loading);
+}
+
+function loadDataset(id) {
+  if (loaded[id]) return Promise.resolve(loaded[id]);
+  if (!pending[id]) {
+    pending[id] = fetch(`${DATA_URL}?dataset=${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' } })
+      .then(readJsonResponse)
+      .then(data => {
+        loaded[id] = data;
+        for (const name of Object.keys(data.telescopes)) {
+          if (!(name in telSymbol)) telSymbol[name] = SYMBOLS[Object.keys(telSymbol).length % SYMBOLS.length];
+        }
+        return data;
+      })
+      .finally(() => { delete pending[id]; });
+  }
+  return pending[id];
+}
+
+async function setPrimary(id) {
+  hideError();
+  state.primary = id;
+  state.overlays.delete(id);
+  state.search = null;
+  state.searchKey = null;
+  document.getElementById('primary-select').value = id;
+  document.getElementById('results-card').classList.add('d-none');
+  updatePrimaryInfo();
+  buildOverlayList();
+  buildTelescopeCheckboxes(loaded[id]);
+  replaceUrlDataset(id);
+  renderAll();
+
+  if (loaded[id]) return;
+  const label = datasetById[id].filter;
+  setStatus(`loading ${label}…`);
+  try {
+    await loadDataset(id);
+  } catch (e) {
+    if (state.primary === id) {
+      setStatus('');
+      showError(`Could not load ${label}: ${errorText(e)}`);
+    }
+    return;
+  }
+  if (state.primary !== id) return;  // another dataset was chosen while this one loaded
+  setStatus('');
+  buildTelescopeCheckboxes(loaded[id]);
+  renderAll();
+}
+
+async function toggleOverlay(id, checked) {
+  hideError();
+  if (!checked) {
+    state.overlays.delete(id);
+    renderAll();
+    return;
+  }
+  state.overlays.add(id);
+  if (loaded[id]) { renderAll(); return; }
+
+  setOverlayLoading(id, true);
+  try {
+    await loadDataset(id);
+  } catch (e) {
+    state.overlays.delete(id);
+    const input = overlayInput(id);
+    if (input) input.checked = false;
+    showError(`Could not load ${datasetById[id].filter}: ${errorText(e)}`);
+    return;
+  } finally {
+    setOverlayLoading(id, false);
+  }
+  if (state.overlays.has(id)) renderAll();
+}
+
+function updatePrimaryInfo() {
+  const d = datasetById[state.primary];
+  document.getElementById('primary-info').textContent =
+    `${d.n_points.toLocaleString()} points · MJD ${Math.floor(d.mjd_min)}–${Math.ceil(d.mjd_max)}`;
+}
+
+function replaceUrlDataset(id) {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('dataset', id);
+    window.history.replaceState(null, '', url);
+  } catch (_) { /* history unavailable (sandboxed frame) */ }
+}
+
+// ─────────────────────────────────────────────────────────
+// Selection
+// ─────────────────────────────────────────────────────────
+function checkAll(name, checked) {
+  document.querySelectorAll(`input[name="${name}"]`).forEach(cb => { cb.checked = checked; });
+}
+
+function selectedValues(name) {
+  return new Set(Array.from(document.querySelectorAll(`input[name="${name}"]:checked`)).map(cb => cb.value));
 }
 
 function getMjdRange() {
@@ -344,115 +582,190 @@ function getMjdRange() {
   return [isNaN(lo) ? fullMjdMin : lo, isNaN(hi) ? fullMjdMax : hi];
 }
 
-function resetTime() {
-  document.getElementById('mjd-min').value = fullMjdMin.toFixed(1);
-  document.getElementById('mjd-max').value = fullMjdMax.toFixed(1);
-  onSelectionChange();
+// Rounded outward so the first and last points stay inside the range.
+function resetTimeInputs() {
+  document.getElementById('mjd-min').value = isFinite(fullMjdMin) ? Math.floor(fullMjdMin * 10) / 10 : '';
+  document.getElementById('mjd-max').value = isFinite(fullMjdMax) ? Math.ceil(fullMjdMax * 10) / 10 : '';
 }
 
-// ─────────────────────────────────────────────────────────
-// Data selection
-// ─────────────────────────────────────────────────────────
-function getSelectedData() {
-  const selF = selectedValues('f');
-  const selT = selectedValues('t');
+function selectionKey() {
   const [lo, hi] = getMjdRange();
+  return JSON.stringify([
+    state.primary, Array.from(selectedValues('t')).sort(), lo, hi,
+    document.getElementById('split-telescopes').checked,
+  ]);
+}
 
-  const byFilter = {};
-  const allMjds = [], allMags = [], allErrs = [];
+// Loaded points grouped into bands: one per dataset, or per dataset + telescope with "Offset per telescope".
+// The search dataset comes first and follows the telescope selection; inRange also applies the MJD range.
+function collectBands(inRange) {
+  const split = document.getElementById('split-telescopes').checked;
+  const selectedTels = selectedValues('t');
+  const [lo, hi] = getMjdRange();
+  const bands = [];
 
-  for (const [fName, telData] of Object.entries(PHOT_DATA)) {
-    if (!selF.has(fName)) continue;
-    for (const [tName, pts] of Object.entries(telData)) {
-      if (!selT.has(tName)) continue;
-      for (const p of pts) {
-        if (p.mjd < lo || p.mjd > hi) continue;
-        if (!byFilter[fName]) byFilter[fName] = { mjds:[], mags:[], errs:[], ts:[] };
-        byFilter[fName].mjds.push(p.mjd);
-        byFilter[fName].mags.push(p.mag);
-        byFilter[fName].errs.push(p.err !== null ? p.err : 0);
-        byFilter[fName].ts.push(p.t || '');
-        allMjds.push(p.mjd);
-        allMags.push(p.mag);
-        allErrs.push(p.err !== null ? p.err : 0);
+  for (const id of [state.primary, ...state.overlays]) {
+    const data = loaded[id];
+    if (!data) continue;
+    const meta = datasetById[id];
+    const isPrimary = id === state.primary;
+    const byKey = new Map();
+
+    for (const [tel, cols] of Object.entries(data.telescopes)) {
+      if (isPrimary && !selectedTels.has(tel)) continue;
+      const key = split ? `${meta.filter}${BAND_SEPARATOR}${tel}` : meta.filter;
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          uid: `${id}|${key}`, key, id, kind: meta.kind, primary: isPrimary,
+          telescope: split ? tel : null, mjds: [], vals: [], errs: [],
+        });
+      }
+      const band = byKey.get(key);
+      for (let i = 0; i < cols.mjd.length; i++) {
+        const t = cols.mjd[i];
+        if (inRange && (t < lo || t > hi)) continue;
+        band.mjds.push(t);
+        band.vals.push(cols.val[i]);
+        band.errs.push(cols.err[i]);
       }
     }
+    for (const band of byKey.values()) {
+      if (band.mjds.length) bands.push(band);
+    }
   }
-  return { byFilter, allMjds, allMags, allErrs };
+  return bands;
 }
 
-function updateCount() {
-  const { allMjds } = getSelectedData();
+// Phase zero: the first selected point of the search dataset.
+function foldEpoch(bands) {
+  const primary = bands.filter(b => b.primary);
+  const epoch = arrMin((primary.length ? primary : bands).map(b => arrMin(b.mjds)));
+  return isFinite(epoch) ? epoch : 0;
+}
+
+// ─────────────────────────────────────────────────────────
+// Fitting
+// ─────────────────────────────────────────────────────────
+
+// Weighted least squares y = c + a·sin(ωt) + b·cos(ωt) at a fixed period (linear, so it always converges).
+function fitSinusoid(band, period, epoch) {
+  const n = band.mjds.length;
+  if (n < 3) return null;
+  const errs  = fillErrors(band.errs);
+  const omega = 2 * Math.PI / period;
+  const normal = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const rhs = [0, 0, 0];
+  let sum = 0, sumSq = 0;
+
+  for (let i = 0; i < n; i++) {
+    const x = omega * (band.mjds[i] - epoch);
+    const basis = [1, Math.sin(x), Math.cos(x)];
+    const w = 1 / (errs[i] * errs[i]);
+    const y = band.vals[i];
+    for (let j = 0; j < 3; j++) {
+      rhs[j] += w * basis[j] * y;
+      for (let k = 0; k < 3; k++) normal[j][k] += w * basis[j] * basis[k];
+    }
+    sum += y;
+    sumSq += y * y;
+  }
+
+  const coeffs = solve3(normal, rhs);
+  if (!coeffs) return null;
+  const [offset, sinCoeff, cosCoeff] = coeffs;
+  const phase = Math.atan2(cosCoeff, sinCoeff);
+  const mean  = sum / n;
+  const peak  = band.kind === 'flux' ? 0.25 : 0.75;  // phase of maximum flux / minimum magnitude
+  return {
+    n,
+    offset,
+    phase,
+    amplitude: Math.hypot(sinCoeff, cosCoeff),
+    scale: Math.sqrt(Math.max(sumSq / n - mean * mean, 0)) || 1,
+    sign: band.kind === 'flux' ? -1 : 1,  // flux up == magnitude down
+    maxLightPhase: mod1(peak - phase / (2 * Math.PI)),
+  };
+}
+
+// Missing or non-positive errors take the band's median error; a band without errors is unweighted.
+function fillErrors(errs) {
+  const valid = errs.filter(e => e !== null && isFinite(e) && e > 0).sort((a, b) => a - b);
+  const fill  = valid.length ? valid[Math.floor(valid.length / 2)] : 1;
+  return errs.map(e => (e !== null && isFinite(e) && e > 0 ? e : fill));
+}
+
+function solve3(m, r) {
+  const det = a => a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1])
+                 - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0])
+                 + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+  const d = det(m);
+  if (!isFinite(d) || Math.abs(d) <= 1e-12 * Math.abs(m[0][0] * m[1][1] * m[2][2])) return null;
+  return [0, 1, 2].map(col => det(m.map((row, i) => row.map((v, j) => (j === col ? r[i] : v)))) / d);
+}
+
+// ─────────────────────────────────────────────────────────
+// Rendering
+// ─────────────────────────────────────────────────────────
+function setPeriod(period) {
+  hideError();
+  state.period = period;
+  document.getElementById('fold-period').value = +period.toPrecision(10);
+  renderAll();
+}
+
+function renderAll() {
+  const shown = collectBands(false);
+  const used  = collectBands(true);
+  const epoch = foldEpoch(used);
+  const fits  = new Map();
+  if (state.period) used.forEach(b => fits.set(b.uid, fitSinusoid(b, state.period, epoch)));
+
+  renderLightCurve(shown, used, fits, epoch);
+  if (state.search) renderLSP(state.search); else hide('lsp-container');
+  if (state.period && used.length) {
+    renderPhaseFold(used, fits, epoch);
+    renderFitTable(used, fits);
+  } else {
+    hide('phase-container');
+    hide('fits-container');
+  }
+  updateCount(used);
+  document.getElementById('res-stale-row').classList.toggle('d-none', !state.search || state.searchKey === selectionKey());
+}
+
+function updateCount(used) {
+  const d = datasetById[state.primary];
+  const n = used.filter(b => b.primary).reduce((sum, b) => sum + b.mjds.length, 0);
   document.getElementById('selected-count').textContent =
-    `${allMjds.length} point${allMjds.length !== 1 ? 's' : ''} selected`;
+    loaded[state.primary] ? `${n.toLocaleString()} point${n !== 1 ? 's' : ''} of ${d.filter} selected` : '';
 }
 
-
-function onSelectionChange() {
-  currentResult = null;
-  renderLightCurve(null);
-  updateCount();
-  hideLSP();
-  hidePhase();
+// Magnitudes on the (reversed) left axis; fluxes on a right axis, or on the left when no magnitudes are shown.
+function axesFor(bands) {
+  const kinds  = new Set(bands.map(b => b.kind));
+  const hasMag = kinds.has('mag') || !kinds.has('flux');
+  return { mag: 'y', flux: hasMag ? 'y2' : 'y', hasMag, dual: hasMag && kinds.has('flux') };
 }
 
-function renderLightCurve(result) {
-  const { byFilter } = getSelectedData();
-  const traces = [];
+function axisStyle() {
+  return { color: DARK.axis, gridcolor: DARK.grid, zerolinecolor: DARK.grid, linecolor: DARK.grid, tickcolor: DARK.axis };
+}
 
-  for (const [fName, fd] of Object.entries(byFilter)) {
-    const color = filterColorMap[fName] || '#cccccc';
-    traces.push({
-      x: fd.mjds,
-      y: fd.mags,
-      error_y: {
-        type: 'data', array: fd.errs,
-        visible: true, thickness: 1, width: 0,
-        color: color + '99',
-      },
-      mode: 'markers',
-      type: 'scatter',
-      name: fName,
-      marker: { color, size: 5 },
-      customdata: fd.ts.map((t, i) => [t, fd.errs[i].toFixed(3)]),
-      hovertemplate:
-        'MJD %{x:.4f}  (%{customdata[0]})<br>Mag %{y:.3f} ± %{customdata[1]}' +
-        '<extra>' + fName + '</extra>',
-    });
-  }
-
-  if (result && result.fit) {
-    traces.push({
-      x: result.fit.times_fine,
-      y: result.fit.mags_fine,
-      mode: 'lines',
-      type: 'scatter',
-      name: `Sinusoidal fit  P=${result.best_period.toFixed(6)} d`,
-      line: { color: '#ffd700', width: 2 },
-      hovertemplate: 'Fit  MJD %{x:.4f}<br>Mag %{y:.3f}<extra>Fit</extra>',
-    });
-  }
-
+function yAxesLayout(axes) {
   const layout = {
-    title: {
-      text: result
-        ? `Light Curve  (P = ${result.best_period.toFixed(6)} d)`
-        : 'Light Curve',
-      font: { color: DARK.text, size: 13 },
-    },
-    xaxis: {
-      title: 'MJD',
-      tickformat: '.0f',      // show full integer: 54000 not 54k
-      exponentformat: 'none', // no scientific notation
-      color: DARK.axis, gridcolor: DARK.grid, zerolinecolor: DARK.grid,
-      linecolor: DARK.grid, tickcolor: DARK.axis,
-    },
-    yaxis: {
-      title: 'Magnitude',
-      autorange: 'reversed',
-      color: DARK.axis, gridcolor: DARK.grid, zerolinecolor: DARK.grid,
-      linecolor: DARK.grid, tickcolor: DARK.axis,
-    },
+    yaxis: axes.hasMag
+      ? { title: 'Magnitude', autorange: 'reversed', ...axisStyle() }
+      : { title: 'Relative flux', ...axisStyle() },
+  };
+  if (axes.dual) {
+    layout.yaxis2 = { title: 'Relative flux', overlaying: 'y', side: 'right', showgrid: false, ...axisStyle() };
+  }
+  return layout;
+}
+
+function baseLayout(title) {
+  return {
+    title: { text: title, font: { color: DARK.text, size: 13 } },
     paper_bgcolor: DARK.paper,
     plot_bgcolor:  DARK.plot,
     font: { color: DARK.text },
@@ -463,33 +776,108 @@ function renderLightCurve(result) {
     margin: { t: 40, b: 55, l: 62, r: 16 },
     hovermode: 'closest',
   };
+}
 
-  if (!lcInitialized) {
-    Plotly.newPlot('lc-plot', traces, layout, plotConfig());
-    lcInitialized = true;
-    document.getElementById('lc-plot').on('plotly_relayout', onLightCurveZoom);
-  } else {
-    Plotly.react('lc-plot', traces, layout, plotConfig());
+function pointsTrace(band, xs, ys, errs, customdata, axis, xHover) {
+  const color = colorById[band.id] || '#cccccc';
+  return {
+    x: xs,
+    y: ys,
+    error_y: {
+      type: 'data', array: errs.map(e => e ?? 0),
+      visible: true, thickness: 1, width: 0,
+      color: color + '99',
+    },
+    mode: 'markers',
+    type: xs.length > 3000 ? 'scattergl' : 'scatter',  // SVG scatter freezes the page for large light curves
+    name: (band.primary ? '★ ' : '') + band.key,
+    legendgroup: band.uid,
+    yaxis: axis,
+    marker: { color, size: band.primary ? 5 : 4, symbol: band.telescope ? telSymbol[band.telescope] : 'circle' },
+    customdata,
+    hovertemplate: `${xHover}<br>${band.kind === 'flux' ? 'Flux' : 'Mag'} %{y:.4f}<extra>${escHtml(band.key)}</extra>`,
+  };
+}
+
+function fitTrace(band, xs, ys, axis) {
+  return {
+    x: xs, y: ys,
+    mode: 'lines', type: 'scatter',
+    name: `${band.key} fit`,
+    legendgroup: band.uid,
+    showlegend: false,
+    yaxis: axis,
+    line: { color: colorById[band.id] || '#ffd700', width: 2 },
+    hoverinfo: 'skip',
+  };
+}
+
+function plot(id, traces, layout, onFirstPlot) {
+  Plotly.react(id, traces, layout, plotConfig());
+  if (!plotted.has(id)) {
+    plotted.add(id);
+    if (onFirstPlot) onFirstPlot(document.getElementById(id));
   }
+}
+
+function renderLightCurve(shown, used, fits, epoch) {
+  const axes = axesFor(shown);
+  const traces = shown.map(b => pointsTrace(b, b.mjds, b.vals, b.errs, undefined, b.kind === 'flux' ? axes.flux : axes.mag, 'MJD %{x:.5f}'));
+
+  for (const b of used) {
+    const fit = fits.get(b.uid);
+    if (!fit) continue;
+    const lo = arrMin(b.mjds), hi = arrMax(b.mjds);
+    const n  = Math.min(4000, Math.max(200, Math.ceil((hi - lo) / state.period * 25)));
+    const xs = Array.from({ length: n }, (_, i) => lo + (hi - lo) * i / (n - 1));
+    const ys = xs.map(t => fit.offset + fit.amplitude * Math.sin(2 * Math.PI * (t - epoch) / state.period + fit.phase));
+    traces.push(fitTrace(b, xs, ys, b.kind === 'flux' ? axes.flux : axes.mag));
+  }
+
+  const [lo, hi] = getMjdRange();
+  const layout = {
+    ...baseLayout(state.period ? `Light Curve  (P = ${fmtPeriod(state.period)} d)` : 'Light Curve'),
+    xaxis: {
+      title: 'MJD',
+      tickformat: '.0f',      // show full integer: 54000 not 54k
+      exponentformat: 'none', // no scientific notation
+      ...axisStyle(),
+    },
+    ...yAxesLayout(axes),
+    // Shade the selected time range when it is narrower than the data.
+    shapes: lo > fullMjdMin || hi < fullMjdMax ? [{
+      type: 'rect', xref: 'x', yref: 'paper', x0: lo, x1: hi, y0: 0, y1: 1,
+      fillcolor: 'rgba(83,155,245,0.10)', line: { width: 0 }, layer: 'below',
+    }] : [],
+    uirevision: `lc-${state.primary}`,  // keep the user's zoom across redraws
+  };
+  if (axes.dual) layout.margin.r = 62;
+
+  plot('lc-plot', traces, layout, gd => gd.on('plotly_relayout', onLightCurveZoom));
 }
 
 // Sync the MJD "Time Range" fields to a zoom/drag selection made on the light curve plot.
 function onLightCurveZoom(eventData) {
+  let range = null;
   if (eventData['xaxis.range[0]'] !== undefined && eventData['xaxis.range[1]'] !== undefined) {
-    document.getElementById('mjd-min').value = eventData['xaxis.range[0]'].toFixed(1);
-    document.getElementById('mjd-max').value = eventData['xaxis.range[1]'].toFixed(1);
-    onSelectionChange();
+    range = [eventData['xaxis.range[0]'], eventData['xaxis.range[1]']];
   } else if (Array.isArray(eventData['xaxis.range'])) {
-    document.getElementById('mjd-min').value = eventData['xaxis.range'][0].toFixed(1);
-    document.getElementById('mjd-max').value = eventData['xaxis.range'][1].toFixed(1);
-    onSelectionChange();
+    range = eventData['xaxis.range'];
   } else if (eventData['xaxis.autorange']) {
     // Double-click resets zoom — go back to the full MJD range.
-    resetTime();
+    resetTimeInputs();
+    renderAll();
+    return;
   }
+  if (!range) return;
+  document.getElementById('mjd-min').value = Math.floor(range[0] * 10) / 10;
+  document.getElementById('mjd-max').value = Math.ceil(range[1] * 10) / 10;
+  renderAll();
 }
 
 function renderLSP(result) {
+  const peak = arrMax(result.powers);
+  // Vertical markers are traces rather than shapes, which are awkward on log axes.
   const traces = [
     {
       x: result.periods,
@@ -498,27 +886,32 @@ function renderLSP(result) {
       type: 'scatter',
       name: 'LSP power',
       line: { color: '#4fc3f7', width: 1.5 },
-      hovertemplate: 'Period %{x:.6f} d<br>Power %{y:.5f}<extra></extra>',
+      hovertemplate: 'Period %{x:.6f} d<br>Power %{y:.5f}<extra>click to fold</extra>',
     },
     {
       x: [result.best_period],
-      y: [Math.max(...result.powers)],
+      y: [peak],
       mode: 'markers',
       type: 'scatter',
-      name: `Best: ${result.best_period.toFixed(6)} d`,
+      name: `Best: ${fmtPeriod(result.best_period)} d`,
       marker: { color: '#ffd700', size: 11, symbol: 'triangle-down' },
-      hovertemplate: `Best period<br>${result.best_period.toFixed(6)} d<extra></extra>`,
+      hovertemplate: `Best period<br>${fmtPeriod(result.best_period)} d<extra></extra>`,
     },
   ];
+  if (state.period && Math.abs(state.period / result.best_period - 1) > 1e-9) {
+    traces.push({
+      x: [state.period, state.period],
+      y: [0, peak],
+      mode: 'lines',
+      type: 'scatter',
+      name: `Folded: ${fmtPeriod(state.period)} d`,
+      line: { color: '#3fb950', dash: 'dash', width: 1.5 },
+      hoverinfo: 'skip',
+    });
+  }
 
-  const shapes = [{
-    type: 'line',
-    x0: result.best_period, x1: result.best_period,
-    yref: 'paper', y0: 0, y1: 1,
-    line: { color: '#ffd700', dash: 'dot', width: 1.5 },
-  }];
+  const shapes = [];
   const annotations = [];
-
   [
     { val: result.fap_10,  label: 'FAP 10%',  color: '#ffb347' },
     { val: result.fap_1,   label: 'FAP 1%',   color: '#ff7043' },
@@ -537,181 +930,201 @@ function renderLSP(result) {
   });
 
   const layout = {
-    title: { text: 'Lomb-Scargle Periodogram', font: { color: DARK.text, size: 13 } },
-    xaxis: {
-      title: 'Period (days)',
-      type: 'log',
-      exponentformat: 'power',
-      color: DARK.axis, gridcolor: DARK.grid, zerolinecolor: DARK.grid,
-      linecolor: DARK.grid, tickcolor: DARK.axis,
-    },
-    yaxis: {
-      title: 'LSP Power',
-      color: DARK.axis, gridcolor: DARK.grid, zerolinecolor: DARK.grid,
-      linecolor: DARK.grid, tickcolor: DARK.axis,
-    },
-    paper_bgcolor: DARK.paper,
-    plot_bgcolor:  DARK.plot,
-    font: { color: DARK.text },
-    shapes, annotations,
-    legend: {
-      bgcolor: 'rgba(0,0,0,0.5)', bordercolor: '#444c56', borderwidth: 1,
-      font: { size: 11 },
-    },
-    margin: { t: 40, b: 55, l: 62, r: 85 },
-    hovermode: 'closest',
+    ...baseLayout(`Lomb-Scargle Periodogram — ${datasetById[state.primary].filter}`),
+    xaxis: { title: 'Period (days)', type: 'log', exponentformat: 'power', ...axisStyle() },
+    yaxis: { title: 'LSP Power', ...axisStyle() },
+    shapes,
+    annotations,
+    uirevision: `lsp-${state.searchKey}`,
   };
+  layout.margin.r = 85;
 
-  document.getElementById('lsp-container').classList.remove('d-none');
-  Plotly.react('lsp-plot', traces, layout, plotConfig());
+  show('lsp-container');
+  plot('lsp-plot', traces, layout, gd => gd.on('plotly_click', event => {
+    const point = event.points && event.points[0];
+    if (point && point.x > 0) setPeriod(point.x);
+  }));
 }
 
-function hideLSP() { document.getElementById('lsp-container').classList.add('d-none'); }
-
-function renderPhaseFold(result) {
-  if (!result || !result.fit) return;
-
-  const P = result.best_period;
-  const { byFilter, allMjds } = getSelectedData();
-  const t0 = allMjds.length ? Math.min(...allMjds) : 0;
+// Normalised view: every band as sign·(value − offset)/scatter, so filters and fluxes overlay with brighter up.
+function renderPhaseFold(bands, fits, epoch) {
+  const P = state.period;
+  const normalised = state.phaseView === 'normalised';
+  const axes = normalised ? { mag: 'y', flux: 'y', hasMag: true, dual: false } : axesFor(bands);
+  const phaseFine = Array.from({ length: 401 }, (_, i) => i / 200);
   const traces = [];
 
-  for (const [fName, fd] of Object.entries(byFilter)) {
-    const color  = filterColorMap[fName] || '#cccccc';
-    const phases = fd.mjds.map(t => ((t - t0) % P + P) % P / P);
+  for (const b of bands) {
+    const fit = fits.get(b.uid);
+    if (normalised && !fit) continue;  // needs the fitted offset and scatter
+    const axis   = !normalised && b.kind === 'flux' ? axes.flux : axes.mag;
+    const phases = b.mjds.map(t => mod1((t - epoch) / P));
+    const ys     = normalised ? b.vals.map(v => fit.sign * (v - fit.offset) / fit.scale) : b.vals;
+    const errs   = normalised ? b.errs.map(e => (e === null ? null : e / fit.scale)) : b.errs;
+
     // duplicate to show 2 full periods
-    traces.push({
-      x: [...phases, ...phases.map(ph => ph + 1)],
-      y: [...fd.mags,  ...fd.mags],
-      error_y: {
-        type: 'data',
-        array: [...fd.errs, ...fd.errs],
-        visible: true, thickness: 1, width: 0, color: color + '99',
-      },
-      mode: 'markers', type: 'scatter',
-      name: fName,
-      marker: { color, size: 4 },
-      hovertemplate: 'Phase %{x:.4f}<br>Mag %{y:.3f}<extra>' + fName + '</extra>',
-    });
+    traces.push(pointsTrace(
+      b,
+      [...phases, ...phases.map(ph => ph + 1)], [...ys, ...ys], [...errs, ...errs], [...b.mjds, ...b.mjds],
+      axis, 'Phase %{x:.4f} · MJD %{customdata:.5f}',
+    ));
+    if (fit) {
+      traces.push(fitTrace(b, phaseFine, phaseFine.map(ph => {
+        const s = fit.amplitude * Math.sin(2 * Math.PI * ph + fit.phase);
+        return normalised ? fit.sign * s / fit.scale : fit.offset + s;
+      }), axis));
+    }
   }
 
-  // Smooth fit curve over 2 periods
-  const { amplitude, phase, offset } = result.fit;
-  const phaseFine = Array.from({ length: 401 }, (_, i) => i / 200);
-  const magsFine  = phaseFine.map(ph => {
-    const t = t0 + ph * P;
-    return offset + amplitude * Math.sin(2 * Math.PI / P * t + phase);
-  });
-  traces.push({
-    x: phaseFine, y: magsFine,
-    mode: 'lines', type: 'scatter',
-    name: 'Sinusoidal fit',
-    line: { color: '#ffd700', width: 2 },
-    hovertemplate: 'Phase %{x:.4f}<br>Mag %{y:.3f}<extra>Fit</extra>',
-  });
-
-  const title = `Phase-Folded Light Curve  (P = ${P.toFixed(6)} d)`;
+  const title = `Phase-Folded Light Curve  (P = ${fmtPeriod(P)} d, T0 = MJD ${epoch.toFixed(5)})`;
   document.getElementById('phase-label').textContent = title;
 
   const layout = {
-    title: { text: title, font: { color: DARK.text, size: 13 } },
-    xaxis: {
-      title: 'Phase', range: [0, 2],
-      color: DARK.axis, gridcolor: DARK.grid, zerolinecolor: DARK.grid,
-      linecolor: DARK.grid, tickcolor: DARK.axis,
-    },
-    yaxis: {
-      title: 'Magnitude',
-      autorange: 'reversed',
-      color: DARK.axis, gridcolor: DARK.grid, zerolinecolor: DARK.grid,
-      linecolor: DARK.grid, tickcolor: DARK.axis,
-    },
-    paper_bgcolor: DARK.paper,
-    plot_bgcolor:  DARK.plot,
-    font: { color: DARK.text },
-    legend: {
-      bgcolor: 'rgba(0,0,0,0.5)', bordercolor: '#444c56', borderwidth: 1,
-      font: { size: 11 },
-    },
-    margin: { t: 40, b: 55, l: 62, r: 16 },
-    hovermode: 'closest',
+    ...baseLayout(title),
+    xaxis: { title: 'Phase', range: [0, 2], ...axisStyle() },
+    ...(normalised
+      ? { yaxis: { title: 'Normalised brightness (σ, brighter ↑)', autorange: 'reversed', ...axisStyle() } }
+      : yAxesLayout(axes)),
+    uirevision: `phase-${state.primary}-${state.phaseView}`,
   };
+  if (axes.dual) layout.margin.r = 62;
 
-  document.getElementById('phase-container').classList.remove('d-none');
-  Plotly.react('phase-plot', traces, layout, plotConfig());
+  show('phase-container');
+  plot('phase-plot', traces, layout);
 }
 
-function hidePhase() { document.getElementById('phase-container').classList.add('d-none'); }
+function renderFitTable(bands, fits) {
+  const refBand = bands.find(b => b.primary && fits.get(b.uid));
+  const ref = refBand ? fits.get(refBand.uid) : null;
+  const tbody = document.getElementById('fits-tbody');
+  tbody.innerHTML = '';
 
+  for (const b of bands) {
+    const fit = fits.get(b.uid);
+    const cells = fit
+      ? [fit.n, fit.offset.toFixed(4), fit.amplitude.toFixed(4), fit.maxLightPhase.toFixed(3),
+         ref && fit !== ref ? signedPhase(fit.maxLightPhase - ref.maxLightPhase) : '—']
+      : [b.mjds.length, '—', '—', '—', '—'];
+    const row = document.createElement('tr');
+    row.innerHTML =
+      `<td style="color:${colorById[b.id]};">${b.primary ? '★ ' : ''}${escHtml(b.key)}</td>` +
+      `<td>${KIND_UNIT[b.kind] || b.kind}</td>` +
+      cells.map(c => `<td>${c}</td>`).join('');
+    tbody.appendChild(row);
+  }
+  document.getElementById('fits-label').textContent = `Sinusoid fits at P = ${fmtPeriod(state.period)} d`;
+  show('fits-container');
+}
+
+// ─────────────────────────────────────────────────────────
+// Period search
+// ─────────────────────────────────────────────────────────
 async function computeLSP() {
   hideError();
-  const { allMjds, allMags, allErrs } = getSelectedData();
+  const primary = state.primary;
+  if (!loaded[primary]) { showError('The search dataset is still loading.'); return; }
 
-  if (allMjds.length < 5) {
-    showError(`Need at least 5 data points (${allMjds.length} currently selected).`);
+  const count = collectBands(true).filter(b => b.primary).reduce((n, b) => n + b.mjds.length, 0);
+  if (count < 5) {
+    showError(`Need at least 5 data points (${count} currently selected).`);
     return;
   }
-
   const minP = parseFloat(document.getElementById('min-period').value) || 0.1;
   const maxP = parseFloat(document.getElementById('max-period').value) || 1000;
   if (minP >= maxP) { showError('Min period must be less than max period.'); return; }
 
+  const [lo, hi] = getMjdRange();
+  const key = selectionKey();
+  let data;
   setComputing(true);
   try {
+    // Only the selection is sent; the server loads the dataset itself.
     const resp = await fetch(COMPUTE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
       body: JSON.stringify({
-        times_mjd: allMjds, magnitudes: allMags, errors: allErrs,
-        min_period: minP, max_period: maxP,
+        dataset: primary,
+        telescopes: Array.from(selectedValues('t')),
+        mjd_min: isFinite(lo) ? lo : null,
+        mjd_max: isFinite(hi) ? hi : null,
+        split_telescopes: document.getElementById('split-telescopes').checked,
+        min_period: minP,
+        max_period: maxP,
       }),
     });
-    const data = await resp.json();
-    if (!resp.ok) { showError(data.error || `Server error (${resp.status})`); return; }
-
-    currentResult = data;
-    renderLightCurve(data);
-    renderLSP(data);
-    renderPhaseFold(data);
-    showResults(data);
+    data = await readJsonResponse(resp);
   } catch (e) {
-    showError(`Network error: ${e.message}`);
+    showError(errorText(e));
+    return;
   } finally {
     setComputing(false);
   }
+  if (state.primary !== primary) return;  // search dataset changed while computing
+
+  state.search = data;
+  state.searchKey = key;
+  showResults(data);
+  setPeriod(data.best_period);
+}
+
+function showResults(r) {
+  const fap = v => (v !== null && v !== undefined ? v.toFixed(5) : '—');
+  document.getElementById('results-card').classList.remove('d-none');
+  document.getElementById('res-period').textContent = `${fmtPeriod(r.best_period)} d`;
+  document.getElementById('res-points').textContent =
+    r.bands.length > 1 ? `${r.n_points.toLocaleString()} (${r.bands.length} telescopes)` : r.n_points.toLocaleString();
+  document.getElementById('res-fap10').textContent = fap(r.fap_10);
+  document.getElementById('res-fap1').textContent  = fap(r.fap_1);
+  document.getElementById('res-fap01').textContent = fap(r.fap_01);
+
+  const excluded = r.excluded_bands || [];
+  document.getElementById('res-excluded').textContent = `Skipped (< 3 points): ${excluded.join(', ')}`;
+  document.getElementById('res-excluded-row').classList.toggle('d-none', excluded.length === 0);
 }
 
 // ─────────────────────────────────────────────────────────
-// UI helpers
+// Helpers
 // ─────────────────────────────────────────────────────────
+
+// Parse a JSON response. HTML error pages (login redirect, proxy timeout, Django error page)
+// become a readable Error instead of "JSON.parse: unexpected character".
+async function readJsonResponse(resp) {
+  const text = await resp.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (_) { /* not JSON */ }
+
+  if (data !== null && typeof data === 'object') {
+    if (!resp.ok) throw new Error(data.error || `Server error (${resp.status})`);
+    return data;
+  }
+  if (resp.redirected && /login/i.test(resp.url)) {
+    throw new Error('Your session has expired. Reload the page and log in again.');
+  }
+  const title  = (/<title[^>]*>([^<]*)<\/title>/i.exec(text) || [])[1];
+  const detail = (title || text.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 160);
+  const status = `${resp.status}${resp.statusText ? ' ' + resp.statusText : ''}`;
+  throw new Error(`Server error (${status})${detail ? ': ' + detail : ''}`);
+}
+
+function errorText(e) {
+  return e instanceof TypeError ? `Network error: ${e.message}` : e.message;
+}
+
 function setComputing(flag) {
   document.getElementById('btn-compute').disabled = flag;
   document.getElementById('compute-spinner').classList.toggle('d-none', !flag);
 }
 
-function showResults(r) {
-  document.getElementById('results-card').classList.remove('d-none');
-  document.getElementById('res-period').textContent = `${r.best_period.toFixed(6)} d`;
-  document.getElementById('res-fap10').textContent  = r.fap_10 !== null ? r.fap_10.toFixed(5) : '—';
-  document.getElementById('res-fap1').textContent   = r.fap_1  !== null ? r.fap_1.toFixed(5)  : '—';
-  document.getElementById('res-fap01').textContent  = r.fap_01 !== null ? r.fap_01.toFixed(5) : '—';
-  if (r.fit) {
-    document.getElementById('res-amplitude').textContent = `${Math.abs(r.fit.amplitude).toFixed(4)} mag`;
-    document.getElementById('res-offset').textContent    = `${r.fit.offset.toFixed(3)} mag`;
-    document.getElementById('res-fit-warn-row').classList.add('d-none');
-  } else {
-    document.getElementById('res-amplitude').textContent = '—';
-    document.getElementById('res-offset').textContent    = '—';
-    document.getElementById('res-fit-warn-row').classList.remove('d-none');
-  }
-}
+function setStatus(text) { document.getElementById('lc-status').textContent = text; }
+function show(id) { document.getElementById(id).classList.remove('d-none'); }
+function hide(id) { document.getElementById(id).classList.add('d-none'); }
 
 function showError(msg) {
   const el = document.getElementById('error-alert');
   el.textContent = msg;
   el.classList.remove('d-none');
 }
-function hideError() { document.getElementById('error-alert').classList.add('d-none'); }
+function hideError() { hide('error-alert'); }
 
 function plotConfig() {
   return {
@@ -720,6 +1133,14 @@ function plotConfig() {
     modeBarButtonsToRemove: ['lasso2d', 'select2d'],
   };
 }
+
+function fmtPeriod(p) { return p >= 0.01 ? p.toFixed(6) : p.toPrecision(6); }
+function signedPhase(d) { const v = mod1(d + 0.5) - 0.5; return (v >= 0 ? '+' : '') + v.toFixed(3); }
+function mod1(x) { return ((x % 1) + 1) % 1; }
+
+// Spread-free min/max: Math.min(...arr) overflows the call stack for large light curves.
+function arrMin(arr) { return arr.reduce((m, v) => (v < m ? v : m), Infinity); }
+function arrMax(arr) { return arr.reduce((m, v) => (v > m ? v : m), -Infinity); }
 
 function escHtml(s) {
   return String(s)

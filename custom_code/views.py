@@ -15,7 +15,6 @@ import numpy as np
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
-from astropy.timeseries import LombScargle
 from astroquery.jplhorizons import Horizons
 from astroquery.mpc import MPC
 from plotly import graph_objs as go
@@ -42,7 +41,9 @@ from django.views import View
 from django.utils import timezone as django_timezone
 from django.utils.decorators import method_decorator
 from django.urls import reverse, reverse_lazy
-from django.db.models import Count, Q
+from django.db.models import Count, Max, Min, Q, TextField
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast
 from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
 from django_comments.models import Comment
@@ -77,6 +78,7 @@ from tom_observations.facility import get_service_class
 from tom_observations.models import ObservationRecord
 
 from custom_code.filters import BhtomTargetFilterSet
+from custom_code.periodicity import PeriodSearchError, search_period
 from custom_code.bhtom2_uploads import (
     ensure_fits_dataproduct_type,
     forward_dataproduct_to_bhtom2,
@@ -5340,156 +5342,226 @@ class UpdateReducedDataAndDataServicesView(LoginRequiredMixin, RedirectView):
                 logger.warning('Could not enqueue DataServices for target %s: %s', pk, exc)
 
 
+MJD_EPOCH = datetime(1858, 11, 17, tzinfo=timezone.utc)
+PERIODICITY_BAND_SEPARATOR = ' · '
+# Data products usable on the periodicity page: (value key, kind, rounding decimals).
+PERIODICITY_PRODUCTS = {
+    'photometry': ('magnitude', 'mag', 4),
+    'highenergy': ('flux', 'flux', 6),
+}
+
+
+def _periodicity_mjd(timestamp):
+    # Plain arithmetic rather than astropy Time per point, which dominated load time for 100k-point light curves.
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return (timestamp - MJD_EPOCH).total_seconds() / 86400.0
+
+
+def _periodicity_filter_name(raw):
+    name = '' if raw is None else str(raw).strip()
+    return name or 'Unknown'
+
+
+def _periodicity_datums(user, target, product):
+    try:
+        data_type = settings.DATA_PRODUCT_TYPES[product][0]
+    except (AttributeError, KeyError):
+        data_type = product
+
+    datums = ReducedDatum.objects.filter(target=target, data_type=data_type)
+    if not settings.TARGET_PERMISSIONS_ONLY:
+        datums = get_objects_for_user(user, 'tom_dataproducts.view_reduceddatum', klass=datums)
+    # Cast to plain text: on SQLite, lookups such as __in on a raw key transform wrap values in JSON_EXTRACT
+    # and fail with "malformed JSON" for plain strings.
+    return datums.annotate(filter_text=Cast(KeyTextTransform('filter', 'value'), output_field=TextField()))
+
+
+def _periodicity_datasets(user, target):
+    """One entry per filter with its point count and MJD span, aggregated in the database without loading points."""
+    datasets = {}
+    for product, (value_key, kind, _) in PERIODICITY_PRODUCTS.items():
+        datums = (
+            _periodicity_datums(user, target, product)
+            .exclude(**{f'value__{value_key}__isnull': True})
+            .exclude(**{f'value__{value_key}': None})
+        )
+        if kind == 'flux':
+            datums = datums.exclude(**{f'value__{value_key}': -1})  # FAVA upper limits
+        groups = (
+            datums.order_by()
+            .values('filter_text')
+            .annotate(n_points=Count('id'), first=Min('timestamp'), last=Max('timestamp'))
+        )
+        for group in groups:
+            name = _periodicity_filter_name(group['filter_text'])
+            dataset_id = f'{product}:{name}'
+            dataset = datasets.setdefault(dataset_id, {
+                'id': dataset_id, 'product': product, 'filter': name, 'kind': kind,
+                'n_points': 0, 'mjd_min': math.inf, 'mjd_max': -math.inf,
+            })
+            dataset['n_points'] += group['n_points']
+            dataset['mjd_min'] = min(dataset['mjd_min'], _periodicity_mjd(group['first']))
+            dataset['mjd_max'] = max(dataset['mjd_max'], _periodicity_mjd(group['last']))
+    return sorted(datasets.values(), key=lambda d: (d['kind'] != 'mag', d['filter'].lower()))
+
+
+def _load_periodicity_dataset(user, target, dataset_id):
+    """Points of one dataset ('<product>:<filter>'), columnar per telescope; None if the target has none.
+
+    {'id', 'product', 'filter', 'kind', 'telescopes': {telescope: {'mjd': [...], 'val': [...], 'err': [...]}}}
+    Raises ValueError for a malformed dataset id.
+    """
+    product, _, filter_name = str(dataset_id or '').partition(':')
+    if product not in PERIODICITY_PRODUCTS or not filter_name:
+        raise ValueError(f'Unknown dataset {dataset_id!r}')
+    value_key, kind, decimals = PERIODICITY_PRODUCTS[product]
+
+    datums = _periodicity_datums(user, target, product)
+    raw_names = [
+        raw for raw in datums.order_by().values_list('filter_text', flat=True).distinct()
+        if _periodicity_filter_name(raw) == filter_name
+    ]
+    if not raw_names:
+        return None
+    selector = Q(filter_text__in=[raw for raw in raw_names if raw is not None])
+    if None in raw_names:
+        selector |= Q(filter_text__isnull=True)
+
+    telescopes = {}
+    rows = datums.filter(selector).order_by('timestamp').values_list('timestamp', 'value', 'source_name')
+    for timestamp, data, source_name in rows:
+        if not isinstance(data, dict) or data.get(value_key) is None:
+            continue  # skip upper limits
+        err = data.get('error')
+        if err is None:
+            err = data.get(f'{value_key}_error')
+        try:
+            value = float(data[value_key])
+            err = float(err) if err is not None else None
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(value):
+            continue
+        if err is not None and not math.isfinite(err):
+            err = None
+        # High-energy upper limits are stored as flux == -1 or a zero error.
+        if kind == 'flux' and (value == -1 or err == 0):
+            continue
+
+        telescope = str(data.get('telescope') or data.get('facility') or source_name or 'Unknown').strip() or 'Unknown'
+        columns = telescopes.setdefault(telescope, {'mjd': [], 'val': [], 'err': []})
+        columns['mjd'].append(round(_periodicity_mjd(timestamp), 6))
+        columns['val'].append(round(value, decimals))
+        columns['err'].append(round(err, decimals) if err is not None else None)
+
+    return {'id': f'{product}:{filter_name}', 'product': product, 'filter': filter_name, 'kind': kind,
+            'telescopes': telescopes}
+
+
+def _select_periodicity_points(dataset, telescopes=None, mjd_min=None, mjd_max=None, split_telescopes=False):
+    """Flatten one dataset into search_period() arguments, mirroring the page's selection."""
+    telescopes = None if telescopes is None else set(telescopes)
+    points = {'times': [], 'values': [], 'errors': [], 'bands': []}
+    for telescope, columns in dataset['telescopes'].items():
+        if telescopes is not None and telescope not in telescopes:
+            continue
+        band = f'{dataset["filter"]}{PERIODICITY_BAND_SEPARATOR}{telescope}' if split_telescopes else dataset['filter']
+        for mjd, value, err in zip(columns['mjd'], columns['val'], columns['err']):
+            if (mjd_min is not None and mjd < mjd_min) or (mjd_max is not None and mjd > mjd_max):
+                continue
+            points['times'].append(mjd)
+            points['values'].append(value)
+            points['errors'].append(err)
+            points['bands'].append(band)
+    return points
+
+
 class TargetPeriodicityView(LoginRequiredMixin, TemplateView):
     template_name = 'custom_code/target_periodicity.html'
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         target = get_object_or_404(Target, pk=self.kwargs['pk'])
-
-        try:
-            photometry_type = settings.DATA_PRODUCT_TYPES['photometry'][0]
-        except (AttributeError, KeyError):
-            photometry_type = 'photometry'
-
-        if settings.TARGET_PERMISSIONS_ONLY:
-            datums = ReducedDatum.objects.filter(target=target, data_type=photometry_type)
-        else:
-            from guardian.shortcuts import get_objects_for_user
-            datums = get_objects_for_user(
-                self.request.user,
-                'tom_dataproducts.view_reduceddatum',
-                klass=ReducedDatum.objects.filter(target=target, data_type=photometry_type),
-            )
-        datums = datums.order_by('timestamp')
-
-        # Build JSON structure: {filter_name: {telescope_name: [{mjd, mag, err, t}]}}
-        series = {}
-        for datum in datums:
-            mag = datum.value.get('magnitude')
-            if mag is None:
-                continue  # skip upper limits
-            err = datum.value.get('error') or datum.value.get('magnitude_error')
-            filter_name = str(datum.value.get('filter') or 'Unknown').strip() or 'Unknown'
-            telescope = str(
-                datum.value.get('telescope') or datum.value.get('facility') or datum.source_name or 'Unknown'
-            ).strip() or 'Unknown'
-            try:
-                mag = float(mag)
-                err = float(err) if err is not None else None
-                mjd = float(Time(datum.timestamp).mjd)
-            except (TypeError, ValueError):
-                continue
-
-            series.setdefault(filter_name, {})
-            series[filter_name].setdefault(telescope, [])
-            series[filter_name][telescope].append({
-                'mjd': round(mjd, 6),
-                'mag': round(mag, 4),
-                'err': round(err, 4) if err is not None else None,
-                't': datum.timestamp.strftime('%Y-%m-%d %H:%M'),
-            })
-
         context['target'] = target
-        context['photometry_json'] = json.dumps(series)
+        # Only the list of datasets: the page fetches the points of each dataset on demand.
+        context['periodicity_datasets'] = _periodicity_datasets(self.request.user, target)
         return context
 
 
-class TargetPeriodicityComputeView(LoginRequiredMixin, View):
-    def post(self, request, pk, *args, **kwargs):
-        from scipy.optimize import curve_fit
+class TargetPeriodicityDataView(LoginRequiredMixin, View):
+    """Points of one dataset (?dataset=<product>:<filter>) for the periodicity page."""
 
+    def get(self, request, pk, *args, **kwargs):
+        target = Target.objects.filter(pk=pk).first()
+        if target is None:
+            return JsonResponse({'error': 'Target not found'}, status=404)
+        try:
+            dataset = _load_periodicity_dataset(request.user, target, request.GET.get('dataset'))
+        except ValueError as exc:
+            return JsonResponse({'error': str(exc)}, status=400)
+        if dataset is None:
+            return JsonResponse({'error': 'Dataset not found'}, status=404)
+        return JsonResponse(dataset)
+
+
+class TargetPeriodicityComputeView(LoginRequiredMixin, View):
+    """Lomb-Scargle period search on one dataset of the target.
+
+    The page posts only its selection (dataset, telescopes, MJD range); the points are loaded
+    here, so large light curves never travel in the request. Every response is JSON.
+    """
+
+    def post(self, request, pk, *args, **kwargs):
         try:
             body = json.loads(request.body)
-            times_mjd = np.array(body['times_mjd'], dtype=float)
-            magnitudes = np.array(body['magnitudes'], dtype=float)
-            raw_errors = body.get('errors') or []
-            errors = np.array(raw_errors, dtype=float) if raw_errors else np.zeros(len(times_mjd))
+            if not isinstance(body, dict):
+                raise ValueError('expected a JSON object')
+            telescopes = self._optional_list(body, 'telescopes')
+            mjd_min = self._optional_float(body, 'mjd_min')
+            mjd_max = self._optional_float(body, 'mjd_max')
             min_period = max(float(body.get('min_period', 0.1)), 1e-4)
             max_period = float(body.get('max_period', 1000.0))
-        except (KeyError, ValueError, json.JSONDecodeError) as exc:
+        except (TypeError, ValueError) as exc:
             return JsonResponse({'error': f'Invalid request: {exc}'}, status=400)
 
-        n = len(times_mjd)
-        if n < 5:
-            return JsonResponse({'error': f'Need at least 5 data points (got {n})'}, status=400)
-        if min_period >= max_period:
-            return JsonResponse({'error': 'min_period must be less than max_period'}, status=400)
-
-        # Sort by time
-        sort_idx = np.argsort(times_mjd)
-        times_mjd = times_mjd[sort_idx]
-        magnitudes = magnitudes[sort_idx]
-        errors = errors[sort_idx]
-
-        # Only use errors if all positive
-        use_errors = errors if (len(errors) == n and np.all(errors > 0)) else None
-
-        # Cap max_period to avoid unconstrained long periods
-        time_baseline = float(times_mjd[-1] - times_mjd[0])
-        if time_baseline > 0:
-            max_period = min(max_period, 2.0 * time_baseline)
-        max_period = max(max_period, min_period * 2)
-
+        target = Target.objects.filter(pk=pk).first()
+        if target is None:
+            return JsonResponse({'error': 'Target not found'}, status=404)
         try:
-            ls = LombScargle(times_mjd, magnitudes, use_errors)
-            frequency, power = ls.autopower(
-                minimum_frequency=1.0 / max_period,
-                maximum_frequency=1.0 / min_period,
-                samples_per_peak=5,
-            )
+            dataset = _load_periodicity_dataset(request.user, target, body.get('dataset'))
+        except ValueError as exc:
+            return JsonResponse({'error': str(exc)}, status=400)
+        if dataset is None:
+            return JsonResponse({'error': 'Dataset not found'}, status=404)
+
+        points = _select_periodicity_points(
+            dataset,
+            telescopes=telescopes,
+            mjd_min=mjd_min,
+            mjd_max=mjd_max,
+            split_telescopes=bool(body.get('split_telescopes')),
+        )
+        try:
+            result = search_period(**points, min_period=min_period, max_period=max_period)
+        except PeriodSearchError as exc:
+            return JsonResponse({'error': str(exc)}, status=400)
         except Exception as exc:
             logger.error('LSP computation failed for target pk=%s: %s', pk, exc)
             return JsonResponse({'error': f'LSP computation failed: {exc}'}, status=500)
 
-        periods = 1.0 / frequency
+        return JsonResponse(result)
 
-        # Find the best period on the full-resolution periodogram before downsampling
-        best_idx = int(np.argmax(power))
-        best_period = float(periods[best_idx])
+    @staticmethod
+    def _optional_float(body, key):
+        value = body.get(key)
+        return None if value in (None, '') else float(value)
 
-        # Downsample to keep response manageable
-        if len(periods) > 15000:
-            step = len(periods) // 15000
-            periods = periods[::step]
-            power = power[::step]
-
-        fap_10 = fap_1 = fap_01 = None
-        try:
-            fap_levels = ls.false_alarm_level([0.1, 0.01, 0.001])
-            fap_10 = float(fap_levels[0])
-            fap_1 = float(fap_levels[1])
-            fap_01 = float(fap_levels[2])
-        except Exception:
-            pass
-
-        fit_result = None
-        try:
-            def sinusoid(t, amplitude, phase, offset):
-                return offset + amplitude * np.sin(2 * np.pi / best_period * t + phase)
-
-            p0 = [float(np.std(magnitudes)), 0.0, float(np.mean(magnitudes))]
-            popt, _ = curve_fit(sinusoid, times_mjd, magnitudes, p0=p0, maxfev=10000)
-
-            t_fine = np.linspace(times_mjd[0], times_mjd[-1], 600)
-            mags_fine = sinusoid(t_fine, *popt)
-
-            fit_result = {
-                'times_fine': t_fine.tolist(),
-                'mags_fine': mags_fine.tolist(),
-                'amplitude': float(popt[0]),
-                'phase': float(popt[1]),
-                'offset': float(popt[2]),
-            }
-        except Exception as exc:
-            logger.warning('Sinusoidal fit failed for target pk=%s: %s', pk, exc)
-
-        return JsonResponse({
-            'periods': periods.tolist(),
-            'powers': power.tolist(),
-            'best_period': best_period,
-            'fap_10': fap_10,
-            'fap_1': fap_1,
-            'fap_01': fap_01,
-            'fit': fit_result,
-        })
+    @staticmethod
+    def _optional_list(body, key):
+        value = body.get(key)
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ValueError(f'{key} must be a list')
+        return [str(item) for item in value]
