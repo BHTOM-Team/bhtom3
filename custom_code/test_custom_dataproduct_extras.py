@@ -2,11 +2,34 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from django.test import SimpleTestCase
+from plotly import graph_objects as go
 
 from custom_code.templatetags.custom_dataproduct_extras import (
+    ALERCE_SPECIAL_COLOR_MAP,
+    HIGHENERGY_COLOR_MAP,
+    HIGHENERGY_LIMITS_COLOR_MAP,
+    PHOTOMETRY_COLOR_MAP,
+    PHOTOMETRY_LIMITS_COLOR_MAP,
     _spectrum_source_label,
     _spectrum_time_traces,
 )
+
+
+class PlotlyMarkerStyleTests(SimpleTestCase):
+    def test_all_configured_marker_symbols_are_valid_plotly_symbols(self):
+        style_maps = (
+            PHOTOMETRY_COLOR_MAP,
+            PHOTOMETRY_LIMITS_COLOR_MAP,
+            ALERCE_SPECIAL_COLOR_MAP,
+            HIGHENERGY_COLOR_MAP,
+            HIGHENERGY_LIMITS_COLOR_MAP,
+        )
+
+        for style_map in style_maps:
+            for filter_name, (_, symbol, _) in style_map.items():
+                with self.subTest(filter_name=filter_name, symbol=symbol):
+                    marker = go.scatter.Marker(symbol=symbol)
+                    self.assertEqual(marker.symbol, symbol)
 
 
 class SpectrumTimeTraceTests(SimpleTestCase):
