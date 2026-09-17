@@ -1,6 +1,9 @@
 import gzip
 import json
+import os
 import requests
+import shutil
+import tempfile
 import threading
 import time
 from io import BytesIO
@@ -84,7 +87,11 @@ from custom_code.data_services.kmt_dataservice import (
     _normalize_event_name as _normalize_kmt_event_name,
     _normalize_hjd as _normalize_kmt_hjd,
 )
-from custom_code.data_services.lamost_dataservice import LAMOSTDataService
+from custom_code.data_services.lamost_dataservice import (
+    LAMOSTDataService,
+    LAMOST_FLUX_SCALE,
+    needs_lamost_flux_rescale,
+)
 from custom_code.data_services.neowise_dataservice import NeoWISEDataService
 from custom_code.data_services.simbad_dataservice import SimbadDataService
 from custom_code.data_services.twomass_dataservice import TwoMASSDataService
@@ -2172,6 +2179,105 @@ class ASASSNDataServiceTests(TestCase):
             })
 
         self.assertEqual(results, [])
+
+
+def _lamost_fits(tmp_path, extname='COADD', flux=(100.0, 200.0, 300.0),
+                 wavelength=(4000.0, 5000.0, 6000.0)):
+    """Write a minimal LAMOST-shaped FITS (primary header + one coadd bintable) and return its path."""
+    primary = fits.PrimaryHDU()
+    primary.header['MJD'] = 56298
+    primary.header['DESIG'] = 'LAMOST J000000.00+000000.0'
+    coadd = fits.BinTableHDU.from_columns([
+        fits.Column(name='FLUX', format=f'{len(flux)}E', array=np.array([flux])),
+        fits.Column(name='WAVELENGTH', format=f'{len(wavelength)}E', array=np.array([wavelength])),
+    ], name=extname)
+    fits.HDUList([primary, coadd]).writeto(tmp_path, overwrite=True)
+    return tmp_path
+
+
+class LAMOSTFluxScaleTests(TestCase):
+    """LAMOST FITS carry no BUNIT; FLUX is in 1e-17 erg/s/cm2/A and must be scaled on ingest."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmpdir, True)
+
+    def _fits_path(self, **kwargs):
+        return _lamost_fits(os.path.join(self.tmpdir, 'lamost.fits'), **kwargs)
+
+    def test_datum_from_fits_scales_flux_to_cgs(self):
+        path = self._fits_path(flux=(100.0, 200.0, 300.0))
+
+        datum = LAMOSTDataService()._datum_from_fits(path, 'LAMOST_LRS_spectrum', 1)
+
+        self.assertEqual(datum['value']['flux_units'], 'erg / (Angstrom s cm2)')
+        np.testing.assert_allclose(
+            datum['value']['flux'],
+            np.array([100.0, 200.0, 300.0]) * LAMOST_FLUX_SCALE,
+            rtol=1e-6,
+        )
+
+    def test_scaled_flux_sits_in_the_same_range_as_other_spectroscopy_services(self):
+        # A raw peak of 2e+2 is what previously swamped SDSS/DESI/ESO spectra on a shared axis.
+        path = self._fits_path(flux=(2e2, 1e2, 5e1))
+
+        datum = LAMOSTDataService()._datum_from_fits(path, 'LAMOST_LRS_spectrum', 1)
+
+        self.assertLess(max(datum['value']['flux']), 1e-13)
+        self.assertGreater(max(datum['value']['flux']), 1e-17)
+
+    def test_mrs_arm_flux_is_scaled_too(self):
+        path = self._fits_path(extname='COADD_B', flux=(900.0, 800.0, 700.0))
+
+        datum = LAMOSTDataService()._datum_from_fits(path, 'LAMOST_MRS_spectrum', 1)
+
+        self.assertEqual(datum['value']['arm'], 'COADD_B')
+        self.assertAlmostEqual(max(datum['value']['flux']), 900.0 * LAMOST_FLUX_SCALE)
+
+    def test_wavelength_is_left_unscaled(self):
+        path = self._fits_path(wavelength=(4000.0, 5000.0, 6000.0))
+
+        datum = LAMOSTDataService()._datum_from_fits(path, 'LAMOST_LRS_spectrum', 1)
+
+        self.assertEqual(datum['value']['wavelength_units'], 'Angstrom')
+        np.testing.assert_allclose(datum['value']['wavelength'], [4000.0, 5000.0, 6000.0], rtol=1e-6)
+
+
+class LAMOSTRescaleGuardTests(TestCase):
+    """The backfill guard must be idempotent: only raw-scale spectra are rewritten."""
+
+    def test_raw_scale_flux_needs_rescale(self):
+        self.assertTrue(needs_lamost_flux_rescale({
+            'flux': [100.0, 200.0, 395.8],
+            'flux_units': 'erg / (Angstrom s cm2)',
+        }))
+
+    def test_already_scaled_flux_is_left_alone(self):
+        self.assertFalse(needs_lamost_flux_rescale({
+            'flux': [1.0e-15, 2.0e-15, 3.958e-15],
+            'flux_units': 'erg / (Angstrom s cm2)',
+        }))
+
+    def test_large_negative_flux_still_counts_as_raw_scale(self):
+        self.assertTrue(needs_lamost_flux_rescale({
+            'flux': [-54.92, -1.0, 0.0],
+            'flux_units': 'erg / (Angstrom s cm2)',
+        }))
+
+    def test_all_zero_flux_is_not_rescaled(self):
+        self.assertFalse(needs_lamost_flux_rescale({
+            'flux': [0.0, 0.0, 0.0],
+            'flux_units': 'erg / (Angstrom s cm2)',
+        }))
+
+    def test_other_flux_units_are_ignored(self):
+        self.assertFalse(needs_lamost_flux_rescale({
+            'flux': [3194.0, 985.4],
+            'flux_units': 'ct',
+        }))
+
+    def test_non_dict_value_is_ignored(self):
+        self.assertFalse(needs_lamost_flux_rescale(None))
 
 
 class SpectroscopicDataServiceRadiusTests(TestCase):

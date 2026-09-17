@@ -6,6 +6,7 @@ from datetime import timezone
 from astropy.io import fits
 from specutils import Spectrum1D
 
+import numpy as np
 import requests
 
 import astropy.units as u
@@ -23,6 +24,30 @@ from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
 logger = logging.getLogger(__name__)
 
 LAMOST_PAGE_URL = 'https://www.lamost.org/dr11/v2.0/'
+
+# LAMOST stores the FLUX column in units of 1e-17 erg/s/cm^2/Angstrom and carries no BUNIT
+# keyword to say so, for both LRS and MRS. Without this factor the raw values (~1e2-1e4) get
+# labelled as erg/s/cm^2/Angstrom and swamp every other spectrum on a shared flux axis, since
+# real spectra there sit around 1e-16. SDSS and DESI apply the same factor for the same reason.
+LAMOST_FLUX_SCALE = 1e-17
+
+# Flux values above this are still on the raw FITS scale: a correctly scaled LAMOST spectrum
+# peaks around 1e-13 at the very brightest, while an unscaled one never drops below ~1e0.
+# The gap is ~7 orders of magnitude, so the threshold keeps the backfill idempotent.
+LAMOST_UNSCALED_FLUX_THRESHOLD = 1e-5
+
+
+def needs_lamost_flux_rescale(value):
+    """True if a stored LAMOST spectroscopy value still holds raw, unscaled FITS flux."""
+    if not isinstance(value, dict):
+        return False
+    if value.get('flux_units') != 'erg / (Angstrom s cm2)':
+        return False
+    fluxes = [f for f in (value.get('flux') or []) if isinstance(f, (int, float))]
+    if not fluxes:
+        return False
+    return max(abs(f) for f in fluxes) > LAMOST_UNSCALED_FLUX_THRESHOLD
+
 
 def _lamost_alias(obj_id):
     return f'LAMOST_{obj_id}'
@@ -215,8 +240,8 @@ class LAMOSTDataService(DataService):
                 logger.warning('LAMOST: no usable spectrum for obsid=%s (%s); skipping.', obsid, spectrum_type)
                 return None
             spectrum = Spectrum1D(
-                flux=flux * u.erg / u.s / u.cm**2 / u.AA,
-                spectral_axis=wl * u.AA,
+                flux=np.asarray(flux, dtype=float) * LAMOST_FLUX_SCALE * u.erg / u.s / u.cm**2 / u.AA,
+                spectral_axis=np.asarray(wl, dtype=float) * u.AA,
             )
             serialized = SpectrumSerializer().serialize(spectrum)
             serialized.update({
