@@ -89,7 +89,9 @@ function buildPlot() {
     // whichever axes are on screen.
     const customdata = s.ra.map((ra, i) => [
       ra, s.dec[i], s.mjd[i],
-      s.magnitude[i] === null ? 'n/a' : s.magnitude[i].toFixed(3),
+      // Plotly parses pseudo-HTML in hover text, so the '<' of an upper limit is escaped.
+      (s.mag_label ? s.mag_label[i] : (s.magnitude[i] === null ? 'n/a' : s.magnitude[i].toFixed(3)))
+        .replace(/</g, '&lt;'),
     ]);
     const unitLabel = offsetMode ? '″' : '°';
 

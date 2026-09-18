@@ -1,6 +1,7 @@
 import gzip
 import json
 import os
+import re
 import requests
 import shutil
 import tempfile
@@ -91,10 +92,14 @@ from custom_code.data_services.alerce_dataservice import AlerceDataService
 from custom_code.data_services.ztf_dataservice import ZTFDataService
 from custom_code.data_services.lsst_dataservice import LSSTDataService, FINK_SOURCE_COLUMNS
 from custom_code.data_services.service_utils import (
+    add_difference_photometry,
     add_origin_coordinates,
     upsert_reduced_datums,
 )
-from custom_code.templatetags.custom_dataproduct_extras import astrometry_for_target
+from custom_code.templatetags.custom_dataproduct_extras import (
+    astrometry_for_target,
+    custom_photometry_for_target,
+)
 from custom_code.data_services.lamost_dataservice import (
     LAMOSTDataService,
     LAMOST_FLUX_SCALE,
@@ -2500,6 +2505,51 @@ class UpsertReducedDatumTests(TestCase):
         self.assertEqual(created, 1)
         self.assertEqual(ReducedDatum.objects.filter(target=self.target).count(), 2)
 
+    def test_republished_alert_with_float_noise_is_the_same_measurement(self):
+        ReducedDatum.objects.create(
+            target=self.target, data_type='photometry', timestamp=self.timestamp,
+            value={'filter': 'ZTF(zg)', 'magnitude': 17.74647, 'error': 0.0373}, source_name='ZTF',
+        )
+
+        created, updated = upsert_reduced_datums(
+            self.target, 'photometry', 'ZTF', 'https://example.invalid',
+            [{'timestamp': self.timestamp,
+              'value': {'filter': 'ZTF(zg)', 'magnitude': 17.746456, 'error': 0.0373,
+                        'diff_magnitude': 19.14, 'diff_error': 0.1, 'diff_sign': 1}}],
+        )
+
+        self.assertEqual((created, updated), (0, 1))
+        datum = ReducedDatum.objects.get(target=self.target)
+        self.assertEqual(datum.value['magnitude'], 17.74647)
+        self.assertEqual(datum.value['diff_magnitude'], 19.14)
+
+    def test_genuinely_different_magnitudes_are_not_merged(self):
+        upsert_reduced_datums(
+            self.target, 'photometry', 'ZTF', 'https://example.invalid', [self._datum()],
+        )
+
+        created, _ = upsert_reduced_datums(
+            self.target, 'photometry', 'ZTF', 'https://example.invalid',
+            [{'timestamp': self.timestamp, 'value': {'filter': 'ZTF(zg)', 'magnitude': 14.49, 'error': 0.014}}],
+        )
+
+        self.assertEqual(created, 1)
+
+    def test_rows_from_another_source_are_never_upgraded(self):
+        ReducedDatum.objects.create(
+            target=self.target, data_type='photometry', timestamp=self.timestamp,
+            value={'filter': 'ZTF(zg)', 'magnitude': 14.48, 'error': 0.014}, source_name='ZTF',
+        )
+
+        created, updated = upsert_reduced_datums(
+            self.target, 'photometry', 'Alerce', 'https://example.invalid',
+            [self._datum(diff_magnitude=19.0, diff_error=0.1, diff_sign=1)],
+        )
+
+        self.assertEqual((created, updated), (1, 0))
+        ztf = ReducedDatum.objects.get(target=self.target, source_name='ZTF')
+        self.assertNotIn('diff_magnitude', ztf.value)
+
     def test_empty_datum_list_is_handled(self):
         self.assertEqual(
             upsert_reduced_datums(self.target, 'photometry', 'ZTF', 'https://example.invalid', []),
@@ -2658,6 +2708,338 @@ class WorkerOriginCoordinateIngestTests(TestCase):
             self.assertTrue(getattr(service_class, 'stores_origin_coordinates', False), service_class)
 
 
+class DifferencePhotometryHelperTests(TestCase):
+    def test_positive_difference_is_stored(self):
+        value = add_difference_photometry({'filter': 'ZTF(zg)'}, 20.13, 0.20, 1)
+
+        self.assertEqual(value['diff_magnitude'], 20.13)
+        self.assertEqual(value['diff_error'], 0.20)
+        self.assertEqual(value['diff_sign'], 1)
+
+    def test_negative_difference_keeps_sign(self):
+        value = add_difference_photometry({}, 20.13, 0.20, -1)
+
+        self.assertEqual(value['diff_sign'], -1)
+
+    def test_invalid_difference_is_ignored(self):
+        for magnitude, error in ((None, 0.1), (20.0, None), (-5.0, 0.1), (20.0, 0.0), (float('nan'), 0.1)):
+            with self.subTest(magnitude=magnitude, error=error):
+                self.assertEqual(add_difference_photometry({}, magnitude, error, 1), {})
+
+
+class AlerceDifferencePhotometryTests(TestCase):
+    def _detection(self, **overrides):
+        detection = {
+            'mjd': 58374.2746, 'fid': 1,
+            'magpsf_corr': 17.94285, 'sigmapsf_corr': 0.02097,
+            'magpsf': 20.13194, 'sigmapsf': 0.20435, 'isdiffpos': 1,
+            'ra': 338.2298, 'dec': -3.0473,
+        }
+        detection.update(overrides)
+        return detection
+
+    def test_apparent_and_difference_magnitudes_share_a_datum(self):
+        value = AlerceDataService()._build_photometry_datums([self._detection()])[0]['value']
+
+        self.assertEqual(value['magnitude'], 17.94285)
+        self.assertEqual(value['error'], 0.02097)
+        self.assertEqual(value['diff_magnitude'], 20.13194)
+        self.assertEqual(value['diff_error'], 0.20435)
+        self.assertEqual(value['diff_sign'], 1)
+
+    def test_negative_difference_is_flagged(self):
+        value = AlerceDataService()._build_photometry_datums([self._detection(isdiffpos=-1)])[0]['value']
+
+        self.assertEqual(value['diff_sign'], -1)
+
+    def test_uncorrected_detection_keeps_difference_only(self):
+        datums = AlerceDataService()._build_photometry_datums([
+            self._detection(magpsf_corr=None, sigmapsf_corr=None),
+        ])
+
+        self.assertEqual(len(datums), 1)
+        self.assertNotIn('magnitude', datums[0]['value'])
+        self.assertEqual(datums[0]['value']['diff_magnitude'], 20.13194)
+
+    def test_sentinel_corrected_error_keeps_difference_only(self):
+        value = AlerceDataService()._build_photometry_datums([
+            self._detection(sigmapsf_corr=100.0),
+        ])[0]['value']
+
+        self.assertNotIn('magnitude', value)
+        self.assertIn('diff_magnitude', value)
+
+    def test_detection_with_neither_is_skipped(self):
+        datums = AlerceDataService()._build_photometry_datums([
+            self._detection(magpsf_corr=None, magpsf=None),
+        ])
+
+        self.assertEqual(datums, [])
+
+
+class AlerceObjectSelectionTests(TestCase):
+    """A source split over several ZTF object ids must be ingested in full, each alert once."""
+
+    ra = 338.229790362
+    dec = -3.047315633
+
+    def _objects(self):
+        return {'total': 2, 'items': [
+            {'oid': 'ZTF25aayluhe', 'ndet': 3, 'meanra': 338.2296620531, 'meandec': -3.0472890280},
+            {'oid': 'ZTF18abvpnnb', 'ndet': 738, 'meanra': 338.2297808179, 'meandec': -3.0472884248},
+        ]}
+
+    def _detection(self, candid, mjd, mag):
+        return {'candid': candid, 'mjd': mjd, 'fid': 1, 'magpsf_corr': mag, 'sigmapsf_corr': 0.02,
+                'magpsf': mag + 2, 'sigmapsf': 0.2, 'isdiffpos': 1, 'ra': self.ra, 'dec': self.dec}
+
+    def _lightcurves(self):
+        shared = self._detection(3, 60834.4, 17.9)
+        return {
+            'ZTF18abvpnnb': {'detections': [self._detection(1, 58374.2, 17.94), self._detection(2, 58377.2, 17.95), shared]},
+            'ZTF25aayluhe': {'detections': [shared]},
+        }
+
+    def _query(self, lightcurve):
+        with patch('custom_code.data_services.alerce_dataservice._getAlerceObjcet', return_value=self._objects()), \
+             patch('custom_code.data_services.alerce_dataservice._getAlerceLightCurve', side_effect=lightcurve) as lc:
+            results = AlerceDataService().query_service({'ra': self.ra, 'dec': self.dec, 'radius_arcsec': 1.1})
+        return results, lc
+
+    def test_nearest_object_is_the_source_link(self):
+        results, _ = self._query(lambda oid: self._lightcurves()[oid])
+
+        self.assertEqual(results['source_location'], 'https://alerce.online/object/ZTF18abvpnnb')
+
+    def test_all_objects_are_merged_and_shared_alerts_kept_once(self):
+        results, lc = self._query(lambda oid: self._lightcurves()[oid])
+
+        self.assertEqual(sorted(call.args[0] for call in lc.call_args_list), ['ZTF18abvpnnb', 'ZTF25aayluhe'])
+        self.assertEqual(sorted(d['candid'] for d in results['lc_data']), [1, 2, 3])
+
+    def test_duplicate_alerts_for_one_exposure_keep_the_lowest_candid(self):
+        first = self._detection(1288460452815010003, 59042.460451, 17.835556)
+        second = self._detection(1288460452815020003, 59042.460451, 17.83756)
+        other_band = {**self._detection(1288460452815030003, 59042.460451, 17.5), 'fid': 2}
+        lightcurves = {'ZTF18abvpnnb': {'detections': [second, first, other_band]}, 'ZTF25aayluhe': {'detections': []}}
+
+        results, _ = self._query(lambda oid: lightcurves[oid])
+
+        self.assertEqual(
+            sorted(d['candid'] for d in results['lc_data']),
+            [1288460452815010003, 1288460452815030003],
+        )
+
+    def test_one_failing_object_does_not_drop_the_others(self):
+        def lightcurve(oid):
+            if oid == 'ZTF25aayluhe':
+                raise requests.ConnectionError('boom')
+            return self._lightcurves()[oid]
+
+        results, _ = self._query(lightcurve)
+
+        self.assertEqual(len(results['lc_data']), 3)
+
+    def test_objects_without_positions_sort_last(self):
+        from custom_code.data_services.alerce_dataservice import _objects_nearest_first
+        items = [{'oid': 'A', 'ndet': 900}, {'oid': 'B', 'ndet': 1, 'meanra': self.ra, 'meandec': self.dec}]
+
+        self.assertEqual([i['oid'] for i in _objects_nearest_first(items, self.ra, self.dec)], ['B', 'A'])
+
+    def test_equal_separation_prefers_more_detections(self):
+        from custom_code.data_services.alerce_dataservice import _objects_nearest_first
+        items = [
+            {'oid': 'few', 'ndet': 3, 'meanra': self.ra, 'meandec': self.dec},
+            {'oid': 'many', 'ndet': 738, 'meanra': self.ra, 'meandec': self.dec},
+        ]
+
+        self.assertEqual(_objects_nearest_first(items, self.ra, self.dec)[0]['oid'], 'many')
+
+    def test_no_objects_means_no_data(self):
+        with patch('custom_code.data_services.alerce_dataservice._getAlerceObjcet',
+                   return_value={'total': 0, 'items': []}):
+            results = AlerceDataService().query_service({'ra': self.ra, 'dec': self.dec})
+
+        self.assertIsNone(results['lc_data'])
+
+
+class LSSTDifferencePhotometryTests(TestCase):
+    def _row(self, **overrides):
+        row = {
+            'r:midpointMjdTai': 61204.9817515752, 'r:band': 'g',
+            'r:scienceFlux': 93763.15, 'r:scienceFluxErr': 397.59558,
+            'r:psfFlux': 43366.78, 'r:psfFluxErr': 394.06384,
+            'r:ra': 149.9286254445, 'r:dec': 0.4184468537,
+        }
+        row.update(overrides)
+        return row
+
+    def test_apparent_magnitude_is_unchanged(self):
+        import math
+        value = LSSTDataService()._build_photometry_datums([self._row()])[0]['value']
+
+        self.assertEqual(value['magnitude'], -2.5 * math.log10((93763.15 * 1e-9) / 3631.0))
+
+    def test_positive_difference_flux_becomes_difference_magnitude(self):
+        import math
+        value = LSSTDataService()._build_photometry_datums([self._row()])[0]['value']
+
+        self.assertAlmostEqual(value['diff_magnitude'], -2.5 * math.log10((43366.78 * 1e-9) / 3631.0))
+        self.assertAlmostEqual(value['diff_error'], 1.0857 * 394.06384 / 43366.78)
+        self.assertEqual(value['diff_sign'], 1)
+
+    def test_negative_difference_flux_uses_its_absolute_value(self):
+        positive = LSSTDataService()._build_photometry_datums([self._row()])[0]['value']
+        negative = LSSTDataService()._build_photometry_datums([self._row(**{'r:psfFlux': -43366.78})])[0]['value']
+
+        self.assertAlmostEqual(negative['diff_magnitude'], positive['diff_magnitude'])
+        self.assertEqual(negative['diff_sign'], -1)
+
+    def test_insignificant_difference_flux_is_not_stored(self):
+        value = LSSTDataService()._build_photometry_datums([
+            self._row(**{'r:psfFlux': 900.0, 'r:psfFluxErr': 400.0}),
+        ])[0]['value']
+
+        self.assertIn('magnitude', value)
+        self.assertNotIn('diff_magnitude', value)
+
+    def test_difference_only_source_is_kept(self):
+        datums = LSSTDataService()._build_photometry_datums([
+            self._row(**{'r:scienceFlux': -5.0}),
+        ])
+
+        self.assertEqual(len(datums), 1)
+        self.assertNotIn('magnitude', datums[0]['value'])
+        self.assertIn('diff_magnitude', datums[0]['value'])
+
+    def test_sources_request_asks_fink_for_difference_flux(self):
+        columns = FINK_SOURCE_COLUMNS.split(',')
+        self.assertIn('r:psfFlux', columns)
+        self.assertIn('r:psfFluxErr', columns)
+
+    def test_legacy_apparent_row_gains_difference_in_place(self):
+        target = Target.objects.create(
+            name='LSST-diff-target', type='SIDEREAL', ra=149.9287, dec=0.4184, epoch=2000.0,
+        )
+        datum = LSSTDataService()._build_photometry_datums([self._row()])[0]
+        legacy_value = {key: datum['value'][key] for key in ('filter', 'magnitude', 'error')}
+        ReducedDatum.objects.create(
+            target=target, data_type='photometry', timestamp=datum['timestamp'],
+            value=legacy_value, source_name='LSST',
+        )
+
+        created = _bulk_insert_reduced_datums(target, 'LSST', LSSTDataService(), {}, {'photometry': [datum]})
+
+        self.assertEqual(created, 0)
+        stored = ReducedDatum.objects.get(target=target)
+        self.assertIn('diff_magnitude', stored.value)
+        self.assertEqual(stored.value['magnitude'], legacy_value['magnitude'])
+
+
+class PhotometryDifferenceToggleTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='diff-toggle-user', password='secret')
+        self.target = Target.objects.create(
+            name='Diff-toggle-target', type='SIDEREAL', ra=338.2298, dec=-3.0473, epoch=2000.0,
+        )
+        assign_perm('tom_targets.view_target', self.user, self.target)
+
+    def _datum(self, day, **value):
+        return ReducedDatum.objects.create(
+            target=self.target, data_type='photometry',
+            timestamp=datetime(2020, 1, day, tzinfo=timezone.utc),
+            value={'filter': 'ZTF(zg)', **value}, source_name='Alerce',
+        )
+
+    def _context(self, phot=None):
+        request = RequestFactory().get('/', {'phot': phot} if phot else {})
+        request.user = self.user
+        return {'request': request}
+
+    def _traces(self, result):
+        match = re.search(r'Plotly\.newPlot\(\s*"[^"]+",\s*(\[.*?\]),\s*\{', result['plot'], re.S)
+        return json.loads(match.group(1))
+
+    def test_apparent_mode_plots_apparent_magnitudes_only(self):
+        self._datum(1, magnitude=17.9, error=0.02, diff_magnitude=20.1, diff_error=0.2, diff_sign=1)
+        self._datum(2, diff_magnitude=20.5, diff_error=0.3, diff_sign=1)
+
+        result = custom_photometry_for_target(self._context(), self.target)
+        ys = [y for trace in self._traces(result) for y in (trace.get('y') or []) if isinstance(y, (int, float))]
+
+        self.assertEqual(result['phot_mode'], 'apparent')
+        self.assertTrue(result['has_difference'])
+        self.assertIn(17.9, ys)
+        self.assertNotIn(20.1, ys)
+        self.assertNotIn(20.5, ys)
+
+    def test_difference_mode_plots_difference_magnitudes(self):
+        self._datum(1, magnitude=17.9, error=0.02, diff_magnitude=20.1, diff_error=0.2, diff_sign=1)
+        self._datum(2, diff_magnitude=20.5, diff_error=0.3, diff_sign=1)
+
+        result = custom_photometry_for_target(self._context('diff'), self.target)
+        ys = [y for trace in self._traces(result) for y in (trace.get('y') or []) if isinstance(y, (int, float))]
+
+        self.assertEqual(result['phot_mode'], 'diff')
+        self.assertIn(20.1, ys)
+        self.assertIn(20.5, ys)
+        self.assertNotIn(17.9, ys)
+
+    def test_negative_differences_are_plotted_as_upper_limits(self):
+        import math
+        self._datum(1, magnitude=17.9, error=0.02, diff_magnitude=20.1, diff_error=0.2, diff_sign=1)
+        self._datum(2, magnitude=18.4, error=0.02, diff_magnitude=21.0, diff_error=0.3, diff_sign=-1)
+
+        traces = self._traces(custom_photometry_for_target(self._context('diff'), self.target))
+        limits = [t for t in traces if t.get('name') == 'ZTF(zg)-LIMIT']
+        detections = [y for t in traces if t.get('name') == 'ZTF(zg)' for y in (t.get('y') or [])]
+
+        self.assertEqual(len(limits), 1)
+        self.assertEqual(len(limits[0]['y']), 1)
+        self.assertAlmostEqual(limits[0]['y'][0], 21.0 - 2.5 * math.log10(3 * 0.3 / 1.0857), places=3)
+        self.assertEqual(limits[0]['marker']['symbol'], 'arrow-down-open')
+        self.assertNotIn(21.0, detections)
+        self.assertEqual(detections, [20.1])
+
+    def test_negative_difference_limit_is_fainter_than_a_significant_flux(self):
+        from custom_code.templatetags.custom_dataproduct_extras import _negative_difference_limit
+
+        self.assertGreater(_negative_difference_limit(19.0, 0.1), 19.0)
+        self.assertIsNone(_negative_difference_limit(19.0, 0.0))
+        self.assertIsNone(_negative_difference_limit(None, 0.1))
+
+    def test_apparent_mode_is_unaffected_by_difference_sign(self):
+        self._datum(1, magnitude=18.4, error=0.02, diff_magnitude=21.0, diff_error=0.3, diff_sign=-1)
+
+        traces = self._traces(custom_photometry_for_target(self._context(), self.target))
+
+        self.assertEqual([t['y'] for t in traces if t.get('name') == 'ZTF(zg)' and t.get('y')], [[18.4]])
+        self.assertFalse([t for t in traces if str(t.get('name', '')).endswith('-LIMIT')])
+
+    def test_target_without_difference_photometry_reports_none(self):
+        self._datum(1, magnitude=17.9, error=0.02)
+
+        result = custom_photometry_for_target(self._context(), self.target)
+
+        self.assertFalse(result['has_difference'])
+
+    def test_toggle_is_rendered_only_when_difference_data_exists(self):
+        self.client.force_login(self.user)
+        url = reverse('targets:detail', kwargs={'pk': self.target.pk})
+
+        self._datum(1, magnitude=17.9, error=0.02)
+        self.assertNotContains(self.client.get(url, {'tab': 'photometry'}), 'Host-subtracted')
+
+        self._datum(2, magnitude=18.0, error=0.02, diff_magnitude=20.1, diff_error=0.2, diff_sign=1)
+        response = self.client.get(url, {'tab': 'photometry'})
+        self.assertContains(response, 'Host-subtracted')
+        self.assertContains(response, 'phot=diff')
+
+        response = self.client.get(url, {'tab': 'photometry', 'phot': 'diff'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'difference magnitude')
+
+
 class AstrometryForTargetTagTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username='astrometry-user', password='secret')
@@ -2723,11 +3105,81 @@ class AstrometryForTargetTagTests(TestCase):
         self.assertAlmostEqual(data['target_dec'], 24.0611)
         self.assertAlmostEqual(data['series'][0]['mjd'][0], 58849.0, places=3)
 
+    def _labelled(self, **value):
+        ReducedDatum.objects.create(
+            target=self.target, data_type='photometry',
+            timestamp=datetime(2020, 1, 1 + ReducedDatum.objects.filter(target=self.target).count(), tzinfo=timezone.utc),
+            value={'filter': 'ZTF(zg)', 'origin_ra': 141.39572, 'origin_dec': 24.06099, **value},
+            source_name='Alerce',
+        )
+        data = json.loads(astrometry_for_target(self._context(), self.target)['astrometry_data'])
+        return data['series'][0]['mag_label'][-1]
+
+    def test_apparent_detection_is_labelled_with_its_magnitude(self):
+        self.assertEqual(self._labelled(magnitude=17.94285, error=0.02), '17.943')
+
+    def test_apparent_upper_limit_is_labelled_with_less_than(self):
+        self.assertEqual(self._labelled(magnitude=20.5, error=-1.0), '<20.500')
+
+    def test_difference_only_detection_shows_difference_magnitude(self):
+        self.assertEqual(
+            self._labelled(diff_magnitude=19.8289, diff_error=0.198932, diff_sign=1),
+            '19.829 (diff)',
+        )
+
+    def test_negative_difference_only_shows_three_sigma_limit(self):
+        import math
+        expected = 19.8289 - 2.5 * math.log10(3 * 0.198932 / 1.0857)
+
+        self.assertEqual(
+            self._labelled(diff_magnitude=19.8289, diff_error=0.198932, diff_sign=-1),
+            f'<{expected:.3f} (diff)',
+        )
+
+    def test_row_with_neither_is_labelled_not_available(self):
+        self.assertEqual(self._labelled(), 'n/a')
+
     def test_target_with_no_positions_reports_zero_points(self):
         result = astrometry_for_target(self._context(), self.target)
 
         self.assertEqual(result['point_count'], 0)
         self.assertEqual(result['series_count'], 0)
+
+
+class RecentPhotometryOverrideTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='recent-phot-user', password='secret')
+        self.target = Target.objects.create(
+            name='Recent-phot-target', type='SIDEREAL', ra=338.2298, dec=-3.0473, epoch=2000.0,
+        )
+        assign_perm('tom_targets.view_target', self.user, self.target)
+
+    def _datum(self, day, **value):
+        ReducedDatum.objects.create(
+            target=self.target, data_type='photometry', source_name='Alerce',
+            timestamp=datetime(2020, 1, day, tzinfo=timezone.utc), value={'filter': 'ZTF(zg)', **value},
+        )
+
+    def test_difference_only_rows_are_skipped_but_limit_still_filled(self):
+        from custom_code.templatetags.custom_dataproduct_extras import recent_photometry
+        self._datum(1, magnitude=17.1, error=0.02)
+        self._datum(2, magnitude=17.2, error=0.02)
+        self._datum(3, limit=20.4)
+        self._datum(4, diff_magnitude=19.8, diff_error=0.2, diff_sign=1)
+
+        data = recent_photometry(self.target, limit=3)['data']
+
+        self.assertEqual([(d['magnitude'], d['limit']) for d in data], [(20.4, True), (17.2, False), (17.1, False)])
+
+    def test_target_page_renders_when_latest_point_is_difference_only(self):
+        self._datum(1, magnitude=17.1, error=0.02)
+        self._datum(2, diff_magnitude=19.8, diff_error=0.2, diff_sign=1)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('targets:detail', kwargs={'pk': self.target.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '17.1')
 
 
 class AstrometryTabTests(TestCase):

@@ -121,8 +121,43 @@ def add_origin_coordinates(value, ra, dec):
     return value
 
 
-def _identity(value, identity_keys):
-    return tuple(value.get(key) for key in identity_keys)
+DIFF_MAGNITUDE_KEY = 'diff_magnitude'
+DIFF_ERROR_KEY = 'diff_error'
+DIFF_SIGN_KEY = 'diff_sign'
+
+
+def add_difference_photometry(value, magnitude, error, sign=1):
+    """Attach host-subtracted (difference-image) photometry to a photometry value.
+
+    The magnitude is that of |difference flux|; diff_sign is +1 when the source is brighter than
+    the reference image and -1 when fainter, since a negative flux has no magnitude of its own.
+    Stored beside the apparent magnitude so every existing consumer keeps reading 'magnitude'.
+    """
+    magnitude = _coerce_coordinate(magnitude)
+    error = _coerce_coordinate(error)
+    if magnitude is None or error is None or magnitude <= 0 or error <= 0:
+        return value
+    value[DIFF_MAGNITUDE_KEY] = magnitude
+    value[DIFF_ERROR_KEY] = error
+    value[DIFF_SIGN_KEY] = -1 if _coerce_coordinate(sign) is not None and float(sign) < 0 else 1
+    return value
+
+
+# Brokers republish the same alert under different object ids with float noise of ~1e-5 mag, so
+# magnitudes this close (same source, timestamp and filter) are one measurement. It is far below
+# any real photometric error, so distinct measurements are never merged.
+SAME_MEASUREMENT_MAG_TOLERANCE = 1e-3
+
+
+def _same_measurement(stored, incoming, identity_keys):
+    for key in identity_keys:
+        a, b = stored.get(key), incoming.get(key)
+        if key == 'magnitude' and isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            if abs(a - b) > SAME_MEASUREMENT_MAG_TOLERANCE:
+                return False
+        elif a != b:
+            return False
+    return True
 
 
 def upsert_reduced_datums(target, data_type, source_name, source_location, datums,
@@ -131,8 +166,9 @@ def upsert_reduced_datums(target, data_type, source_name, source_location, datum
 
     ReducedDatum uniqueness is (target, data_type, timestamp, value), and `value` is compared as
     a whole dict. So simply adding a key like origin_ra to a service's output would make every
-    previously stored point look new and silently double the light curve. Instead we match on
-    timestamp plus a few identifying keys, and fill in only the keys the stored row is missing.
+    previously stored point look new and silently double the light curve. Instead we match rows
+    from the same source on timestamp plus a few identifying keys, and fill in only the keys the
+    stored row is missing.
 
     Uses bulk operations: ZTF alone can return thousands of points per target.
     Returns (created_count, updated_count).
@@ -146,23 +182,25 @@ def upsert_reduced_datums(target, data_type, source_name, source_location, datum
     if not datums:
         return 0, 0
 
-    existing_by_key = {}
+    candidates_by_time = {}
     for existing in ReducedDatum.objects.filter(
         target=target,
         data_type=data_type,
+        source_name=source_name,
         timestamp__in={datum['timestamp'] for datum in datums},
     ):
-        if not isinstance(existing.value, dict):
-            continue
-        key = (existing.timestamp, _identity(existing.value, identity_keys))
-        existing_by_key.setdefault(key, existing)
+        if isinstance(existing.value, dict):
+            candidates_by_time.setdefault(existing.timestamp, []).append(existing)
 
     to_create = []
     to_update = {}
     for datum in datums:
         value = datum['value']
-        key = (datum['timestamp'], _identity(value, identity_keys))
-        existing = existing_by_key.get(key)
+        candidates = candidates_by_time.setdefault(datum['timestamp'], [])
+        existing = next(
+            (row for row in candidates if _same_measurement(row.value, value, identity_keys)),
+            None,
+        )
         if existing is None:
             new_row = ReducedDatum(
                 target=target,
@@ -174,7 +212,7 @@ def upsert_reduced_datums(target, data_type, source_name, source_location, datum
             )
             to_create.append(new_row)
             # A repeated point later in the same batch must match this row, not create another.
-            existing_by_key[key] = new_row
+            candidates.append(new_row)
             continue
 
         missing = {k: v for k, v in value.items() if k not in existing.value}

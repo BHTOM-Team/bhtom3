@@ -7,6 +7,20 @@
        onclick="return confirm('Are you sure you want to query all DataServices for this target?');">Check for new data</a>
   {% endif %}
 </div>
+{% if has_difference or phot_mode == 'diff' %}
+<div class="btn-group btn-group-sm mb-2" role="group" aria-label="Photometry type">
+  <a href="?tab=photometry"
+     class="btn {% if phot_mode == 'diff' %}btn-outline-primary{% else %}btn-primary{% endif %}"
+     {% if phot_mode != 'diff' %}aria-current="true"{% endif %}>Apparent</a>
+  <a href="?tab=photometry&amp;phot=diff"
+     class="btn {% if phot_mode == 'diff' %}btn-primary{% else %}btn-outline-primary{% endif %}"
+     title="Difference-image photometry (reference/host subtracted), from Alerce and LSST"
+     {% if phot_mode == 'diff' %}aria-current="true"{% endif %}>Host-subtracted</a>
+</div>
+{% endif %}
+{% if phot_mode == 'diff' and not has_difference %}
+<div class="alert alert-info">No host-subtracted photometry stored for this target yet.</div>
+{% endif %}
 <div class="light-curve">
   {{ plot|safe }}
 </div>

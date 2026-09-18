@@ -12,6 +12,7 @@ from tom_targets.models import Target, TargetName
 from custom_code.data_services.forms import LSSTQueryForm
 from custom_code.data_services.service_utils import (
     DATA_SERVICE_HTTP_TIMEOUT,
+    add_difference_photometry,
     add_origin_coordinates,
     upsert_reduced_datums,
 )
@@ -19,7 +20,11 @@ from custom_code.data_services.service_utils import (
 
 FINK_API_URL = 'https://api.lsst.fink-portal.org'
 # r:ra/r:dec are the per-source centroids, stored as origin_ra/origin_dec for the astrometry tab.
-FINK_SOURCE_COLUMNS = 'r:diaObjectId,r:midpointMjdTai,r:scienceFlux,r:scienceFluxErr,r:band,r:ra,r:dec'
+# r:psfFlux is measured on the difference image (host/template subtracted).
+FINK_SOURCE_COLUMNS = (
+    'r:diaObjectId,r:midpointMjdTai,r:scienceFlux,r:scienceFluxErr,r:psfFlux,r:psfFluxErr,'
+    'r:band,r:ra,r:dec'
+)
 
 
 def _to_float(value):
@@ -207,36 +212,63 @@ class LSSTDataService(DataService):
         output = []
         for row in rows:
             mjd = _to_float(_first_present(row, ('r:midpointMjdTai', 'midpointMjdTai', 'mjd')))
-            flux = _to_float(_first_present(row, ('r:scienceFlux', 'scienceFlux')))
-            flux_err = _to_float(_first_present(row, ('r:scienceFluxErr', 'scienceFluxErr')))
-            band = _first_present(row, ('r:band', 'band')) or 'unknown'
-            source_ra = _first_present(row, ('r:ra', 'ra'))
-            source_dec = _first_present(row, ('r:dec', 'dec'))
-            if mjd is None or flux is None or flux_err is None or flux <= 0 or flux_err <= 0:
+            if mjd is None:
                 continue
-            snr = flux / flux_err
-            if (snr) > 3:
-                mag = -2.5 * math.log10((flux * 1e-9) / 3631.0)
-                mag_err = 1.0857 * (flux_err / flux)
-                if not math.isfinite(mag) or not math.isfinite(mag_err) or mag_err >= 1.5:
-                    continue
-
-                output.append({
+            band = _first_present(row, ('r:band', 'band')) or 'unknown'
+            value = {'filter': f'LSST({band})'}
+            value.update(_apparent_magnitude(
+                _to_float(_first_present(row, ('r:scienceFlux', 'scienceFlux'))),
+                _to_float(_first_present(row, ('r:scienceFluxErr', 'scienceFluxErr'))),
+            ))
+            diff = _difference_magnitude(
+                _to_float(_first_present(row, ('r:psfFlux', 'psfFlux'))),
+                _to_float(_first_present(row, ('r:psfFluxErr', 'psfFluxErr'))),
+            )
+            if diff is not None:
+                add_difference_photometry(value, *diff)
+            if 'magnitude' not in value and 'diff_magnitude' not in value:
+                continue
+            add_origin_coordinates(
+                value,
+                _first_present(row, ('r:ra', 'ra')),
+                _first_present(row, ('r:dec', 'dec')),
+            )
+            output.append({
                 'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                'value': add_origin_coordinates(
-                    {'filter': f'LSST({band})', 'magnitude': mag, 'error': mag_err}, source_ra, source_dec,
-                ),
-                })
-            else:
-                mag = -2.5 * math.log10((flux * 1e-9) * snr / 3631)
-                mag_err = -1.0
-                if not math.isfinite(mag):
-                    continue
-
-                output.append({
-                'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                'value': add_origin_coordinates(
-                    {'filter': f'LSST({band})', 'magnitude': mag, 'error': mag_err}, source_ra, source_dec,
-                ),
-                })
+                'value': value,
+            })
         return output
+
+
+def _njy_to_ab_mag(flux_njy):
+    return -2.5 * math.log10((flux_njy * 1e-9) / 3631.0)
+
+
+def _apparent_magnitude(flux, flux_err):
+    """Magnitude from the direct-image flux; an upper limit (error -1) below S/N 3."""
+    if flux is None or flux_err is None or flux <= 0 or flux_err <= 0:
+        return {}
+    snr = flux / flux_err
+    if snr > 3:
+        mag = _njy_to_ab_mag(flux)
+        mag_err = 1.0857 * (flux_err / flux)
+        if not math.isfinite(mag) or not math.isfinite(mag_err) or mag_err >= 1.5:
+            return {}
+        return {'magnitude': mag, 'error': mag_err}
+    mag = _njy_to_ab_mag(flux * snr)
+    if not math.isfinite(mag):
+        return {}
+    return {'magnitude': mag, 'error': -1.0}
+
+
+def _difference_magnitude(flux, flux_err):
+    """(magnitude, error, sign) from the difference-image flux, or None if not significant."""
+    if flux is None or flux_err is None or flux == 0 or flux_err <= 0:
+        return None
+    if abs(flux) / flux_err <= 3:
+        return None
+    mag = _njy_to_ab_mag(abs(flux))
+    mag_err = 1.0857 * (flux_err / abs(flux))
+    if not math.isfinite(mag) or not math.isfinite(mag_err) or mag_err >= 1.5:
+        return None
+    return mag, mag_err, 1 if flux > 0 else -1

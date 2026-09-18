@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+from django.db.models import Q
 from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target
 
@@ -13,11 +14,21 @@ BACKFILL_SERVICES = {
     'LSST': LSSTDataService,
 }
 
+# Value keys each service now stores; a row missing any of them predates that change. A few
+# LSST sources are too faint for a difference magnitude and will keep being re-queried, which
+# only costs a query since the upsert leaves them unchanged.
+REQUIRED_KEYS = {
+    'ZTF': ('origin_ra',),
+    'Alerce': ('origin_ra', 'diff_magnitude'),
+    'LSST': ('origin_ra', 'diff_magnitude'),
+}
+
 
 class Command(BaseCommand):
     help = (
         "Re-query ZTF, Alerce and LSST for targets that already hold their photometry, so points "
-        "ingested before origin_ra/origin_dec existed pick up a per-epoch sky position. "
+        "ingested before origin_ra/origin_dec (and, for Alerce/LSST, host-subtracted difference "
+        "magnitudes) existed pick them up. "
         "Existing rows are updated in place; no duplicate photometry is created."
     )
 
@@ -36,15 +47,15 @@ class Command(BaseCommand):
             help="Report how many datums still lack a position, without querying anything.",
         )
 
-    def _targets_missing_positions(self, service_name, target_id):
-        """Targets holding datums from this service that have no origin_ra yet."""
-        queryset = ReducedDatum.objects.filter(
-            source_name=service_name,
-            data_type='photometry',
-        ).exclude(value__has_key='origin_ra')
+    def _pending(self, service_name, target_id):
+        """Datums from this service missing at least one key the service now stores."""
+        queryset = ReducedDatum.objects.filter(source_name=service_name, data_type='photometry')
         if target_id:
             queryset = queryset.filter(target_id=target_id)
-        return queryset.values_list('target_id', flat=True).distinct()
+        missing = Q()
+        for key in REQUIRED_KEYS[service_name]:
+            missing |= ~Q(value__has_key=key)
+        return queryset.filter(missing)
 
     def handle(self, *args, **options):
         service_names = options.get("service") or sorted(BACKFILL_SERVICES)
@@ -53,19 +64,15 @@ class Command(BaseCommand):
         dry_run = options.get("dry_run")
 
         for service_name in service_names:
-            target_ids = list(self._targets_missing_positions(service_name, target_id))
+            pending = self._pending(service_name, target_id)
+            target_ids = list(pending.values_list('target_id', flat=True).distinct())
             if limit:
                 target_ids = target_ids[:limit]
 
             if dry_run:
-                pending = ReducedDatum.objects.filter(
-                    source_name=service_name, data_type='photometry',
-                ).exclude(value__has_key='origin_ra')
-                if target_id:
-                    pending = pending.filter(target_id=target_id)
                 self.stdout.write(
-                    f"{service_name}: {pending.count()} datums without a position "
-                    f"across {len(target_ids)} targets."
+                    f"{service_name}: {pending.count()} datums missing "
+                    f"{'/'.join(REQUIRED_KEYS[service_name])} across {len(target_ids)} targets."
                 )
                 continue
 

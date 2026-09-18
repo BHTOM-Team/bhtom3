@@ -287,6 +287,22 @@ ALERCE_SPECIAL_COLOR_MAP = {
 }
 
 
+def _negative_difference_limit(diff_magnitude, diff_error, sigma=3.0):
+    """3-sigma upper limit for a negative difference flux (fainter than the reference image).
+
+    The stored magnitude is that of |difference flux|, which says nothing about how bright the
+    source could be; the limit comes from the flux error instead: sigma_flux = |f| * err / 1.0857.
+    """
+    try:
+        diff_magnitude = float(diff_magnitude)
+        diff_error = float(diff_error)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(diff_magnitude) or not np.isfinite(diff_error) or diff_error <= 0:
+        return None
+    return diff_magnitude - 2.5 * np.log10(sigma * diff_error / 1.0857)
+
+
 def _spectrum_source_label(datum):
     """Return the source label used by both photometry and spectroscopy plots."""
     value = datum.value if isinstance(datum.value, dict) else {}
@@ -343,6 +359,10 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             klass=ReducedDatum.objects.filter(target=target, data_type=photometry_data_type),
         )
 
+    request = context.get('request')
+    diff_mode = bool(request is not None and getattr(request, 'GET', {}).get('phot') == 'diff')
+    has_difference = False
+
     magnitude_min = -100.0
     magnitude_max = 100.0
     skip_filters = {
@@ -369,10 +389,25 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
         if not filter_name or filter_name in skip_filters:
             continue
 
-        value = datum.value.get('magnitude')
-        if value is None:
-            value = datum.value.get('limit')
-        error = datum.value.get('error', datum.value.get('magnitude_error'))
+        if datum.value.get('diff_magnitude') is not None:
+            has_difference = True
+
+        negative_difference = False
+        if diff_mode:
+            value = datum.value.get('diff_magnitude')
+            error = datum.value.get('diff_error')
+            try:
+                negative_difference = float(datum.value.get('diff_sign', 1)) < 0
+            except (TypeError, ValueError):
+                negative_difference = False
+            if negative_difference:
+                value = _negative_difference_limit(value, error)
+                error = -1.0
+        else:
+            value = datum.value.get('magnitude')
+            if value is None:
+                value = datum.value.get('limit')
+            error = datum.value.get('error', datum.value.get('magnitude_error'))
         try:
             value = float(value) if value is not None else None
             error = float(error) if error is not None else None
@@ -396,8 +431,12 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
         else:
             custom = f"{facility}, {observer}".strip(', ')
 
-        is_limit = (datum.value.get('limit') is not None) or (error is not None and error <= 0)
-        target_bucket = limits_data if is_limit else photometry_data
+        if diff_mode:
+            is_limit = negative_difference
+            target_bucket = limits_data if is_limit else photometry_data
+        else:
+            is_limit = (datum.value.get('limit') is not None) or (error is not None and error <= 0)
+            target_bucket = limits_data if is_limit else photometry_data
         target_bucket.setdefault(filter_name, {})
         target_bucket[filter_name].setdefault('time', []).append(datum.timestamp)
         target_bucket[filter_name].setdefault('magnitude', []).append(np.around(value, 3))
@@ -561,7 +600,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
         yaxis=dict(
             autorange=False,
             range=[np.ceil(magnitude_min), np.floor(magnitude_max)],
-            title='magnitude',
+            title='difference magnitude' if diff_mode else 'magnitude',
             showgrid=grid,
             color=label_color,
             showline=True,
@@ -587,7 +626,6 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
         clickmode='event',
     )
 
-    request = context.get('request')
     he_result = _build_highenergy_plot(context, target, width=width, height=height,
                                        background=background, label_color=label_color, grid=grid)
     return {
@@ -595,6 +633,8 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
         'plot': offline.plot(fig, output_type='div', show_link=False),
         'highenergy_plot': he_result,
         'request': request,
+        'phot_mode': 'diff' if diff_mode else 'apparent',
+        'has_difference': has_difference,
     }
 
 HIGHENERGY_COLOR_MAP = {
@@ -882,6 +922,36 @@ def _astrometry_style(source_name, filter_name):
     return PHOTOMETRY_COLOR_MAP.get(filter_name, ASTROMETRY_DEFAULT_STYLE)
 
 
+def _astrometry_mag_label(value):
+    """Hover text for a position: the apparent magnitude, else the difference magnitude.
+
+    Upper limits (apparent error <= 0, or a negative difference flux) are shown as '<limit'.
+    """
+    def number(key):
+        try:
+            number = float(value.get(key))
+        except (TypeError, ValueError):
+            return None
+        return number if np.isfinite(number) else None
+
+    magnitude = number('magnitude')
+    if magnitude is None:
+        magnitude = number('limit')
+    if magnitude is not None:
+        error = number('error')
+        is_limit = value.get('limit') is not None or (error is not None and error <= 0)
+        return f'<{magnitude:.3f}' if is_limit else f'{magnitude:.3f}'
+
+    diff_magnitude = number('diff_magnitude')
+    if diff_magnitude is not None:
+        sign = number('diff_sign')
+        if sign is not None and sign < 0:
+            limit = _negative_difference_limit(diff_magnitude, number('diff_error'))
+            return f'<{limit:.3f} (diff)' if limit is not None else 'n/a'
+        return f'{diff_magnitude:.3f} (diff)'
+    return 'n/a'
+
+
 @register.inclusion_tag('tom_dataproducts/partials/astrometry_for_target.html', takes_context=True)
 def astrometry_for_target(context, target):
     """Per-epoch sky positions for a target, as JSON for the client-side astrometry plot.
@@ -929,6 +999,7 @@ def astrometry_for_target(context, target):
                 'mjd': [],
                 'time': [],
                 'magnitude': [],
+                'mag_label': [],
             }
 
         magnitude = value.get('magnitude')
@@ -943,6 +1014,7 @@ def astrometry_for_target(context, target):
         entry['mjd'].append(float(Time(datum.timestamp, format='datetime').mjd))
         entry['time'].append(datum.timestamp.isoformat())
         entry['magnitude'].append(magnitude)
+        entry['mag_label'].append(_astrometry_mag_label(value))
 
     series_list = sorted(series.values(), key=lambda item: item['label'])
     point_count = sum(len(item['ra']) for item in series_list)
@@ -962,3 +1034,26 @@ def astrometry_for_target(context, target):
         'series_count': len(series_list),
         'request': context.get('request'),
     }
+
+
+@register.inclusion_tag('tom_dataproducts/partials/recent_photometry.html')
+def recent_photometry(target, limit=1):
+    """Most recent photometric points for a target; overrides tom_dataproducts' tag of the same name.
+
+    Upstream indexes value['magnitude'] and raises KeyError on difference-only rows (e.g. an Alerce
+    detection with no corrected apparent magnitude), which breaks the whole target page. Rows with
+    neither a magnitude nor a limit are skipped instead, still returning up to `limit` points.
+    """
+    data = []
+    photometry = ReducedDatum.objects.filter(data_type='photometry', target=target).order_by('-timestamp')
+    for reduced_datum in photometry.iterator():
+        value = reduced_datum.value if isinstance(reduced_datum.value, dict) else {}
+        if 'limit' in value:
+            data.append({'timestamp': reduced_datum.timestamp, 'magnitude': value['limit'], 'limit': True})
+        elif 'magnitude' in value:
+            data.append({'timestamp': reduced_datum.timestamp, 'magnitude': value['magnitude'], 'limit': False})
+        else:
+            continue
+        if len(data) >= limit:
+            break
+    return {'data': data}
