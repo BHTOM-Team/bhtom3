@@ -8,11 +8,14 @@ from io import StringIO
 import requests
 
 from tom_dataservices.dataservices import DataService
-from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import ZTFQueryForm
-from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
+from custom_code.data_services.service_utils import (
+    DATA_SERVICE_HTTP_TIMEOUT,
+    add_origin_coordinates,
+    upsert_reduced_datums,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +41,8 @@ class ZTFDataService(DataService):
     verbose_name = 'ZTF'
     update_on_daily_refresh = True
     info_url = ZTF_PAGE
+    # Photometry values carry origin_ra/origin_dec; see upsert_reduced_datums.
+    stores_origin_coordinates = True
     service_notes = 'Query ZTF by coordinates and ingest ZTF photometry.'
 
     @classmethod
@@ -121,17 +126,15 @@ class ZTFDataService(DataService):
         if data_type != 'photometry' or not data:
             return
         source_location = kwargs.get('source_location') or self.info_url
-        for datum in data:
-            ReducedDatum.objects.get_or_create(
-                target=target,
-                data_type='photometry',
-                timestamp=datum['timestamp'],
-                value=datum['value'],
-                defaults={
-                    'source_name': self.name,
-                    'source_location': source_location,
-                },
-            )
+        # upsert (rather than get_or_create) so points stored before origin_ra/origin_dec
+        # existed get the position filled in instead of being duplicated.
+        upsert_reduced_datums(
+            target=target,
+            data_type='photometry',
+            source_name=self.name,
+            source_location=source_location,
+            datums=data,
+        )
 
     def to_reduced_datums(self, target, data_results=None, **kwargs):
         if not data_results:
@@ -149,8 +152,10 @@ class ZTFDataService(DataService):
         for _, datum in lc_data.iterrows():
             if datum.magerr>2.0:
                 continue
+            value = {'filter': f"ZTF({datum.filtercode})", 'magnitude': datum.mag, 'error': datum.magerr}
+            add_origin_coordinates(value, getattr(datum, 'ra', None), getattr(datum, 'dec', None))
             output.append({
                 'timestamp': Time(datum.mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                'value': {'filter': f"ZTF({datum.filtercode})", 'magnitude': datum.mag, 'error': datum.magerr},
+                'value': value,
                 })
         return output

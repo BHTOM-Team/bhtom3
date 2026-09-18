@@ -18,6 +18,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_observations import facility
 from tom_targets.models import Target, TargetName
 from custom_code.last_photometry import refresh_target_last_photometry
+from custom_code.data_services.service_utils import upsert_reduced_datums
 from custom_code.models import TargetAliasInfo, TransitEphemeris
 from custom_code.priority import refresh_target_priority
 from custom_code.sun_separation import refresh_target_sun_separation
@@ -355,6 +356,19 @@ def _bulk_insert_reduced_datums(target, service_name, service, result, reduced_d
             timestamps = [timestamp for timestamp, _value in candidates]
             if not candidates:
                 continue
+
+        if getattr(service, 'stores_origin_coordinates', False):
+            # Whole-value identity would treat rows stored before origin_ra/origin_dec existed as
+            # different points and duplicate them; upsert fills the position in place instead.
+            created, _updated = upsert_reduced_datums(
+                target,
+                data_type,
+                service_name,
+                source_location,
+                [{'timestamp': timestamp, 'value': value} for timestamp, value in candidates],
+            )
+            created_count += created
+            continue
 
         existing_keys = {
             _reduced_datum_identity(timestamp, value)

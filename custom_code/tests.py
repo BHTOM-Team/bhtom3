@@ -87,6 +87,14 @@ from custom_code.data_services.kmt_dataservice import (
     _normalize_event_name as _normalize_kmt_event_name,
     _normalize_hjd as _normalize_kmt_hjd,
 )
+from custom_code.data_services.alerce_dataservice import AlerceDataService
+from custom_code.data_services.ztf_dataservice import ZTFDataService
+from custom_code.data_services.lsst_dataservice import LSSTDataService, FINK_SOURCE_COLUMNS
+from custom_code.data_services.service_utils import (
+    add_origin_coordinates,
+    upsert_reduced_datums,
+)
+from custom_code.templatetags.custom_dataproduct_extras import astrometry_for_target
 from custom_code.data_services.lamost_dataservice import (
     LAMOSTDataService,
     LAMOST_FLUX_SCALE,
@@ -159,6 +167,7 @@ from custom_code.templatetags.custom_observation_extras import (
 from custom_code.templatetags.custom_target_extras import bhtom_target_data, non_sidereal_aladin
 from custom_code.templatetags.custom_target_extras import truncate_decimals
 from custom_code.tasks import _build_query_parameters_for_service, _run_service_for_target
+from custom_code.tasks import _bulk_insert_reduced_datums
 from custom_code.tasks import _get_or_create_target_alias, run_observation_status_update
 from custom_code.sun_separation import get_live_target_values
 from custom_code.target_derivations import derive_sidereal_target_fields
@@ -2278,6 +2287,388 @@ class LAMOSTRescaleGuardTests(TestCase):
 
     def test_non_dict_value_is_ignored(self):
         self.assertFalse(needs_lamost_flux_rescale(None))
+
+
+class OriginCoordinateHelperTests(TestCase):
+    def test_valid_coordinates_are_stored_and_rounded(self):
+        value = {'filter': 'ZTF(zg)', 'magnitude': 18.1}
+
+        add_origin_coordinates(value, 141.39572612345, 24.06099781234)
+
+        self.assertEqual(value['origin_ra'], 141.3957261)
+        self.assertEqual(value['origin_dec'], 24.0609978)
+
+    def test_string_coordinates_are_parsed(self):
+        value = {}
+
+        add_origin_coordinates(value, '141.3958', '24.0611')
+
+        self.assertAlmostEqual(value['origin_ra'], 141.3958)
+        self.assertAlmostEqual(value['origin_dec'], 24.0611)
+
+    def test_missing_coordinates_leave_value_untouched(self):
+        value = {'magnitude': 18.1}
+
+        add_origin_coordinates(value, None, 24.06)
+
+        self.assertNotIn('origin_ra', value)
+        self.assertNotIn('origin_dec', value)
+
+    def test_nan_coordinates_are_rejected(self):
+        value = {}
+
+        add_origin_coordinates(value, float('nan'), 24.06)
+
+        self.assertEqual(value, {})
+
+    def test_out_of_range_coordinates_are_rejected(self):
+        value = {}
+
+        add_origin_coordinates(value, 141.4, 95.0)
+
+        self.assertEqual(value, {})
+
+
+class UpsertReducedDatumTests(TestCase):
+    """Adding a key to `value` must upgrade stored rows, never duplicate the light curve."""
+
+    def setUp(self):
+        self.target = Target.objects.create(
+            name='ZTF-upsert-target', type='SIDEREAL', ra=141.3958, dec=24.0611, epoch=2000.0,
+        )
+        self.timestamp = datetime(2018, 3, 25, 6, 20, 9, tzinfo=timezone.utc)
+
+    def _datum(self, **extra):
+        value = {'filter': 'ZTF(zg)', 'magnitude': 14.48, 'error': 0.014}
+        value.update(extra)
+        return {'timestamp': self.timestamp, 'value': value}
+
+    def test_new_datums_are_created(self):
+        created, updated = upsert_reduced_datums(
+            self.target, 'photometry', 'ZTF', 'https://example.invalid',
+            [self._datum(origin_ra=141.395726, origin_dec=24.0609978)],
+        )
+
+        self.assertEqual((created, updated), (1, 0))
+        datum = ReducedDatum.objects.get(target=self.target)
+        self.assertEqual(datum.value['origin_ra'], 141.395726)
+        self.assertEqual(datum.source_name, 'ZTF')
+
+    def test_legacy_datum_is_upgraded_in_place_not_duplicated(self):
+        ReducedDatum.objects.create(
+            target=self.target,
+            data_type='photometry',
+            timestamp=self.timestamp,
+            value={'filter': 'ZTF(zg)', 'magnitude': 14.48, 'error': 0.014},
+            source_name='ZTF',
+        )
+
+        created, updated = upsert_reduced_datums(
+            self.target, 'photometry', 'ZTF', 'https://example.invalid',
+            [self._datum(origin_ra=141.395726, origin_dec=24.0609978)],
+        )
+
+        self.assertEqual((created, updated), (0, 1))
+        self.assertEqual(ReducedDatum.objects.filter(target=self.target).count(), 1)
+        datum = ReducedDatum.objects.get(target=self.target)
+        self.assertEqual(datum.value['origin_ra'], 141.395726)
+        self.assertEqual(datum.value['origin_dec'], 24.0609978)
+        self.assertEqual(datum.value['magnitude'], 14.48)
+
+    def test_reingesting_identical_datums_is_a_no_op(self):
+        datums = [self._datum(origin_ra=141.395726, origin_dec=24.0609978)]
+        upsert_reduced_datums(self.target, 'photometry', 'ZTF', 'https://example.invalid', datums)
+
+        created, updated = upsert_reduced_datums(
+            self.target, 'photometry', 'ZTF', 'https://example.invalid', datums,
+        )
+
+        self.assertEqual((created, updated), (0, 0))
+        self.assertEqual(ReducedDatum.objects.filter(target=self.target).count(), 1)
+
+    def test_same_timestamp_different_magnitude_is_a_separate_datum(self):
+        upsert_reduced_datums(
+            self.target, 'photometry', 'ZTF', 'https://example.invalid',
+            [self._datum(origin_ra=141.395726, origin_dec=24.0609978)],
+        )
+
+        created, _ = upsert_reduced_datums(
+            self.target, 'photometry', 'ZTF', 'https://example.invalid',
+            [{'timestamp': self.timestamp,
+              'value': {'filter': 'ZTF(zr)', 'magnitude': 13.9, 'error': 0.01,
+                        'origin_ra': 141.3957, 'origin_dec': 24.0610}}],
+        )
+
+        self.assertEqual(created, 1)
+        self.assertEqual(ReducedDatum.objects.filter(target=self.target).count(), 2)
+
+    def test_empty_datum_list_is_handled(self):
+        self.assertEqual(
+            upsert_reduced_datums(self.target, 'photometry', 'ZTF', 'https://example.invalid', []),
+            (0, 0),
+        )
+
+
+class ZTFOriginCoordinateTests(TestCase):
+    def test_build_photometry_datums_stores_per_epoch_position(self):
+        import pandas as pd
+        rows = pd.DataFrame([
+            {'mjd': 58202.2640046, 'mag': 14.48, 'magerr': 0.0144, 'filtercode': 'zg',
+             'ra': 141.395726, 'dec': 24.0609978},
+        ])
+
+        datum = ZTFDataService()._build_photometry_datums(rows)[0]
+
+        self.assertEqual(datum['value']['filter'], 'ZTF(zg)')
+        self.assertAlmostEqual(datum['value']['origin_ra'], 141.395726)
+        self.assertAlmostEqual(datum['value']['origin_dec'], 24.0609978)
+
+    def test_rows_without_coordinates_still_yield_photometry(self):
+        import pandas as pd
+        rows = pd.DataFrame([
+            {'mjd': 58202.2640046, 'mag': 14.48, 'magerr': 0.0144, 'filtercode': 'zg'},
+        ])
+
+        datum = ZTFDataService()._build_photometry_datums(rows)[0]
+
+        self.assertEqual(datum['value']['magnitude'], 14.48)
+        self.assertNotIn('origin_ra', datum['value'])
+
+
+class AlerceOriginCoordinateTests(TestCase):
+    def test_build_photometry_datums_stores_per_epoch_position(self):
+        detections = [{
+            'mjd': 58513.4362, 'fid': 1, 'magpsf_corr': 14.63, 'sigmapsf_corr': 0.0127,
+            'ra': 141.3957284, 'dec': 24.0610512,
+        }]
+
+        datum = AlerceDataService()._build_photometry_datums(detections)[0]
+
+        self.assertEqual(datum['value']['filter'], 'ZTF(zg)')
+        self.assertAlmostEqual(datum['value']['origin_ra'], 141.3957284)
+        self.assertAlmostEqual(datum['value']['origin_dec'], 24.0610512)
+
+    def test_detection_without_coordinates_still_yields_photometry(self):
+        detections = [{
+            'mjd': 58513.4362, 'fid': 2, 'magpsf_corr': 13.71, 'sigmapsf_corr': 0.0059,
+            'ra': None, 'dec': None,
+        }]
+
+        datum = AlerceDataService()._build_photometry_datums(detections)[0]
+
+        self.assertEqual(datum['value']['filter'], 'ZTF(zr)')
+        self.assertNotIn('origin_ra', datum['value'])
+
+
+class LSSTOriginCoordinateTests(TestCase):
+    def test_detection_stores_per_source_position(self):
+        rows = [{
+            'r:midpointMjdTai': 61204.9817515752, 'r:band': 'g',
+            'r:scienceFlux': 93763.15, 'r:scienceFluxErr': 397.59558,
+            'r:ra': 149.9286254445, 'r:dec': 0.4184468537,
+        }]
+
+        datum = LSSTDataService()._build_photometry_datums(rows)[0]
+
+        self.assertEqual(datum['value']['filter'], 'LSST(g)')
+        self.assertGreater(datum['value']['error'], 0)
+        self.assertAlmostEqual(datum['value']['origin_ra'], 149.9286254)
+        self.assertAlmostEqual(datum['value']['origin_dec'], 0.4184469)
+
+    def test_low_snr_limit_also_stores_position(self):
+        rows = [{
+            'r:midpointMjdTai': 61204.97, 'r:band': 'u',
+            'r:scienceFlux': 100.0, 'r:scienceFluxErr': 50.0,
+            'r:ra': 149.92861, 'r:dec': 0.41842,
+        }]
+
+        datum = LSSTDataService()._build_photometry_datums(rows)[0]
+
+        self.assertEqual(datum['value']['error'], -1.0)
+        self.assertIn('origin_ra', datum['value'])
+
+    def test_source_without_position_still_yields_photometry(self):
+        rows = [{
+            'r:midpointMjdTai': 61204.98, 'r:band': 'r',
+            'r:scienceFlux': 93763.15, 'r:scienceFluxErr': 397.59558,
+        }]
+
+        datum = LSSTDataService()._build_photometry_datums(rows)[0]
+
+        self.assertNotIn('origin_ra', datum['value'])
+
+    def test_sources_request_asks_fink_for_positions(self):
+        self.assertIn('r:ra', FINK_SOURCE_COLUMNS.split(','))
+        self.assertIn('r:dec', FINK_SOURCE_COLUMNS.split(','))
+
+    @patch('custom_code.data_services.lsst_dataservice.requests.post')
+    def test_query_service_sends_position_columns(self, mock_post):
+        mock_post.return_value.json.return_value = []
+
+        LSSTDataService().query_service({'dia_object_id': '314003014107006318', 'include_photometry': True})
+
+        payloads = [call.kwargs['json'] for call in mock_post.call_args_list]
+        source_payload = next(p for p in payloads if 'columns' in p)
+        self.assertIn('r:ra', source_payload['columns'])
+
+
+class WorkerOriginCoordinateIngestTests(TestCase):
+    """The db_worker path (new targets, daily refresh) must upgrade legacy rows, not duplicate them."""
+
+    def setUp(self):
+        self.target = Target.objects.create(
+            name='Worker-origin-target', type='SIDEREAL', ra=141.3958, dec=24.0611, epoch=2000.0,
+        )
+        self.timestamp = datetime(2018, 3, 25, 6, 20, 9, tzinfo=timezone.utc)
+        ReducedDatum.objects.create(
+            target=self.target, data_type='photometry', timestamp=self.timestamp,
+            value={'filter': 'ZTF(zg)', 'magnitude': 14.48, 'error': 0.014}, source_name='ZTF',
+        )
+
+    def _reduced_datums(self):
+        return {'photometry': [
+            {'timestamp': self.timestamp,
+             'value': {'filter': 'ZTF(zg)', 'magnitude': 14.48, 'error': 0.014,
+                       'origin_ra': 141.395726, 'origin_dec': 24.0609978}},
+            {'timestamp': datetime(2018, 3, 29, 5, 12, 8, tzinfo=timezone.utc),
+             'value': {'filter': 'ZTF(zg)', 'magnitude': 14.51, 'error': 0.014,
+                       'origin_ra': 141.3957416, 'origin_dec': 24.0609763}},
+        ]}
+
+    def test_legacy_row_is_upgraded_and_only_new_point_is_created(self):
+        created = _bulk_insert_reduced_datums(
+            self.target, 'ZTF', ZTFDataService(), {}, self._reduced_datums(),
+        )
+
+        self.assertEqual(created, 1)
+        rows = ReducedDatum.objects.filter(target=self.target, source_name='ZTF')
+        self.assertEqual(rows.count(), 2)
+        self.assertTrue(all('origin_ra' in row.value for row in rows))
+
+    def test_rerunning_the_refresh_adds_nothing(self):
+        _bulk_insert_reduced_datums(self.target, 'ZTF', ZTFDataService(), {}, self._reduced_datums())
+
+        created = _bulk_insert_reduced_datums(
+            self.target, 'ZTF', ZTFDataService(), {}, self._reduced_datums(),
+        )
+
+        self.assertEqual(created, 0)
+        self.assertEqual(ReducedDatum.objects.filter(target=self.target).count(), 2)
+
+    def test_origin_coordinate_services_are_flagged(self):
+        for service_class in (ZTFDataService, AlerceDataService, LSSTDataService):
+            self.assertTrue(getattr(service_class, 'stores_origin_coordinates', False), service_class)
+
+
+class AstrometryForTargetTagTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='astrometry-user', password='secret')
+        self.target = Target.objects.create(
+            name='Astrometry-target', type='SIDEREAL', ra=141.3958, dec=24.0611, epoch=2000.0,
+        )
+
+    def _context(self):
+        request = RequestFactory().get('/')
+        request.user = self.user
+        return {'request': request}
+
+    def _datum(self, source_name, filter_name, day, ra=None, dec=None, magnitude=18.0):
+        value = {'filter': filter_name, 'magnitude': magnitude, 'error': 0.01}
+        if ra is not None:
+            value['origin_ra'] = ra
+            value['origin_dec'] = dec
+        return ReducedDatum.objects.create(
+            target=self.target,
+            data_type='photometry',
+            timestamp=datetime(2020, 1, day, tzinfo=timezone.utc),
+            value=value,
+            source_name=source_name,
+        )
+
+    def test_datums_with_positions_are_grouped_into_series(self):
+        self._datum('ZTF', 'ZTF(zg)', 1, ra=141.39572, dec=24.06099)
+        self._datum('ZTF', 'ZTF(zg)', 2, ra=141.39574, dec=24.06098)
+        self._datum('ZTF', 'ZTF(zr)', 3, ra=141.39576, dec=24.06101)
+
+        result = astrometry_for_target(self._context(), self.target)
+        data = json.loads(result['astrometry_data'])
+
+        self.assertEqual(result['point_count'], 3)
+        self.assertEqual([s['label'] for s in data['series']], ['ZTF(zg)', 'ZTF(zr)'])
+        self.assertEqual(len(data['series'][0]['ra']), 2)
+
+    def test_datums_without_positions_are_skipped(self):
+        self._datum('ZTF', 'ZTF(zg)', 1, ra=141.39572, dec=24.06099)
+        self._datum('ZTF', 'ZTF(zg)', 2)
+
+        result = astrometry_for_target(self._context(), self.target)
+
+        self.assertEqual(result['point_count'], 1)
+
+    def test_alerce_is_labelled_separately_from_ztf(self):
+        self._datum('ZTF', 'ZTF(zg)', 1, ra=141.39572, dec=24.06099)
+        self._datum('Alerce', 'ZTF(zg)', 2, ra=141.39574, dec=24.06098)
+
+        data = json.loads(astrometry_for_target(self._context(), self.target)['astrometry_data'])
+
+        self.assertEqual(
+            sorted(s['label'] for s in data['series']),
+            ['Alerce ZTF(zg)', 'ZTF(zg)'],
+        )
+
+    def test_series_carry_mjd_and_target_reference_position(self):
+        self._datum('ZTF', 'ZTF(zg)', 1, ra=141.39572, dec=24.06099)
+
+        data = json.loads(astrometry_for_target(self._context(), self.target)['astrometry_data'])
+
+        self.assertAlmostEqual(data['target_ra'], 141.3958)
+        self.assertAlmostEqual(data['target_dec'], 24.0611)
+        self.assertAlmostEqual(data['series'][0]['mjd'][0], 58849.0, places=3)
+
+    def test_target_with_no_positions_reports_zero_points(self):
+        result = astrometry_for_target(self._context(), self.target)
+
+        self.assertEqual(result['point_count'], 0)
+        self.assertEqual(result['series_count'], 0)
+
+
+class AstrometryTabTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='astrometry-tab-user', password='secret')
+        self.target = Target.objects.create(
+            name='Astrometry-tab-target', type='SIDEREAL', ra=141.3958, dec=24.0611, epoch=2000.0,
+        )
+        assign_perm('tom_targets.view_target', self.user, self.target)
+        self.client.force_login(self.user)
+
+    def test_astrometry_tab_renders_with_stored_positions(self):
+        ReducedDatum.objects.create(
+            target=self.target,
+            data_type='photometry',
+            timestamp=datetime(2020, 1, 1, tzinfo=timezone.utc),
+            value={'filter': 'ZTF(zg)', 'magnitude': 18.0, 'error': 0.01,
+                   'origin_ra': 141.39572, 'origin_dec': 24.06099},
+            source_name='ZTF',
+        )
+
+        response = self.client.get(
+            reverse('targets:detail', kwargs={'pk': self.target.pk}), {'tab': 'astrometry'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'astrometry-plot')
+        self.assertContains(response, 'RA vs Dec')
+        self.assertContains(response, 'RA vs time')
+        self.assertContains(response, 'Dec vs time')
+        self.assertNotContains(response, 'positions from')
+
+    def test_astrometry_tab_explains_itself_when_empty(self):
+        response = self.client.get(
+            reverse('targets:detail', kwargs={'pk': self.target.pk}), {'tab': 'astrometry'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No per-epoch positions stored')
 
 
 class SpectroscopicDataServiceRadiusTests(TestCase):

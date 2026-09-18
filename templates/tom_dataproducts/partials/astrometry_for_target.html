@@ -1,0 +1,185 @@
+<div class="d-flex justify-content-between align-items-start mb-2">
+  <h4 class="mb-0">Astrometry</h4>
+  {% if request and request.user and request.user.is_staff %}
+    <a href="{% url 'dataproducts:update-reduced-data' %}?target_id={{ target.id }}&force_all_dataservices=1"
+       class="btn btn-primary"
+       title="Update Targets"
+       onclick="return confirm('Are you sure you want to query all DataServices for this target?');">Check for new data</a>
+  {% endif %}
+</div>
+
+{% if point_count %}
+<div class="d-flex flex-wrap align-items-end gap-3 mb-3">
+  <div class="me-3">
+    <label for="astrometry-mode" class="form-label mb-1"><strong>Plot</strong></label>
+    <select id="astrometry-mode" class="form-select form-select-sm" style="width:auto;">
+      <option value="radec" selected>RA vs Dec</option>
+      <option value="ra-time">RA vs time</option>
+      <option value="dec-time">Dec vs time</option>
+    </select>
+  </div>
+  <div class="me-3">
+    <label for="astrometry-units" class="form-label mb-1"><strong>Coordinates</strong></label>
+    <select id="astrometry-units" class="form-select form-select-sm" style="width:auto;">
+      <option value="offset" selected>Offset from target (arcsec)</option>
+      <option value="absolute">Absolute (degrees)</option>
+    </select>
+  </div>
+</div>
+
+<div id="astrometry-plot"></div>
+
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+
+<script>
+  const astrometryData = {{ astrometry_data|safe }};
+</script>
+
+<script>
+const ARCSEC_PER_DEG = 3600.0;
+
+// RA differences must be wrapped before scaling, so a target sitting near 0h does not produce
+// a ~360 degree jump between epochs either side of the meridian.
+function wrapDegrees(delta) {
+  let wrapped = delta % 360.0;
+  if (wrapped > 180.0) wrapped -= 360.0;
+  if (wrapped < -180.0) wrapped += 360.0;
+  return wrapped;
+}
+
+function raOffsetArcsec(ra, dec, refRa) {
+  // Scaling by cos(dec) makes the offset a true angular distance on the sky.
+  return wrapDegrees(ra - refRa) * Math.cos(dec * Math.PI / 180.0) * ARCSEC_PER_DEG;
+}
+
+function decOffsetArcsec(dec, refDec) {
+  return (dec - refDec) * ARCSEC_PER_DEG;
+}
+
+function referencePosition() {
+  // Prefer the target's catalog position; fall back to the mean of the measurements so the
+  // offset view still works for a target with no stored coordinates.
+  if (astrometryData.target_ra !== null && astrometryData.target_dec !== null) {
+    return {ra: astrometryData.target_ra, dec: astrometryData.target_dec, fromCatalog: true};
+  }
+  let sumRa = 0, sumDec = 0, n = 0;
+  astrometryData.series.forEach(s => {
+    s.ra.forEach((ra, i) => { sumRa += ra; sumDec += s.dec[i]; n += 1; });
+  });
+  if (!n) return {ra: 0, dec: 0, fromCatalog: false};
+  return {ra: sumRa / n, dec: sumDec / n, fromCatalog: false};
+}
+
+function buildPlot() {
+  const mode = document.getElementById('astrometry-mode').value;
+  const units = document.getElementById('astrometry-units').value;
+  const ref = referencePosition();
+  const offsetMode = units === 'offset';
+
+  const traces = astrometryData.series.map(s => {
+    const raValues = offsetMode
+      ? s.ra.map((ra, i) => raOffsetArcsec(ra, s.dec[i], ref.ra))
+      : s.ra.slice();
+    const decValues = offsetMode
+      ? s.dec.map(dec => decOffsetArcsec(dec, ref.dec))
+      : s.dec.slice();
+
+    let x, y, hovertemplate;
+    // customdata carries the absolute position and magnitude so the hover stays meaningful
+    // whichever axes are on screen.
+    const customdata = s.ra.map((ra, i) => [
+      ra, s.dec[i], s.mjd[i],
+      s.magnitude[i] === null ? 'n/a' : s.magnitude[i].toFixed(3),
+    ]);
+    const unitLabel = offsetMode ? '″' : '°';
+
+    if (mode === 'radec') {
+      x = raValues;
+      y = decValues;
+      hovertemplate = 'RA= %{customdata[0]:.6f}°<br>Dec= %{customdata[1]:.6f}°'
+        + '<br>offset= (%{x:.3f}, %{y:.3f})' + unitLabel
+        + '<br>MJD= %{customdata[2]:.6f}<br>mag= %{customdata[3]}'
+        + '<extra>%{fullData.name}</extra>';
+    } else {
+      x = s.time.slice();
+      y = mode === 'ra-time' ? raValues : decValues;
+      hovertemplate = '%{x|%Y/%m/%d %H:%M:%S}<br>MJD= %{customdata[2]:.6f}'
+        + '<br>' + (mode === 'ra-time' ? 'RA' : 'Dec') + '= %{y:.4f}' + unitLabel
+        + '<br>RA= %{customdata[0]:.6f}° Dec= %{customdata[1]:.6f}°'
+        + '<br>mag= %{customdata[3]}'
+        + '<extra>%{fullData.name}</extra>';
+    }
+
+    return {
+      x: x,
+      y: y,
+      mode: 'markers',
+      type: 'scatter',
+      name: s.label,
+      opacity: 0.75,
+      marker: {color: s.color, symbol: s.symbol, size: 1.2 * s.size},
+      customdata: customdata,
+      hovertemplate: hovertemplate,
+    };
+  });
+
+  if (mode === 'radec') {
+    traces.push({
+      x: [offsetMode ? 0 : ref.ra],
+      y: [offsetMode ? 0 : ref.dec],
+      mode: 'markers',
+      type: 'scatter',
+      name: ref.fromCatalog ? 'Target position' : 'Mean position',
+      marker: {color: 'black', symbol: 'cross-thin-open', size: 14, line: {width: 2}},
+      hovertemplate: 'RA= ' + ref.ra.toFixed(6) + '°<br>Dec= ' + ref.dec.toFixed(6)
+        + '°<extra>%{fullData.name}</extra>',
+    });
+  }
+
+  const axisTitle = (which) => {
+    if (offsetMode) {
+      return which === 'ra' ? 'ΔRA · cos(Dec) (arcsec)' : 'ΔDec (arcsec)';
+    }
+    return which === 'ra' ? 'RA (deg)' : 'Dec (deg)';
+  };
+
+  const layout = {
+    height: 600,
+    width: 1000,
+    showlegend: true,
+    margin: {t: 40, r: 40, b: 40, l: 90},
+    legend: {yanchor: 'top', y: -0.15, xanchor: 'left', x: 0.0, orientation: 'h'},
+    hovermode: 'closest',
+    xaxis: {showline: true, mirror: true, zeroline: offsetMode},
+    yaxis: {showline: true, mirror: true, zeroline: offsetMode},
+  };
+
+  if (mode === 'radec') {
+    layout.xaxis.title = axisTitle('ra');
+    layout.yaxis.title = axisTitle('dec');
+    // East is conventionally drawn to the left on a sky plot.
+    layout.xaxis.autorange = 'reversed';
+    // Equal scaling keeps the scatter shaped like the real distribution on sky.
+    layout.yaxis.scaleanchor = 'x';
+    layout.yaxis.scaleratio = 1;
+  } else {
+    layout.xaxis.title = 'date';
+    layout.yaxis.title = axisTitle(mode === 'ra-time' ? 'ra' : 'dec');
+  }
+
+  Plotly.react('astrometry-plot', traces, layout, {responsive: true});
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  buildPlot();
+  document.getElementById('astrometry-mode').addEventListener('change', buildPlot);
+  document.getElementById('astrometry-units').addEventListener('change', buildPlot);
+});
+</script>
+{% else %}
+<div class="alert alert-info">
+  No per-epoch positions stored for this target yet.
+  Positions are recorded from ZTF, Alerce and LSST as photometry is ingested; older points predate
+  this and pick up a position the next time the target is queried.
+</div>
+{% endif %}

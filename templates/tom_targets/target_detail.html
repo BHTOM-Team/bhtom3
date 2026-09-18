@@ -247,6 +247,9 @@
         <li class="nav-item">
           <a class="nav-link {% if active_tab == 'spectroscopy' %}active{% endif %}" id="spectroscopy-tab" href="?tab=spectroscopy" role="tab">Spectroscopy</a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link {% if active_tab == 'astrometry' %}active{% endif %}" id="astrometry-tab" href="?tab=astrometry" role="tab">Astrometry</a>
+        </li>
       <li class="nav-item">
         <a class="nav-link {% if active_tab == 'observe' %}active{% endif %}" id="observe-tab" href="?tab=observe" role="tab">Observe</a>
       </li>
@@ -275,6 +278,10 @@
       {% elif active_tab == 'spectroscopy' %}
         <div class="tab-pane active" id="spectroscopy">
           {% custom_spectroscopy_for_target target %}
+        </div>
+      {% elif active_tab == 'astrometry' %}
+        <div class="tab-pane active" id="astrometry">
+          {% astrometry_for_target target %}
         </div>
       {% elif active_tab == 'observe' %}
       <div class="tab-pane active" id="observe">

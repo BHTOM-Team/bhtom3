@@ -7,14 +7,19 @@ from astropy.time import Time
 from datetime import timezone
 
 from tom_dataservices.dataservices import DataService
-from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import LSSTQueryForm
-from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
+from custom_code.data_services.service_utils import (
+    DATA_SERVICE_HTTP_TIMEOUT,
+    add_origin_coordinates,
+    upsert_reduced_datums,
+)
 
 
 FINK_API_URL = 'https://api.lsst.fink-portal.org'
+# r:ra/r:dec are the per-source centroids, stored as origin_ra/origin_dec for the astrometry tab.
+FINK_SOURCE_COLUMNS = 'r:diaObjectId,r:midpointMjdTai,r:scienceFlux,r:scienceFluxErr,r:band,r:ra,r:dec'
 
 
 def _to_float(value):
@@ -60,6 +65,8 @@ class LSSTDataService(DataService):
     verbose_name = 'LSST'
     update_on_daily_refresh = True
     info_url = 'https://api.fink-portal.org'
+    # Photometry values carry origin_ra/origin_dec; see upsert_reduced_datums.
+    stores_origin_coordinates = True
     service_notes = 'Query LSST (Fink) by diaObjectId or cone search, with optional photometry.'
 
     @classmethod
@@ -99,7 +106,7 @@ class LSSTDataService(DataService):
                     '/api/v1/sources',
                     {
                         'diaObjectId': str(dia_id),
-                        'columns': 'r:diaObjectId,r:midpointMjdTai,r:scienceFlux,r:scienceFluxErr,r:band',
+                        'columns': FINK_SOURCE_COLUMNS,
                         'output-format': 'json',
                     }
                 )
@@ -129,7 +136,7 @@ class LSSTDataService(DataService):
                             '/api/v1/sources',
                             {
                                 'diaObjectId': str(resolved_id),
-                                'columns': 'r:diaObjectId,r:midpointMjdTai,r:scienceFlux,r:scienceFluxErr,r:band',
+                                'columns': FINK_SOURCE_COLUMNS,
                                 'output-format': 'json',
                             }
                         )
@@ -181,17 +188,15 @@ class LSSTDataService(DataService):
     def create_reduced_datums_from_query(self, target, data=None, data_type=None, **kwargs):
         if data_type != 'photometry' or not data:
             return
-        for datum in data:
-            ReducedDatum.objects.get_or_create(
-                target=target,
-                data_type='photometry',
-                timestamp=datum['timestamp'],
-                value=datum['value'],
-                defaults={
-                    'source_name': self.name,
-                    'source_location': f'{FINK_API_URL}/api/v1/sources',
-                },
-            )
+        # upsert (rather than get_or_create) so points stored before origin_ra/origin_dec
+        # existed get the position filled in instead of being duplicated.
+        upsert_reduced_datums(
+            target=target,
+            data_type='photometry',
+            source_name=self.name,
+            source_location=f'{FINK_API_URL}/api/v1/sources',
+            datums=data,
+        )
 
     def _post(self, endpoint, payload):
         response = requests.post(f'{FINK_API_URL}{endpoint}', json=payload, timeout=DATA_SERVICE_HTTP_TIMEOUT)
@@ -205,6 +210,8 @@ class LSSTDataService(DataService):
             flux = _to_float(_first_present(row, ('r:scienceFlux', 'scienceFlux')))
             flux_err = _to_float(_first_present(row, ('r:scienceFluxErr', 'scienceFluxErr')))
             band = _first_present(row, ('r:band', 'band')) or 'unknown'
+            source_ra = _first_present(row, ('r:ra', 'ra'))
+            source_dec = _first_present(row, ('r:dec', 'dec'))
             if mjd is None or flux is None or flux_err is None or flux <= 0 or flux_err <= 0:
                 continue
             snr = flux / flux_err
@@ -216,7 +223,9 @@ class LSSTDataService(DataService):
 
                 output.append({
                 'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                'value': {'filter': f'LSST({band})', 'magnitude': mag, 'error': mag_err},
+                'value': add_origin_coordinates(
+                    {'filter': f'LSST({band})', 'magnitude': mag, 'error': mag_err}, source_ra, source_dec,
+                ),
                 })
             else:
                 mag = -2.5 * math.log10((flux * 1e-9) * snr / 3631)
@@ -226,6 +235,8 @@ class LSSTDataService(DataService):
 
                 output.append({
                 'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                'value': {'filter': f'LSST({band})', 'magnitude': mag, 'error': mag_err},
+                'value': add_origin_coordinates(
+                    {'filter': f'LSST({band})', 'magnitude': mag, 'error': mag_err}, source_ra, source_dec,
+                ),
                 })
         return output

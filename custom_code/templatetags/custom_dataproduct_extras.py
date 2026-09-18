@@ -856,3 +856,109 @@ def custom_spectroscopy_for_target(context, target, dataproduct=None):
         'spectra_data': json.dumps(spectra_json),
         'request': request
     }
+
+
+# Per-epoch positions currently come from ZTF (IRSA), Alerce and LSST (Fink); other services will follow as
+# they learn to store origin_ra/origin_dec, and this tag picks them up with no change here.
+ASTROMETRY_DEFAULT_STYLE = ['gray', 'circle', 6]
+
+
+def _astrometry_series_label(source_name, filter_name):
+    """'ZTF(zg)' for ZTF itself, 'Alerce ZTF(zg)' for a broker republishing the same filter."""
+    source_name = str(source_name or '').strip()
+    filter_name = str(filter_name or '').strip()
+    if not source_name:
+        return filter_name or 'unknown'
+    if not filter_name:
+        return source_name
+    if filter_name.upper().startswith(f'{source_name.upper()}('):
+        return filter_name
+    return f'{source_name} {filter_name}'
+
+
+def _astrometry_style(source_name, filter_name):
+    if str(source_name or '').strip().lower() == 'alerce':
+        return ALERCE_SPECIAL_COLOR_MAP.get(filter_name, ASTROMETRY_DEFAULT_STYLE)
+    return PHOTOMETRY_COLOR_MAP.get(filter_name, ASTROMETRY_DEFAULT_STYLE)
+
+
+@register.inclusion_tag('tom_dataproducts/partials/astrometry_for_target.html', takes_context=True)
+def astrometry_for_target(context, target):
+    """Per-epoch sky positions for a target, as JSON for the client-side astrometry plot.
+
+    Reads origin_ra/origin_dec off photometry datums. Services that do not store them yet simply
+    contribute nothing, so the tab grows as more services are updated.
+    """
+    try:
+        photometry_data_type = settings.DATA_PRODUCT_TYPES['photometry'][0]
+    except (AttributeError, KeyError):
+        photometry_data_type = 'photometry'
+
+    datums = ReducedDatum.objects.filter(target=target, data_type=photometry_data_type)
+    if not settings.TARGET_PERMISSIONS_ONLY:
+        datums = get_objects_for_user(
+            context['request'].user,
+            'tom_dataproducts.view_reduceddatum',
+            klass=datums,
+        )
+
+    series = {}
+    for datum in datums.order_by('timestamp'):
+        value = datum.value if isinstance(datum.value, dict) else {}
+        ra = value.get('origin_ra')
+        dec = value.get('origin_dec')
+        if not isinstance(ra, (int, float)) or not isinstance(dec, (int, float)):
+            continue
+        if isinstance(ra, bool) or isinstance(dec, bool):
+            continue
+        if datum.timestamp is None:
+            continue
+
+        filter_name = str(value.get('filter', '')).strip()
+        label = _astrometry_series_label(datum.source_name, filter_name)
+        if label not in series:
+            color, symbol, size = _astrometry_style(datum.source_name, filter_name)
+            series[label] = {
+                'label': label,
+                'source': str(datum.source_name or ''),
+                'color': color,
+                'symbol': symbol,
+                'size': size,
+                'ra': [],
+                'dec': [],
+                'mjd': [],
+                'time': [],
+                'magnitude': [],
+            }
+
+        magnitude = value.get('magnitude')
+        try:
+            magnitude = float(magnitude) if magnitude is not None else None
+        except (TypeError, ValueError):
+            magnitude = None
+
+        entry = series[label]
+        entry['ra'].append(float(ra))
+        entry['dec'].append(float(dec))
+        entry['mjd'].append(float(Time(datum.timestamp, format='datetime').mjd))
+        entry['time'].append(datum.timestamp.isoformat())
+        entry['magnitude'].append(magnitude)
+
+    series_list = sorted(series.values(), key=lambda item: item['label'])
+    point_count = sum(len(item['ra']) for item in series_list)
+
+    astrometry_data = {
+        'series': series_list,
+        # The target's catalog position is the reference for the arcsec-offset view.
+        'target_ra': float(target.ra) if target.ra is not None else None,
+        'target_dec': float(target.dec) if target.dec is not None else None,
+        'target_name': str(target.name or ''),
+    }
+
+    return {
+        'target': target,
+        'astrometry_data': json.dumps(astrometry_data),
+        'point_count': point_count,
+        'series_count': len(series_list),
+        'request': context.get('request'),
+    }

@@ -88,3 +88,105 @@ def resolve_query_coordinates(parameters):
                 dec = target.dec
 
     return target_name, ra, dec
+
+
+ORIGIN_RA_KEY = 'origin_ra'
+ORIGIN_DEC_KEY = 'origin_dec'
+
+# Per-epoch sky position is rounded before storage: 1e-7 deg is 0.36 mas, far finer than the
+# ~50-100 mas astrometric precision of the surveys we ingest, and it keeps the value JSON small.
+ORIGIN_COORD_PRECISION = 7
+
+
+def _coerce_coordinate(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    if value != value or value in (float('inf'), float('-inf')):  # NaN / inf
+        return None
+    return value
+
+
+def add_origin_coordinates(value, ra, dec):
+
+    ra = _coerce_coordinate(ra)
+    dec = _coerce_coordinate(dec)
+    if ra is None or dec is None:
+        return value
+    if not (0.0 <= ra <= 360.0) or not (-90.0 <= dec <= 90.0):
+        return value
+    value[ORIGIN_RA_KEY] = round(ra, ORIGIN_COORD_PRECISION)
+    value[ORIGIN_DEC_KEY] = round(dec, ORIGIN_COORD_PRECISION)
+    return value
+
+
+def _identity(value, identity_keys):
+    return tuple(value.get(key) for key in identity_keys)
+
+
+def upsert_reduced_datums(target, data_type, source_name, source_location, datums,
+                          identity_keys=('filter', 'magnitude')):
+    """Create datums, upgrading rows that were ingested before a value key existed.
+
+    ReducedDatum uniqueness is (target, data_type, timestamp, value), and `value` is compared as
+    a whole dict. So simply adding a key like origin_ra to a service's output would make every
+    previously stored point look new and silently double the light curve. Instead we match on
+    timestamp plus a few identifying keys, and fill in only the keys the stored row is missing.
+
+    Uses bulk operations: ZTF alone can return thousands of points per target.
+    Returns (created_count, updated_count).
+    """
+    from tom_dataproducts.models import ReducedDatum
+
+    datums = [
+        datum for datum in (datums or [])
+        if datum.get('timestamp') is not None and isinstance(datum.get('value'), dict)
+    ]
+    if not datums:
+        return 0, 0
+
+    existing_by_key = {}
+    for existing in ReducedDatum.objects.filter(
+        target=target,
+        data_type=data_type,
+        timestamp__in={datum['timestamp'] for datum in datums},
+    ):
+        if not isinstance(existing.value, dict):
+            continue
+        key = (existing.timestamp, _identity(existing.value, identity_keys))
+        existing_by_key.setdefault(key, existing)
+
+    to_create = []
+    to_update = {}
+    for datum in datums:
+        value = datum['value']
+        key = (datum['timestamp'], _identity(value, identity_keys))
+        existing = existing_by_key.get(key)
+        if existing is None:
+            new_row = ReducedDatum(
+                target=target,
+                data_type=data_type,
+                timestamp=datum['timestamp'],
+                value=value,
+                source_name=source_name,
+                source_location=source_location,
+            )
+            to_create.append(new_row)
+            # A repeated point later in the same batch must match this row, not create another.
+            existing_by_key[key] = new_row
+            continue
+
+        missing = {k: v for k, v in value.items() if k not in existing.value}
+        if not missing:
+            continue
+        existing.value = {**existing.value, **missing}
+        if existing.pk is not None:
+            to_update[existing.pk] = existing
+
+    if to_create:
+        ReducedDatum.objects.bulk_create(to_create, batch_size=500)
+    if to_update:
+        ReducedDatum.objects.bulk_update(list(to_update.values()), ['value'], batch_size=500)
+
+    return len(to_create), len(to_update)

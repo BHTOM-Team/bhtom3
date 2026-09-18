@@ -6,11 +6,14 @@ from datetime import timezone
 import requests
 
 from tom_dataservices.dataservices import DataService
-from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import ZTFQueryForm
-from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
+from custom_code.data_services.service_utils import (
+    DATA_SERVICE_HTTP_TIMEOUT,
+    add_origin_coordinates,
+    upsert_reduced_datums,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +51,8 @@ class AlerceDataService(DataService):
     verbose_name = 'Alerce'
     update_on_daily_refresh = True
     info_url = ALERCE_PAGE
+    # Photometry values carry origin_ra/origin_dec; see upsert_reduced_datums.
+    stores_origin_coordinates = True
     service_notes = 'Query ZTF by coordinates and ingest ZTF photometry through Alerce.'
 
     @classmethod
@@ -129,17 +134,15 @@ class AlerceDataService(DataService):
         if data_type != 'photometry' or not data:
             return
         source_location = kwargs.get('source_location') or self.info_url
-        for datum in data:
-            ReducedDatum.objects.get_or_create(
-                target=target,
-                data_type='photometry',
-                timestamp=datum['timestamp'],
-                value=datum['value'],
-                defaults={
-                    'source_name': self.name,
-                    'source_location': source_location,
-                },
-            )
+        # upsert (rather than get_or_create) so points stored before origin_ra/origin_dec
+        # existed get the position filled in instead of being duplicated.
+        upsert_reduced_datums(
+            target=target,
+            data_type='photometry',
+            source_name=self.name,
+            source_location=source_location,
+            datums=data,
+        )
 
     def to_reduced_datums(self, target, data_results=None, **kwargs):
         if not data_results:
@@ -160,8 +163,11 @@ class AlerceDataService(DataService):
             if mag is None or mag_err is None or not mag or not mag_err or mag_err>2.0:
                 continue
             mjd = datum['mjd']
+            value = {'filter': f"ZTF({_get_filter(datum['fid'])})", 'magnitude': mag, 'error': mag_err}
+            # Each ALeRCE detection carries the alert centroid for that epoch.
+            add_origin_coordinates(value, datum.get('ra'), datum.get('dec'))
             output.append({
                 'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
-                'value': {'filter': f"ZTF({_get_filter(datum['fid'])})", 'magnitude': mag, 'error': mag_err},
+                'value': value,
                 })
         return output
