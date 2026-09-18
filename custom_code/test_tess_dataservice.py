@@ -159,3 +159,52 @@ class TESSDataServiceTests(SimpleTestCase):
             'target-s0018_lc.fits',
             'target-s0058_lc.fits',
         ])
+
+
+class TESSMagnitudeFilterTests(SimpleTestCase):
+    def _lightcurve(self, flux, flux_err):
+        import os
+        import tempfile
+
+        import numpy as np
+        from astropy.io import fits
+
+        n = len(flux)
+        table = fits.BinTableHDU.from_columns([
+            fits.Column(name='TIME', format='D', array=np.arange(n, dtype=float) + 1500.0),
+            fits.Column(name='SAP_FLUX', format='E', unit='e-/s', array=np.array(flux, dtype=float)),
+            fits.Column(name='SAP_FLUX_ERR', format='E', unit='e-/s', array=np.array(flux_err, dtype=float)),
+            fits.Column(name='QUALITY', format='J', array=np.zeros(n, dtype=int)),
+        ], name='LIGHTCURVE')
+        primary = fits.PrimaryHDU()
+        primary.header['SECTOR'] = 17
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(__import__('shutil').rmtree, tmpdir, True)
+        path = os.path.join(tmpdir, 'sector17_lc.fits')
+        fits.HDUList([primary, table]).writeto(path)
+        return path
+
+    def test_negative_magnitudes_are_dropped(self):
+        path = self._lightcurve(flux=[1000.0, 2.0e8, 1100.0], flux_err=[5.0, 5.0, 5.0])
+
+        datums = TESSDataService()._build_photometry_datums([path])
+
+        mags = [d['value']['magnitude'] for d in datums]
+        self.assertEqual(len(mags), 2)
+        self.assertTrue(all(m >= 0 for m in mags))
+
+    def test_errors_above_three_mag_are_dropped(self):
+        path = self._lightcurve(flux=[1000.0, 1050.0, 1100.0], flux_err=[5.0, 4000.0, 5.0])
+
+        datums = TESSDataService()._build_photometry_datums([path])
+
+        errors = [d['value']['error'] for d in datums]
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(all(e <= 3 for e in errors))
+
+    def test_valid_points_are_kept(self):
+        path = self._lightcurve(flux=[1000.0, 1050.0, 1100.0], flux_err=[5.0, 5.0, 5.0])
+
+        datums = TESSDataService()._build_photometry_datums([path])
+
+        self.assertEqual(len(datums), 3)

@@ -553,6 +553,8 @@ class TESSDataService(DataService):
             # The 20.44 zero point carries a further ~0.05 mag systematic that is
             # not included here, so 'error' is exactly what TESS reports.
             error = float(tmag_err[i]) if tmag_err is not None and np.isfinite(tmag_err[i]) else 0.01
+            if tmag[i] < 0 or error > 3:
+                continue
             output.append({
                 'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
                 'value': {
