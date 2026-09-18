@@ -245,7 +245,6 @@ def _njy_to_ab_mag(flux_njy):
 
 
 def _apparent_magnitude(flux, flux_err):
-    """Magnitude from the direct-image flux; an upper limit (error -1) below S/N 3."""
     if flux is None or flux_err is None or flux <= 0 or flux_err <= 0:
         return {}
     snr = flux / flux_err
@@ -262,7 +261,6 @@ def _apparent_magnitude(flux, flux_err):
 
 
 def _difference_magnitude(flux, flux_err):
-    """(magnitude, error, sign) from the difference-image flux, or None if not significant."""
     if flux is None or flux_err is None or flux == 0 or flux_err <= 0:
         return None
     if abs(flux) / flux_err <= 3:

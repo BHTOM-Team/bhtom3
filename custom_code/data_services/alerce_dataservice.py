@@ -41,7 +41,7 @@ def _getAlerceLightCurve(oid):
   return response.json()
 
 def _objects_nearest_first(items, ra, dec):
-    
+
     def sort_key(item):
         meanra = _to_float(item.get('meanra'))
         meandec = _to_float(item.get('meandec'))
@@ -214,7 +214,6 @@ class AlerceDataService(DataService):
                 value['magnitude'] = mag
                 value['error'] = mag_err
 
-            # magpsf is measured on the difference image, i.e. host/reference subtracted.
             diff_mag = datum.get('magpsf')
             diff_err = datum.get('sigmapsf')
             if diff_mag and diff_err and diff_err <= 2.0:
@@ -223,7 +222,6 @@ class AlerceDataService(DataService):
             if 'magnitude' not in value and 'diff_magnitude' not in value:
                 continue
 
-            # Each ALeRCE detection carries the alert centroid for that epoch.
             add_origin_coordinates(value, datum.get('ra'), datum.get('dec'))
             output.append({
                 'timestamp': Time(datum['mjd'], format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
