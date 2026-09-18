@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import threading
 import time
-from io import BytesIO
+from io import BytesIO, StringIO
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
@@ -2109,6 +2109,49 @@ class ASASSNDataServiceTests(TestCase):
         self.assertEqual(limit_datums[0]['value']['magnitude'], 16.5)
         self.assertEqual(limit_datums[0]['value']['filter'], 'ASASSN(g)')
 
+    def test_query_service_rejects_negative_magnitudes(self):
+        """Corrupt ASAS-SN rows near -96 mag must not reach the light curve."""
+        import pandas as pd
+
+        service = ASASSNDataService()
+        lc_data = pd.DataFrame([
+            {'jd': 2458000.5, 'mag': 15.0, 'mag_err': 0.05, 'limit': 17.0, 'phot_filter': 'V'},
+            {'jd': 2458001.5, 'mag': -96.0089, 'mag_err': 0.0617, 'limit': 17.0, 'phot_filter': 'V'},
+            {'jd': 2458002.5, 'mag': 0.0, 'mag_err': 0.05, 'limit': 17.0, 'phot_filter': 'V'},
+            {'jd': 2458003.5, 'mag': 16.5, 'mag_err': 99.999, 'limit': -95.0, 'phot_filter': 'V'},
+        ])
+
+        client = Mock()
+        client.cone_search.side_effect = [
+            pd.DataFrame([{'asas_sn_id': 661428703026, 'ra_deg': 12.3, 'dec_deg': -45.6}]),
+            {661428703026: Mock(data=lc_data)},
+        ]
+
+        with patch('custom_code.data_services.asassn_dataservice._fetch_transient_rows', return_value=[]), patch(
+            'custom_code.data_services.asassn_dataservice.SkyPatrolClient',
+            return_value=client,
+        ):
+            results = service.query_service({'ra': 12.3, 'dec': -45.6, 'radius_arcsec': 7.0})
+
+        datums = service._build_photometry_datums(results['lc_filtered'], results['lc_limits'])
+        self.assertEqual([d['value']['magnitude'] for d in datums], [15.0])
+
+    def test_build_photometry_datums_rejects_negative_magnitudes_directly(self):
+        import pandas as pd
+
+        filtered = pd.DataFrame([
+            {'jd': 2458000.5, 'mag': 15.0, 'mag_err': 0.05, 'phot_filter': 'V'},
+            {'jd': 2458001.5, 'mag': -96.2, 'mag_err': 0.08, 'phot_filter': 'V'},
+        ])
+        limits = pd.DataFrame([
+            {'jd': 2458002.5, 'limit': -95.0, 'phot_filter': 'V'},
+            {'jd': 2458003.5, 'limit': 17.2, 'phot_filter': 'V'},
+        ])
+
+        datums = ASASSNDataService()._build_photometry_datums(filtered, limits)
+
+        self.assertEqual(sorted(d['value']['magnitude'] for d in datums), [15.0, 17.2])
+
     def test_query_service_keeps_asassn_id_integral(self):
         """A numeric-only result row must not upcast the catalogue id to a float."""
         import pandas as pd
@@ -2250,6 +2293,61 @@ class LAMOSTFluxScaleTests(TestCase):
 
         self.assertEqual(datum['value']['wavelength_units'], 'Angstrom')
         np.testing.assert_allclose(datum['value']['wavelength'], [4000.0, 5000.0, 6000.0], rtol=1e-6)
+
+
+class LAMOSTRescaleCommandTests(TestCase):
+    def setUp(self):
+        self.target = Target.objects.create(
+            name='LAMOST-rescale-target', type='SIDEREAL', ra=338.2298, dec=-3.0473, epoch=2000.0,
+        )
+        self.timestamp = datetime(2016, 11, 28, tzinfo=timezone.utc)
+        self.base = {
+            'flux_units': 'erg / (Angstrom s cm2)',
+            'wavelength': [4000.0, 5000.0, 6000.0],
+            'wavelength_units': 'Angstrom',
+            'filter': 'LAMOST',
+            'source_id': 'LAMOST J223255.14-030250.3',
+            'spectrum_type': 'LAMOST_LRS_spectrum',
+            'arm': 'COADD',
+        }
+
+    def _spectrum(self, flux):
+        return ReducedDatum.objects.create(
+            target=self.target, data_type='spectroscopy', timestamp=self.timestamp,
+            value={**self.base, 'flux': flux}, source_name='LAMOST',
+        )
+
+    def _run(self):
+        from django.core.management import call_command
+        call_command('rescale_lamost_spectra', stdout=StringIO())
+
+    def test_raw_spectrum_with_scaled_twin_is_removed(self):
+        raw = self._spectrum([100.0, 408.1, 200.0])
+        scaled = self._spectrum([100.0e-17, 408.1e-17, 200.0e-17])
+
+        self._run()
+
+        remaining = list(ReducedDatum.objects.filter(target=self.target))
+        self.assertEqual([d.pk for d in remaining], [scaled.pk])
+        self.assertFalse(ReducedDatum.objects.filter(pk=raw.pk).exists())
+
+    def test_raw_spectrum_without_twin_is_rescaled(self):
+        raw = self._spectrum([100.0, 408.1, 200.0])
+
+        self._run()
+
+        raw.refresh_from_db()
+        self.assertAlmostEqual(max(raw.value['flux']), 408.1e-17)
+
+    def test_different_spectrum_at_same_time_is_not_treated_as_twin(self):
+        raw = self._spectrum([100.0, 408.1, 200.0])
+        other = self._spectrum([1.0e-17, 2.0e-17, 3.0e-17])
+
+        self._run()
+
+        self.assertEqual(ReducedDatum.objects.filter(target=self.target).count(), 2)
+        raw.refresh_from_db()
+        self.assertAlmostEqual(max(raw.value['flux']), 408.1e-17)
 
 
 class LAMOSTRescaleGuardTests(TestCase):

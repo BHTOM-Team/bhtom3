@@ -37,6 +37,11 @@ ASASSN_TRANSIENTS_CACHE_TIMEOUT = 3600
 ASASSN_TRANSIENT_SEARCH_RADIUS_ARCSEC = 7.0
 ASASSN_SKYPATROL_TIMEOUT_SECONDS = 60
 ASASSN_NON_DETECTION_MAG_ERR = 99.0
+ASASSN_MIN_VALID_MAG = 0.0
+
+
+def _is_valid_asassn_mag(mag):
+    return mag is not None and ASASSN_MIN_VALID_MAG < mag <= 99
 
 
 def _to_float(value):
@@ -386,8 +391,13 @@ class ASASSNDataService(DataService):
                     # ASAS-SN marks non-detections with mag_err = 99.999 (mag holds the limiting
                     # magnitude). Older exports used a negative mag_err, so accept both conventions.
                     is_limit = (mag_err >= ASASSN_NON_DETECTION_MAG_ERR) | (mag_err < 0)
-                    lc_filtered = lc.data[~is_limit & (mag_err > 0) & (mag_err < 0.5) & (lc.data['mag'] <= 99)]
-                    lc_limits = lc.data[is_limit & (lc.data['limit'] <= 99)]
+                    lc_filtered = lc.data[
+                        ~is_limit & (mag_err > 0) & (mag_err < 0.5)
+                        & (lc.data['mag'] > ASASSN_MIN_VALID_MAG) & (lc.data['mag'] <= 99)
+                    ]
+                    lc_limits = lc.data[
+                        is_limit & (lc.data['limit'] > ASASSN_MIN_VALID_MAG) & (lc.data['limit'] <= 99)
+                    ]
                     logger.info(
                         'ASAS-SN Sky Patrol photometry download finished: asassn_id=%s detections=%s limits=%s',
                         asassn_id,
@@ -512,7 +522,7 @@ class ASASSNDataService(DataService):
                     mag = _to_float(datum.mag)
                     magerr = _to_float(datum.mag_err)
                     filter = "ASASSN(" + datum.phot_filter + ")"
-                    if mjd is None or mag is None or magerr is None:
+                    if mjd is None or magerr is None or not _is_valid_asassn_mag(mag):
                         continue
                     output.append({
                         'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
@@ -528,7 +538,7 @@ class ASASSNDataService(DataService):
                     mag = _to_float(datum.limit)
                     magerr = _to_float(-1.0)
                     filter = "ASASSN(" + datum.phot_filter + ")"
-                    if mjd is None or mag is None or magerr is None:
+                    if mjd is None or magerr is None or not _is_valid_asassn_mag(mag):
                         continue
                     output.append({
                         'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
