@@ -55,6 +55,18 @@ def _build_sdss_spectroscopy_query(ra,dec,rad):
 def _build_sdss_page_url(id):
     return f"https://skyserver.sdss.org/dr19/VisualTools/explore/summary?id={id}"
 
+def _spectroscopy_name_id(spec_Data):
+    """Identifier to name a spectroscopy-only match, taken from the nearest spectrum."""
+    if spec_Data is None or spec_Data.empty:
+        return None
+    for value in spec_Data.get('apogee_id', pd.Series(dtype=object)):
+        if not pd.isna(value) and str(value).strip():
+            return str(value).strip()
+    return None
+
+def _build_sdss_coord_page_url(ra, dec):
+    return f"https://skyserver.sdss.org/dr19/VisualTools/explore/summary?ra={ra}&dec={dec}"
+
 class SDSSDataService(DataService):
     name = 'SDSS'
     verbose_name = 'SDSS'
@@ -113,13 +125,18 @@ class SDSSDataService(DataService):
             else:
                 logger.info('SDSS returned no spectroscopy for RA=%s Dec=%s', ra, dec)
 
+        spectroscopy_origin = source_origin
+        if sdss_spec_df is not None and not sdss_spec_df.empty:
+            # APOGEE-only fields have no PhotoObj match; still record where the data came from.
+            spectroscopy_origin = source_origin or _build_sdss_coord_page_url(ra, dec)
+
         self.query_results = {
             'sdss_id':sdss_id,
             'photometry_data': sdss_phot_df,
             'spectroscopy_data': sdss_spec_df,
             'source_origin': source_origin,
             'photometry_origin': source_origin,
-            'spectroscopy_origin': source_origin,
+            'spectroscopy_origin': spectroscopy_origin,
             'ra':ra,
             'dec':dec
         }
@@ -127,19 +144,28 @@ class SDSSDataService(DataService):
 
     def query_targets(self, query_parameters, **kwargs):
         data = self.query_service(query_parameters, **kwargs)
-        photometry_origin = data.get('photometry_origin')
         sdss_id = data.get('sdss_id')
-        if photometry_origin is None or sdss_id is None:
+        phot_data = data.get('photometry_data')
+        spec_data = data.get('spectroscopy_data')
+        has_photometry = phot_data is not None and not phot_data.empty
+        has_spectroscopy = spec_data is not None and not spec_data.empty
+        if not has_photometry and not has_spectroscopy:
+            return []
+
+        # Fields covered by spectroscopy only (e.g. APOGEE pointings outside the imaging
+        # footprint) have no PhotoObj id, so fall back to the spectroscopic identifier.
+        name_id = sdss_id if sdss_id is not None else _spectroscopy_name_id(spec_data)
+        if name_id is None:
             return []
 
         target_result = {
-            'name': f'SDSS_{sdss_id}',
+            'name': f'SDSS_{name_id}',
             'ra': _to_float(data.get('ra')),
             'dec': _to_float(data.get('dec')),
-            'aliases': [f'SDSS_{sdss_id}'],
+            'aliases': [f'SDSS_{name_id}'],
             'reduced_datums': {
-                'photometry': self._build_photometry_datums(data.get('photometry_data')),
-                'spectroscopy': self._build_spectroscopy_datums(sdss_id,data.get('spectroscopy_data')),
+                'photometry': self._build_photometry_datums(phot_data),
+                'spectroscopy': self._build_spectroscopy_datums(name_id, spec_data),
             },
         }
         return [target_result]
@@ -176,15 +202,22 @@ class SDSSDataService(DataService):
         if not data_results:
             return
         for data_type, data in data_results.items():
+            source_location = (
+                self.query_results.get(f'{data_type}_origin')
+                or self.query_results.get('source_origin')
+                or self.info_url
+            )
             self.create_reduced_datums_from_query(
                 target,
                 data=data,
                 data_type=data_type,
-                source_location=self.query_results.get('source_location') or self.info_url,
+                source_location=source_location,
             )
 
     def _build_photometry_datums(self, phot_Data):
         output = []
+        if phot_Data is None or phot_Data.empty:
+            return output
         for _, datum in phot_Data.iterrows():
             mjd = _to_float(datum['mjd'])
             timestamp = Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc)
@@ -237,6 +270,8 @@ class SDSSDataService(DataService):
 
     def _build_spectroscopy_datums(self, sdss_id, spec_Data):
         output = []
+        if spec_Data is None or spec_Data.empty:
+            return output
         for _, datum in spec_Data.iterrows():
             serializer = SpectrumSerializer()
             mjd = _to_float(datum['mjd'])
