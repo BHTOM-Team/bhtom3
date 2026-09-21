@@ -5,6 +5,7 @@ from astropy.time import Time
 from datetime import timezone
 
 import requests
+from urllib.parse import quote
 
 from tom_dataservices.dataservices import DataService
 from tom_targets.models import Target, TargetName
@@ -22,17 +23,24 @@ logger = logging.getLogger(__name__)
 
 ALERCE_PAGE = "https://alerce.online/"
 
+
+def _alerce_object_url(oid):
+    return f"{ALERCE_PAGE}object/{quote(str(oid), safe='')}"
+
+
 def _to_float(value):
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
 
+
 def _getAlerceObjcet(ra,dec,rad):
   url=f"https://api.alerce.online/ztf/v1/objects/?ra={ra}&dec={dec}&radius={rad}&page=1&page_size=20&count=true"
   headers = {"accept": "application/json"}
   response = requests.get(url, headers=headers, timeout=DATA_SERVICE_HTTP_TIMEOUT)
   return response.json()
+
 
 def _getAlerceLightCurve(oid):
   url=f"https://api.alerce.online/ztf/v1/objects/{oid}/lightcurve"
@@ -86,7 +94,6 @@ def _candid_order(detection):
     except (TypeError, ValueError):
         return (1, str(candid))
 
-
 def _get_filter(value):
     mapping = {
         1: "zg",
@@ -94,6 +101,7 @@ def _get_filter(value):
         3: "zi"
     }
     return mapping.get(value)
+
 
 class AlerceDataService(DataService):
     name = 'Alerce'
@@ -129,19 +137,22 @@ class AlerceDataService(DataService):
             return self.query_results
 
         lc_data = None
+        oid = None
         source_location = "https://alerce.online/"
         try:
             objcet_data = _getAlerceObjcet(ra,dec,radius_arcsec)
             objects = _objects_nearest_first(objcet_data.get('items') or [], ra, dec)
             if objects:
+                oid = objects[0]['oid']
                 lc_data = _merged_detections(objects)
-                source_location = f"https://alerce.online/object/{objects[0]['oid']}"
+                source_location = _alerce_object_url(oid)
             else:
                 logger.debug('Alerce returned no data for RA=%s Dec=%s', ra, dec)
         except ValueError:
             logger.debug('Alerce returned error for RA=%s Dec=%s', ra, dec)
 
         self.query_results = {
+            'oid': oid,
             'lc_data': lc_data,
             'source_location': source_location,
             'ra': ra,
@@ -157,11 +168,20 @@ class AlerceDataService(DataService):
         if ra is None or dec is None or lc_data is None:
             return []
 
+        oid = data.get('oid')
+        aliases = []
+        if oid:
+            aliases.append({
+                'name': str(oid),
+                'url': _alerce_object_url(oid),
+                'source_name': self.name,
+            })
+
         return [{
             'name': None,
             'ra': ra,
             'dec': dec,
-            'aliases': [None],
+            'aliases': aliases,
             'reduced_datums': {'photometry': self._build_photometry_datums(lc_data)},
             'source_location': data.get('source_location'),
         }]
@@ -176,7 +196,13 @@ class AlerceDataService(DataService):
         )
 
     def create_aliases_from_query(self, alias_results, **kwargs):
-        return [TargetName(name=alias) for alias in alias_results]
+        aliases = []
+        for alias in alias_results:
+            alias_name = alias.get('name') if isinstance(alias, dict) else alias
+            alias_name = str(alias_name or '').strip()
+            if alias_name:
+                aliases.append(TargetName(name=alias_name))
+        return aliases
 
     def create_reduced_datums_from_query(self, target, data=None, data_type=None, **kwargs):
         if data_type != 'photometry' or not data:

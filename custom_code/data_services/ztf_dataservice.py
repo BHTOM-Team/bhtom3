@@ -6,6 +6,7 @@ from datetime import timezone
 import pandas as pd
 from io import StringIO
 import requests
+from urllib.parse import urlencode
 
 from tom_dataservices.dataservices import DataService
 from tom_targets.models import Target, TargetName
@@ -20,7 +21,9 @@ from custom_code.data_services.service_utils import (
 
 logger = logging.getLogger(__name__)
 
-ZTF_PAGE = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?utf8=%E2%9C%93&mission=irsa&projshort=ZTF"
+ZTF_PAGE = "https://irsa.ipac.caltech.edu/Missions/ztf.html"
+ZTF_LIGHTCURVE_API = "https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves"
+ZTF_ALIAS_SOURCE = "ZTF Data Release"
 
 
 def _to_float(value):
@@ -32,8 +35,39 @@ def _to_float(value):
 
 def _build_ztf_api_url(ra,dec,rad_arcsec):
     rad = rad_arcsec * 0.000278
-    return f"https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves?POS=CIRCLE {ra} {dec} {rad}&BAD_CATFLAGS_MASK=32768&FORMAT=CSV"
+    query = urlencode({
+        'POS': f'CIRCLE {ra} {dec} {rad}',
+        'BAD_CATFLAGS_MASK': 32768,
+        'FORMAT': 'CSV',
+    })
+    return f"{ZTF_LIGHTCURVE_API}?{query}"
 
+
+def _ztf_object_url(oid):
+    """Return a human-readable query for one object in the active public release."""
+    query = urlencode({
+        'ID': str(oid),
+        'BAD_CATFLAGS_MASK': 32768,
+        'FORMAT': 'HTML',
+    })
+    return f"{ZTF_LIGHTCURVE_API}?{query}"
+
+
+def _ztf_object_ids(lc_data):
+    if lc_data is None or 'oid' not in lc_data.columns:
+        return []
+
+    object_ids = []
+    for value in lc_data['oid']:
+        if pd.isna(value):
+            continue
+        # pandas can coerce an integer identifier to a float when nulls are present.
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        oid = str(value).strip()
+        if oid and oid not in object_ids:
+            object_ids.append(oid)
+    return object_ids
 
 
 class ZTFDataService(DataService):
@@ -72,14 +106,15 @@ class ZTFDataService(DataService):
         lc_data = None
         source_location = None
         try:
+            query_url = _build_ztf_api_url(ra,dec,radius_arcsec)
             ztf_res = requests.get(
-                _build_ztf_api_url(ra,dec,radius_arcsec),
+                query_url,
                 timeout=DATA_SERVICE_HTTP_TIMEOUT,
             )
             ztf_df = pd.read_csv(StringIO(ztf_res.text))
             if len(ztf_df)>0:
                 lc_data = ztf_df
-                source_location = "irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan"
+                source_location = query_url
             else:
                 logger.debug('ZTF returned no data for RA=%s Dec=%s', ra, dec)
         except ValueError:
@@ -101,11 +136,20 @@ class ZTFDataService(DataService):
         if ra is None or dec is None or lc_data is None:
             return []
 
+        aliases = [
+            {
+                'name': oid,
+                'url': _ztf_object_url(oid),
+                'source_name': ZTF_ALIAS_SOURCE,
+            }
+            for oid in _ztf_object_ids(lc_data)
+        ]
+
         return [{
             'name': None,
             'ra': ra,
             'dec': dec,
-            'aliases': [None],
+            'aliases': aliases,
             'reduced_datums': {'photometry': self._build_photometry_datums(lc_data)},
             'source_location': data.get('source_location'),
         }]
@@ -120,7 +164,13 @@ class ZTFDataService(DataService):
         )
 
     def create_aliases_from_query(self, alias_results, **kwargs):
-        return [TargetName(name=alias) for alias in alias_results]
+        aliases = []
+        for alias in alias_results:
+            alias_name = alias.get('name') if isinstance(alias, dict) else alias
+            alias_name = str(alias_name or '').strip()
+            if alias_name:
+                aliases.append(TargetName(name=alias_name))
+        return aliases
 
     def create_reduced_datums_from_query(self, target, data=None, data_type=None, **kwargs):
         if data_type != 'photometry' or not data:
