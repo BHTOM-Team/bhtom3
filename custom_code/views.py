@@ -3354,6 +3354,7 @@ def _build_catalog_result_row(service_name, index, match):
         view_url = ogle_ocvs_harvester.OGLEOCVSHarvester.source_url(match)
         summary = 'OGLE variable star'
     elif service_name == 'Simbad':
+        from custom_code.bhtom_catalogs.harvesters import simbad as simbad_harvester
         view_url = simbad_harvester._simbad_url(target.ra, target.dec)
         summary = str(match.get('main_id') or '').strip()
     else:

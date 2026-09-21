@@ -3758,6 +3758,7 @@ class DataServiceSelectorViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Create')
         self.assertContains(response, 'Target_1')
+        self.assertContains(response, 'https://simbad.cds.unistra.fr/simbad/sim-coo?Coord=12.3+-45.6')
         get_matches.assert_called_once()
         build_target.assert_called_once_with('Simbad', match)
 
