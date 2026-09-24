@@ -121,6 +121,7 @@ PHOTOMETRY_COLOR_MAP = {
     '(J)2MASS': ['#1f77b4', 'circle', 2],
     '(H)2MASS': ['#ff7f0e', 'circle', 2],
     '(K)2MASS': ['#2ca02c', 'circle', 2],
+    'PGIR(J)': ['#0b7285', 'diamond', 4],
     'PTF(g)': ['green', 'diamond', 5],
     'PTF(R)': ['#800000', 'diamond', 5],
     'uvv': ['#90ee90', 'circle', 4],
