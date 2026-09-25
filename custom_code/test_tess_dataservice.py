@@ -208,3 +208,36 @@ class TESSMagnitudeFilterTests(SimpleTestCase):
         datums = TESSDataService()._build_photometry_datums([path])
 
         self.assertEqual(len(datums), 3)
+
+    def test_zero_magnitude_is_dropped(self):
+        zero_mag_flux = 10 ** (20.44 / 2.5)
+        path = self._lightcurve(flux=[1000.0, zero_mag_flux, 1100.0], flux_err=[5.0, 5.0, 5.0])
+
+        datums = TESSDataService()._build_photometry_datums([path])
+
+        self.assertEqual(len(datums), 2)
+        self.assertTrue(all(d['value']['magnitude'] > 0 for d in datums))
+
+    def test_zero_error_is_dropped(self):
+        path = self._lightcurve(flux=[1000.0, 1050.0, 1100.0], flux_err=[5.0, 0.0, 5.0])
+
+        datums = TESSDataService()._build_photometry_datums([path])
+
+        self.assertEqual(len(datums), 2)
+        self.assertTrue(all(d['value']['error'] > 0 for d in datums))
+
+    def test_negative_error_is_dropped(self):
+        path = self._lightcurve(flux=[1000.0, 1050.0, 1100.0], flux_err=[5.0, -5.0, 5.0])
+
+        datums = TESSDataService()._build_photometry_datums([path])
+
+        self.assertEqual(len(datums), 2)
+        self.assertTrue(all(d['value']['error'] > 0 for d in datums))
+
+    def test_error_that_rounds_to_zero_is_dropped(self):
+        path = self._lightcurve(flux=[1000.0, 1050.0, 1100.0], flux_err=[5.0, 1e-4, 5.0])
+
+        datums = TESSDataService()._build_photometry_datums([path])
+
+        self.assertEqual(len(datums), 2)
+        self.assertTrue(all(d['value']['error'] > 0 for d in datums))
