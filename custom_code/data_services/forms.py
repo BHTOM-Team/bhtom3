@@ -652,6 +652,36 @@ class HipparcosQueryForm(BaseQueryForm):
         return cleaned
 
 
+class SuperWASPQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    wasp_id = forms.CharField(
+        required=False,
+        label='SuperWASP source ID',
+        help_text='Optional exact ID, for example 1SWASP J150658.93-313838.9. '
+                  'Use this to resolve an ambiguous coordinate match.',
+    )
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(
+        required=False,
+        initial=5.0,
+        min_value=0.1,
+        max_value=300.0,
+        label='Search radius (arcsec)',
+        help_text='Exactly one source must fall inside the cone unless a SuperWASP ID is supplied.',
+    )
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        has_id = bool((cleaned.get('wasp_id') or '').strip())
+        if not has_id and not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide a SuperWASP source ID, target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 5.0
+        return cleaned
+
+
 class GeminiSpectraQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()

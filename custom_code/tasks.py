@@ -357,7 +357,8 @@ def _bulk_insert_reduced_datums(target, service_name, service, result, reduced_d
             if not candidates:
                 continue
 
-        if getattr(service, 'stores_origin_coordinates', False):
+        upsert_identity_keys = getattr(service, 'upsert_identity_keys', None)
+        if getattr(service, 'stores_origin_coordinates', False) or upsert_identity_keys:
             # Whole-value identity would treat rows stored before origin_ra/origin_dec existed as
             # different points and duplicate them; upsert fills the position in place instead.
             created, _updated = upsert_reduced_datums(
@@ -366,6 +367,7 @@ def _bulk_insert_reduced_datums(target, service_name, service, result, reduced_d
                 service_name,
                 source_location,
                 [{'timestamp': timestamp, 'value': value} for timestamp, value in candidates],
+                identity_keys=upsert_identity_keys or ('filter', 'magnitude'),
             )
             created_count += created
             continue
@@ -904,6 +906,11 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
     if 'radius_arcsec' in form_fields:
         # Conservative default; service-specific forms may override.
         query_parameters['radius_arcsec'] = 5.0
+
+    if service_name == 'SuperWASP':
+        query_parameters['radius_arcsec'] = float(
+            getattr(settings, 'SUPERWASP_MATCH_RADIUS_ARCSEC', 5.0)
+        )
 
     if service_name == 'Simbad':
         query_parameters['radius_arcsec'] = 3.0

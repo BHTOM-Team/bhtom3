@@ -476,6 +476,13 @@ DATA_SERVICES = {
     'ATLAS': dict(ATLAS_SERVICE_CONFIGURATION),
 }
 
+# SuperWASP DR1 coordinate matching is intentionally strict: more than one source in this
+# radius is reported as ambiguous instead of merging unrelated light curves. It can be
+# overridden per manual query or with SUPERWASP_MATCH_RADIUS_ARCSEC in the environment.
+SUPERWASP_MATCH_RADIUS_ARCSEC = float(os.environ.get('SUPERWASP_MATCH_RADIUS_ARCSEC', '5.0'))
+SUPERWASP_HTTP_RETRIES = int(os.environ.get('SUPERWASP_HTTP_RETRIES', '3'))
+SUPERWASP_HTTP_RETRY_BACKOFF = float(os.environ.get('SUPERWASP_HTTP_RETRY_BACKOFF', '1.0'))
+
 _BASE_HARVESTER_CLASSES = [
     'custom_code.bhtom_catalogs.harvesters.simbad.SimbadHarvester',
     'tom_catalogs.harvesters.ned.NEDHarvester',

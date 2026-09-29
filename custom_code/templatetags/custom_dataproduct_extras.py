@@ -43,6 +43,8 @@ def upload_dataproduct(context, obj):
 
 # Color map to be used in all plots.
 PHOTOMETRY_COLOR_MAP = {
+    'WASP/SuperWASP': ['#7b2cbf', 'circle', 3],
+    'WASP/SuperWASP (MAG2 raw)': ['#adb5bd', 'circle-open', 3],
     'GSA(G)': ['black', 'hexagon', 8],
     'RAPAS(G)': ['black', 'diamond-open', 6],
     'RAPAS(GBP)': ['#315efb', 'diamond-open', 6],
@@ -180,6 +182,11 @@ PHOTOMETRY_COLOR_MAP = {
     'BT': ['#3b5bdb', 'bowtie', 9],
     'VT': ['#2f9e44', 'bowtie', 9],
 }
+
+
+def _photometry_trace_visibility(filter_name):
+    """Keep raw SuperWASP MAG2 available without obscuring corrected TAMMAG2."""
+    return 'legendonly' if filter_name == 'WASP/SuperWASP (MAG2 raw)' else True
 
 # Color map for limits (non-detections).
 PHOTOMETRY_LIMITS_COLOR_MAP = {
@@ -479,6 +486,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
                         size=1.2 * PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[2],
                     ),
                 name=filter_name,
+                visible=_photometry_trace_visibility(filter_name),
                 error_y=dict(
                     type='data',
                     array=np.array(filter_values['error'])[normal_mask],
@@ -510,6 +518,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
                         size=1.2 * ALERCE_SPECIAL_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[2],
                     ),
                 name=filter_name,
+                visible=_photometry_trace_visibility(filter_name),
                 error_y=dict(
                     type='data',
                     array=np.array(filter_values['error'])[alerce_mask],

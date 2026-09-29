@@ -49,7 +49,8 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.tns_dataservice.TNSDataService'},
             {'class': f'{self.name}.data_services.gemini_spectra_dataservice.GeminiSpectraDataService'},
             {'class': f'{self.name}.data_services.hipparcos_dataservice.HipparcosDataService'},
-            {'class': f'{self.name}.data_services.tess_dataservice.TESSDataService'}
+            {'class': f'{self.name}.data_services.tess_dataservice.TESSDataService'},
+            {'class': f'{self.name}.data_services.superwasp_dataservice.SuperWASPDataService'},
         ]
 
     def ready(self):

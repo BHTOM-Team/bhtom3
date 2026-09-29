@@ -108,6 +108,51 @@ each workbook independently, but does not expose workbook URLs in target aliases
 measurement pages. MJD is the authoritative observation time; displayed spreadsheet
 date/time columns are ignored because their timezone is not defined.
 
+## SuperWASP DR1 photometry
+
+`SuperWASP` is a registered DataService and participates in target-creation and daily
+background refreshes. It is included automatically when `AUTO_QUERY_DATA_SERVICE_NAMES`
+is unset. Sites that define that allow-list must add `SuperWASP`. The default strict
+coordinate radius is 5 arcsec; set `SUPERWASP_MATCH_RADIUS_ARCSEC` to change it, or use
+the manual DataServices form to supply a radius or an exact `1SWASP J...` source ID.
+Multiple sources inside the cone are reported as ambiguous and none is imported until
+an exact ID is supplied.
+
+The service uses the NASA Exoplanet Archive TAP table for source discovery and the
+documented per-object DR1 IPAC table download. The original CERIT archive CSV contains
+the same rows but only rounded, systematics-corrected magnitude/error and camera values;
+NASA also retains raw `MAG2`, `IMAGEID`, CCD position and quality `FLAG`. Both magnitude
+series are imported. `WASP/SuperWASP` is the corrected `TAMMAG2` series displayed by
+default; `WASP/SuperWASP (MAG2 raw)` is available from the plot legend.
+
+The end-to-end reference target HD 133729 matches `1SWASP J150658.93-313838.9`.
+Both hosts return 11,304 measurements. The original CSV rounds corrected magnitudes and
+errors to four decimal places; NASA retains greater precision and the additional raw
+columns. The actual table rows span HJD_UTC 2453860.389988--2454614.544514. NASA's
+catalog-level `hjdstop`/`obsstop` metadata is about one day later than its final table
+row, so BHTOM derives displayed coverage and counts from the downloaded rows.
+
+Times are preserved as `original_hjd_utc` with `time_standard=HJD_UTC`. The BHTOM
+timestamp is a numeric HJD-to-UTC-datetime mapping for storage and plotting and is never
+labelled BJD_TDB. For pulsation timing, use `hjd_utc_to_bjd_tdb()` from
+`custom_code.data_services.superwasp_dataservice` with the stored HJD and target
+coordinates, while retaining the original value and recording the ephemeris used.
+
+Staff can refresh one target with the **Check for new data** button on its Photometry
+tab. The existing daily command/worker path also refreshes it:
+
+```shell
+./manage.py refresh_dataservices_daily --importance-gt 0 --enqueue
+./manage.py db_worker
+```
+
+Publications must cite WASP DR1 and Butters et al. (2010). Because this integration uses
+the NASA mirror, also cite DOI `10.26133/NEA9` and use the acknowledgement requested on
+the [SuperWASP mission page](https://exoplanetarchive.ipac.caltech.edu/docs/SuperWASPMission.html).
+Future data-export code can obtain the complete text directly from
+`SuperWASPDataService.get_acknowledgement()`; it should not reconstruct it from individual
+measurement metadata.
+
 ------
 For visata (test production server)
 
