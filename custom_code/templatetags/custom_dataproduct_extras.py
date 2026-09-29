@@ -43,8 +43,8 @@ def upload_dataproduct(context, obj):
 
 # Color map to be used in all plots.
 PHOTOMETRY_COLOR_MAP = {
-    'WASP/SuperWASP': ['#7b2cbf', 'circle', 3],
-    'WASP/SuperWASP (MAG2 raw)': ['#adb5bd', 'circle-open', 3],
+    'WASP/SuperWASP (TAMMAG2)': ['#7b2cbf', 'circle', 3],
+    'WASP/SuperWASP (MAG2)': ['#adb5bd', 'circle-open', 3],
     'GSA(G)': ['black', 'hexagon', 8],
     'RAPAS(G)': ['black', 'diamond-open', 6],
     'RAPAS(GBP)': ['#315efb', 'diamond-open', 6],
@@ -186,7 +186,7 @@ PHOTOMETRY_COLOR_MAP = {
 
 def _photometry_trace_visibility(filter_name):
     """Keep raw SuperWASP MAG2 available without obscuring corrected TAMMAG2."""
-    return 'legendonly' if filter_name == 'WASP/SuperWASP (MAG2 raw)' else True
+    return 'legendonly' if filter_name == 'WASP/SuperWASP (MAG2)' else True
 
 # Color map for limits (non-detections).
 PHOTOMETRY_LIMITS_COLOR_MAP = {

@@ -54,8 +54,8 @@ SUPERWASP_ORIGINAL_ARCHIVE_URL = 'https://wasp.cerit-sc.cz/form'
 SUPERWASP_DOI = '10.26133/NEA9'
 SUPERWASP_RELEASE = 'WASP DR1'
 
-CORRECTED_FILTER = 'WASP/SuperWASP'
-RAW_FILTER = 'WASP/SuperWASP (MAG2 raw)'
+CORRECTED_FILTER = 'WASP/SuperWASP (TAMMAG2)'
+RAW_FILTER = 'WASP/SuperWASP (MAG2)'
 DEFAULT_MATCH_RADIUS_ARCSEC = 5.0
 WASP_ID_RE = re.compile(r'^1SWASP\s+J\d{6}(?:\.\d+)?[+-]\d{6}(?:\.\d+)?$', re.I)
 TILE_RE = re.compile(r'^tile\d{6}$')

@@ -122,8 +122,8 @@ The service uses the NASA Exoplanet Archive TAP table for source discovery and t
 documented per-object DR1 IPAC table download. The original CERIT archive CSV contains
 the same rows but only rounded, systematics-corrected magnitude/error and camera values;
 NASA also retains raw `MAG2`, `IMAGEID`, CCD position and quality `FLAG`. Both magnitude
-series are imported. `WASP/SuperWASP` is the corrected `TAMMAG2` series displayed by
-default; `WASP/SuperWASP (MAG2 raw)` is available from the plot legend.
+series are imported. `WASP/SuperWASP (TAMMAG2)` is the corrected series displayed by
+default; `WASP/SuperWASP (MAG2)` is available from the plot legend.
 
 The end-to-end reference target HD 133729 matches `1SWASP J150658.93-313838.9`.
 Both hosts return 11,304 measurements. The original CSV rounds corrected magnitudes and
