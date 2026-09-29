@@ -6,7 +6,6 @@ from django.test import SimpleTestCase
 
 from custom_code.data_services.superwasp_dataservice import (
     CORRECTED_FILTER,
-    RAW_FILTER,
     SuperWASPAmbiguousMatchError,
     SuperWASPDataService,
     hjd_utc_to_bjd_tdb,
@@ -14,7 +13,10 @@ from custom_code.data_services.superwasp_dataservice import (
 )
 from custom_code.tasks import _bulk_insert_reduced_datums
 from custom_code.data_services.service_utils import upsert_reduced_datums
-from custom_code.templatetags.custom_dataproduct_extras import _photometry_trace_visibility
+from custom_code.templatetags.custom_dataproduct_extras import (
+    PHOTOMETRY_COLOR_MAP,
+    _photometry_trace_visibility,
+)
 
 
 SOURCE_ID = '1SWASP J150658.93-313838.9'
@@ -64,11 +66,11 @@ class SuperWASPParsingTests(SimpleTestCase):
         self.assertEqual(SuperWASPDataService.acknowledgement_doi, '10.26133/NEA9')
         self.assertEqual(SuperWASPDataService.acknowledgement_url, SuperWASPDataService.info_url)
 
-    def test_target_plot_shows_corrected_series_and_keeps_raw_in_legend(self):
+    def test_target_plot_shows_corrected_series_in_configured_colour(self):
         self.assertIs(_photometry_trace_visibility(CORRECTED_FILTER), True)
-        self.assertEqual(_photometry_trace_visibility(RAW_FILTER), 'legendonly')
+        self.assertEqual(PHOTOMETRY_COLOR_MAP[CORRECTED_FILTER][0], '#7b2cbf')
 
-    def test_parses_corrected_and_raw_series_with_archive_provenance(self):
+    def test_parses_only_corrected_series_with_raw_values_in_provenance(self):
         datums, header = parse_superwasp_ipac(
             SAMPLE_IPAC,
             metadata=sample_metadata(),
@@ -77,13 +79,13 @@ class SuperWASPParsingTests(SimpleTestCase):
         )
 
         self.assertEqual(header['NUMRECORDS'], 2)
-        self.assertEqual(len(datums), 4)
-        corrected, raw = datums[:2]
+        self.assertEqual(len(datums), 2)
+        corrected = datums[0]
         self.assertEqual(corrected['value']['filter'], CORRECTED_FILTER)
         self.assertEqual(corrected['value']['magnitude'], 9.054365)
         self.assertEqual(corrected['value']['error'], 0.007029595)
-        self.assertEqual(raw['value']['filter'], RAW_FILTER)
-        self.assertEqual(raw['value']['magnitude'], 9.106509)
+        self.assertEqual(corrected['value']['archive_mag2'], 9.106509)
+        self.assertEqual(corrected['value']['archive_mag2_error'], 0.001723952)
         self.assertEqual(corrected['value']['original_hjd_utc'], 2453860.389988)
         self.assertEqual(corrected['value']['time_standard'], 'HJD_UTC')
         self.assertEqual(corrected['value']['image_id'], '221200605042113180')
@@ -101,7 +103,6 @@ class SuperWASPParsingTests(SimpleTestCase):
             metadata=sample_metadata(),
             source_url=SOURCE_URL,
             retrieved_at=datetime(2026, 9, 29, 12, 0, tzinfo=timezone.utc),
-            include_raw=False,
         )
         mapped_jd = Time(datums[0]['timestamp'], scale='utc').jd
         self.assertAlmostEqual(mapped_jd, 2453860.389988, places=8)
@@ -188,9 +189,9 @@ class SuperWASPImportTests(SimpleTestCase):
                 identity_keys=('observation_key', 'filter'),
             )
 
-        self.assertEqual(first_added, 4)
+        self.assertEqual(first_added, 2)
         self.assertEqual(second_added, 0)
-        self.assertEqual(len(rows), 4)
+        self.assertEqual(len(rows), 2)
         self.assertEqual(sum(row.value['filter'] == CORRECTED_FILTER for row in rows), 2)
         # Provenance from the first retrieval is retained rather than producing duplicates.
         self.assertTrue(all(row.value['retrieved_at'].startswith('2026-09-28') for row in rows))

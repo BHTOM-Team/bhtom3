@@ -55,7 +55,6 @@ SUPERWASP_DOI = '10.26133/NEA9'
 SUPERWASP_RELEASE = 'WASP DR1'
 
 CORRECTED_FILTER = 'WASP/SuperWASP (TAMMAG2)'
-RAW_FILTER = 'WASP/SuperWASP (MAG2)'
 DEFAULT_MATCH_RADIUS_ARCSEC = 5.0
 WASP_ID_RE = re.compile(r'^1SWASP\s+J\d{6}(?:\.\d+)?[+-]\d{6}(?:\.\d+)?$', re.I)
 TILE_RE = re.compile(r'^tile\d{6}$')
@@ -197,7 +196,7 @@ def hjd_utc_to_bjd_tdb(hjd_utc, ra_deg, dec_deg):
     return float(hjd_utc) + float(hjd_as_utc.tdb.jd - hjd_as_utc.utc.jd) + sun_projection_days
 
 
-def parse_superwasp_ipac(text, *, metadata, source_url, retrieved_at=None, include_raw=True):
+def parse_superwasp_ipac(text, *, metadata, source_url, retrieved_at=None):
     """Parse an unphased DR1 IPAC table into BHTOM ReducedDatum dictionaries."""
     header = _parse_ipac_header(text)
     required_header = {'OBJNAME', 'JD_REF'}
@@ -291,18 +290,6 @@ def parse_superwasp_ipac(text, *, metadata, source_url, retrieved_at=None, inclu
                 corrected['error'] = common['archive_tammag2_error']
             output.append({'timestamp': timestamp, 'value': corrected})
 
-        raw_mag = common['archive_mag2']
-        if include_raw and raw_mag is not None:
-            raw = {
-                **common,
-                'filter': RAW_FILTER,
-                'wasp_series': 'MAG2',
-                'magnitude': raw_mag,
-            }
-            if common['archive_mag2_error'] is not None:
-                raw['error'] = common['archive_mag2_error']
-            output.append({'timestamp': timestamp, 'value': raw})
-
     return output, header
 
 
@@ -319,8 +306,8 @@ class SuperWASPDataService(DataService):
     upsert_identity_keys = ('observation_key', 'filter')
     service_notes = (
         'Discover one SuperWASP DR1 source by coordinates and ingest its individual '
-        'unphased TAMMAG2 and MAG2 measurements from the NASA Exoplanet Archive. '
-        'TAMMAG2 is displayed by default; raw MAG2 is a legend-only series.'
+        'unphased systematics-corrected TAMMAG2 measurements from the NASA Exoplanet '
+        'Archive. Original MAG2 values remain in each point\'s provenance metadata.'
     )
 
     @classmethod
@@ -448,7 +435,6 @@ class SuperWASPDataService(DataService):
                 metadata=match,
                 source_url=source_url,
                 retrieved_at=django_timezone.now(),
-                include_raw=True,
             )
         self.query_results = {
             'status': 'matched',

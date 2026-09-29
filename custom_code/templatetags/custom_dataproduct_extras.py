@@ -43,8 +43,9 @@ def upload_dataproduct(context, obj):
 
 # Color map to be used in all plots.
 PHOTOMETRY_COLOR_MAP = {
+    # The legacy label is retained only so already-ingested corrected rows are not grey.
+    'WASP/SuperWASP': ['#7b2cbf', 'circle', 3],
     'WASP/SuperWASP (TAMMAG2)': ['#7b2cbf', 'circle', 3],
-    'WASP/SuperWASP (MAG2)': ['#adb5bd', 'circle-open', 3],
     'GSA(G)': ['black', 'hexagon', 8],
     'RAPAS(G)': ['black', 'diamond-open', 6],
     'RAPAS(GBP)': ['#315efb', 'diamond-open', 6],
@@ -185,8 +186,7 @@ PHOTOMETRY_COLOR_MAP = {
 
 
 def _photometry_trace_visibility(filter_name):
-    """Keep raw SuperWASP MAG2 available without obscuring corrected TAMMAG2."""
-    return 'legendonly' if filter_name == 'WASP/SuperWASP (MAG2)' else True
+    return True
 
 # Color map for limits (non-detections).
 PHOTOMETRY_LIMITS_COLOR_MAP = {
@@ -380,6 +380,13 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
 
     for datum in datums:
         filter_name = str(datum.value.get('filter', '')).strip()
+        # Old imports may contain a separate MAG2 trace. New imports retain MAG2 only
+        # as provenance on TAMMAG2 rows, and legacy raw traces should no longer plot.
+        if datum.source_name == 'SuperWASP' and (
+            datum.value.get('wasp_series') == 'MAG2'
+            or filter_name in {'WASP/SuperWASP (MAG2)', 'WASP/SuperWASP (MAG2 raw)'}
+        ):
+            continue
         if datum.source_name == 'TNS' and filter_name and not filter_name.startswith('TNS('):
             survey = str(datum.value.get('survey') or '').upper()
             if survey in {'GOTO', 'ASASSN', 'ATLAS', 'ZTF'}:
