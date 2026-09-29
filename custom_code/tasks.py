@@ -915,6 +915,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
     if service_name == 'Simbad':
         query_parameters['radius_arcsec'] = 3.0
 
+    if service_name == 'NSC':
+        # NSC objects are dense in the DES deep fields; 5" would often pick a neighbour.
+        query_parameters['radius_arcsec'] = 1.5
+
     if 'source_id' in form_fields:
         query_parameters['radius_arcsec'] = 1.0
         source_id = _extract_id_from_target(target, r'(?i)gaia\s*dr3[_\s-]*(\d+)')
