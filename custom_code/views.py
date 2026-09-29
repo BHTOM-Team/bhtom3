@@ -13,7 +13,7 @@ from urllib.parse import quote, urlencode
 
 import numpy as np
 from astropy import units as u
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import Angle, SkyCoord
 from astropy.time import Time
 from astroquery.jplhorizons import Horizons
 from astroquery.mpc import MPC
@@ -3304,7 +3304,20 @@ def _get_catalog_matches(service_name, cleaned_data):
         return gaia_alerts_harvester.get_all(term)
     if service_name == 'Gaia DR3':
         from custom_code.bhtom_catalogs.harvesters import gaia_dr3 as gaia_dr3_harvester
-        return gaia_dr3_harvester.get_all(term)
+        # A supplied source ID is authoritative. Only use the coordinates for a
+        # cone search when the identifier field is blank.
+        if term:
+            return gaia_dr3_harvester.get_all(term)
+        ra = cleaned_data.get('ra')
+        dec = cleaned_data.get('dec')
+        if ra is None or dec is None:
+            return []
+        radius_arcsec = cleaned_data.get('radius_arcsec') or GENERIC_TARGET_SEARCH_RADIUS_ARCSEC
+        coordinates = SkyCoord(ra=float(ra), dec=float(dec), unit='deg')
+        return gaia_dr3_harvester.cone_search_all(
+            coordinates,
+            Angle(float(radius_arcsec), unit=u.arcsec),
+        )
     if service_name == 'OGLE EWS':
         return ogle_ews_harvester.get_all(term)
     if service_name == 'OGLE OCVS':

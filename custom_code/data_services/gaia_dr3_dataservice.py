@@ -272,7 +272,9 @@ class GaiaDR3DataService(DataService):
             except Exception as exc:
                 logger.warning('Gaia DR3 source_id lookup failed: %s', exc)
 
-        if source_row is None and ra is not None and dec is not None:
+        # Do not silently replace an explicit source-ID lookup with a nearby
+        # coordinate match. Cone search is exclusively the no-source-ID path.
+        if not source_id and source_row is None and ra is not None and dec is not None:
             ra_deg = float(ra)
             dec_deg = float(dec)
             radius_deg = radius_arcsec / 3600.0

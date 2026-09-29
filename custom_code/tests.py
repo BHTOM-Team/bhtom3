@@ -183,6 +183,7 @@ from custom_code.views import (
     _build_data_service_result_row,
     _catalog_target_params,
     _catalog_query_services_for_input,
+    _get_catalog_matches,
     _serialize_query_parameters,
     _backfill_data_service_result_coordinates,
     _data_service_failure_feedback,
@@ -1697,6 +1698,58 @@ class CatalogQueryCoordinateFormTests(TestCase):
         self.assertAlmostEqual(form.cleaned_data['ra'], 21.4001, places=4)
         self.assertAlmostEqual(form.cleaned_data['dec'], 34.1517, places=4)
 
+    def test_gaia_dr3_catalog_query_accepts_coordinates_without_source_id(self):
+        form = BhtomCatalogQueryForm(data={
+            'service': 'Gaia DR3',
+            'term': '',
+            'ra': '159.13',
+            'dec': '-59.59',
+            'radius_arcsec': '300',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['radius_arcsec'], 300.0)
+
+    def test_gaia_dr3_catalog_query_uses_cone_search_without_source_id(self):
+        match = {'source_id': '123', 'ra': 159.13, 'dec': -59.59}
+
+        with patch.object(gaia_dr3_harvester, 'cone_search_all', return_value=[match]) as cone_search, patch.object(
+            gaia_dr3_harvester,
+            'get_all',
+        ) as source_search:
+            results = _get_catalog_matches('Gaia DR3', {
+                'term': '',
+                'ra': 159.13,
+                'dec': -59.59,
+                'radius_arcsec': 300.0,
+            })
+
+        self.assertEqual(results, [match])
+        source_search.assert_not_called()
+        cone_search.assert_called_once()
+        coordinates, radius = cone_search.call_args.args
+        self.assertAlmostEqual(coordinates.ra.deg, 159.13)
+        self.assertAlmostEqual(coordinates.dec.deg, -59.59)
+        self.assertAlmostEqual(radius.to_value('arcsec'), 300.0)
+
+    def test_gaia_dr3_catalog_query_does_not_cone_search_with_source_id(self):
+        match = {'source_id': '394976501194687488', 'ra': 159.13, 'dec': -59.59}
+
+        with patch.object(gaia_dr3_harvester, 'get_all', return_value=[match]) as source_search, patch.object(
+            gaia_dr3_harvester,
+            'cone_search_all',
+        ) as cone_search:
+            results = _get_catalog_matches('Gaia DR3', {
+                'term': '394976501194687488',
+                'ra': 159.13,
+                'dec': -59.59,
+                'radius_arcsec': 300.0,
+            })
+
+        self.assertEqual(results, [match])
+        source_search.assert_called_once_with('394976501194687488')
+        cone_search.assert_not_called()
+
 
 class DataServiceTargetNameResolutionTests(TestCase):
     def test_resolve_query_coordinates_uses_primary_target_name(self):
@@ -1781,6 +1834,52 @@ class GaiaDR3DataServiceTests(TestCase):
         self.assertIn('FROM gaiadr3.gaia_source_lite AS g', query)
         self.assertNotIn('vari_classifier_result', query)
         self.assertNotIn('JOIN', query)
+
+    def test_source_id_lookup_does_not_fall_back_to_cone_search(self):
+        service = GaiaDR3DataService()
+
+        with patch(
+            'custom_code.bhtom_catalogs.harvesters.gaia_dr3._run_gaia_query',
+            return_value=[],
+        ) as source_search, patch.object(service, '_query_source_esa') as cone_search_esa, patch.object(
+            service,
+            '_query_source_aip',
+        ) as cone_search_aip:
+            result = service.query_service({
+                'source_id': '394976501194687488',
+                'ra': 159.13,
+                'dec': -59.59,
+                'radius_arcsec': 300.0,
+                'include_photometry': False,
+                'include_spectroscopy': False,
+            })
+
+        source_search.assert_called_once()
+        cone_search_esa.assert_not_called()
+        cone_search_aip.assert_not_called()
+        self.assertIsNone(result['source'])
+
+    def test_missing_source_id_uses_cone_search(self):
+        service = GaiaDR3DataService()
+
+        with patch.object(service, '_query_source_esa', return_value=None) as cone_search_esa, patch.object(
+            service,
+            '_query_source_aip',
+            return_value=None,
+        ) as cone_search_aip:
+            result = service.query_service({
+                'source_id': '',
+                'ra': 159.13,
+                'dec': -59.59,
+                'radius_arcsec': 300.0,
+                'include_photometry': False,
+                'include_spectroscopy': False,
+            })
+
+        cone_search_esa.assert_called_once()
+        cone_search_aip.assert_called_once()
+        self.assertIn('DISTANCE(POINT(159.13, -59.59)', cone_search_esa.call_args.args[0])
+        self.assertIsNone(result['source'])
 
     def test_query_targets_maps_astrometry_and_errors(self):
         service = GaiaDR3DataService()

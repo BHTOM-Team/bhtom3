@@ -389,6 +389,9 @@ class BhtomCatalogQueryForm(forms.Form):
         if service == ALL_DATA_SERVICES_VALUE:
             if not term and not has_coords:
                 raise forms.ValidationError('Provide target name or RA+Dec.')
+        elif service == 'Gaia DR3':
+            if not term and not has_coords:
+                raise forms.ValidationError('Provide a Gaia DR3 source_id or RA+Dec.')
         elif service == 'Simbad':
             if not term and not has_coords:
                 raise forms.ValidationError('Provide SIMBAD object name or RA+Dec.')
