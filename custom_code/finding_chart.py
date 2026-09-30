@@ -4,6 +4,7 @@ from importlib import import_module
 import math
 
 from django.conf import settings
+from django.db.models import Q
 from guardian.shortcuts import get_objects_for_user
 from tom_dataproducts.models import ReducedDatum
 
@@ -63,26 +64,6 @@ def _visible_datums(target, data_type, request):
     )
 
 
-def _has_plotted_value(datum, difference_mode):
-    value = datum.value if isinstance(datum.value, dict) else {}
-    filter_name = str(value.get('filter') or '').strip()
-    if not filter_name or filter_name in SKIPPED_FILTERS:
-        return False
-    if datum.source_name == 'SuperWASP' and (
-        value.get('wasp_series') == 'MAG2'
-        or filter_name in {'WASP/SuperWASP (MAG2)', 'WASP/SuperWASP (MAG2 raw)'}
-    ):
-        return False
-    plotted = (value.get('diff_magnitude') if difference_mode else
-               value.get('magnitude', value.get('limit')))
-    if plotted is None and not difference_mode:
-        plotted = value.get('limit')
-    try:
-        return plotted is not None and math.isfinite(float(plotted))
-    except (TypeError, ValueError, OverflowError):
-        return False
-
-
 def survey_overlays(target, request):
     """Return radii only for services with points in the target's plotted data."""
     difference_mode = request.GET.get('phot') == 'diff' if request else False
@@ -90,19 +71,41 @@ def survey_overlays(target, request):
     photometry_type = settings.DATA_PRODUCT_TYPES.get('photometry', ('photometry',))[0]
     highenergy_type = settings.DATA_PRODUCT_TYPES.get('highenergy', ('highenergy',))[0]
     photometry = _visible_datums(target, photometry_type, request)
-    for datum in photometry.filter(source_name__in=SERVICE_CLASSES).only('source_name', 'value').iterator():
-        if datum.source_name not in sources and _has_plotted_value(datum, difference_mode):
-            sources.add(datum.source_name)
+    if difference_mode:
+        measurement = Q(value__diff_magnitude__isnull=False) & ~Q(value__diff_magnitude=None)
+    else:
+        measurement = (
+            (Q(value__magnitude__isnull=False) & ~Q(value__magnitude=None))
+            | (Q(value__limit__isnull=False) & ~Q(value__limit=None))
+        )
+    # Keep the light-curve rows in the database; the chart only needs service names.
+    sources.update(
+        photometry.filter(
+            measurement,
+            source_name__in=SERVICE_CLASSES,
+            value__filter__isnull=False,
+        )
+        .filter(
+            ~Q(source_name='SuperWASP')
+            | Q(value__wasp_series__isnull=True)
+            | ~Q(value__wasp_series='MAG2')
+        )
+        .exclude(value__filter=None)
+        .exclude(value__filter='')
+        .exclude(value__filter__in=SKIPPED_FILTERS)
+        .exclude(value__filter__in=(
+            'WASP/SuperWASP (MAG2)', 'WASP/SuperWASP (MAG2 raw)',
+        ))
+        .order_by()
+        .values_list('source_name', flat=True)
+        .distinct()
+    )
     # FAVA is the high-energy panel that appears below the photometry plot.
     highenergy = _visible_datums(target, highenergy_type, request)
-    for datum in highenergy.filter(source_name='FAVA').only('source_name', 'value').iterator():
-        value = datum.value if isinstance(datum.value, dict) else {}
-        try:
-            if value.get('filter') and math.isfinite(float(value.get('flux'))):
-                sources.add('FAVA')
-                break
-        except (TypeError, ValueError, OverflowError):
-            pass
+    if highenergy.filter(
+        source_name='FAVA', value__filter__isnull=False, value__flux__isnull=False,
+    ).exclude(value__filter=None).exclude(value__filter='').exclude(value__flux=None).exists():
+        sources.add('FAVA')
 
     overlays = []
     for index, source in enumerate(sorted(sources, key=str.casefold)):
