@@ -919,6 +919,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # NSC objects are dense in the DES deep fields; 5" would often pick a neighbour.
         query_parameters['radius_arcsec'] = 1.5
 
+    if service_name == 'BGDS':
+        # BGDS covers the crowded Galactic plane; 5" would often pick a neighbour.
+        query_parameters['radius_arcsec'] = 2.0
+
     if 'source_id' in form_fields:
         query_parameters['radius_arcsec'] = 1.0
         source_id = _extract_id_from_target(target, r'(?i)gaia\s*dr3[_\s-]*(\d+)')
