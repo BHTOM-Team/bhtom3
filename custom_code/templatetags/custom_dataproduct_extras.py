@@ -142,6 +142,7 @@ PHOTOMETRY_COLOR_MAP = {
     'BGDS(NB)': ['#7f7f7f', 'star-triangle-up-open', 5],
     'BGDS(OIII)': ['#17becf', 'star-triangle-up-open', 5],
     'BGDS(SII)': ['#bcbd22', 'star-triangle-up-open', 5],
+    'OMC(V)': ['#006d2c', 'hexagram-open', 5],
     'PTF(g)': ['green', 'diamond', 5],
     'PTF(R)': ['#800000', 'diamond', 5],
     'uvv': ['#90ee90', 'circle', 4],
