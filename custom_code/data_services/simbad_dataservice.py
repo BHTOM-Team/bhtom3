@@ -1,4 +1,7 @@
+import html
 import logging
+import re
+import unicodedata
 from typing import Any, Dict, List
 
 from astropy import units as u
@@ -43,6 +46,40 @@ def _main_id_from_row(row: Row) -> str:
     return _decode_identifier(value)
 
 
+def _name_query_variants(value: str) -> List[str]:
+    name = unicodedata.normalize('NFKC', html.unescape(str(value or '')))
+    name = re.sub(r'\s+', ' ', name).strip()
+    name = re.sub(r'\s*([+-])\s*', r'\1', name)
+    name = re.sub(r'^[^\w\[]+|[^\w\]]+$', '', name)
+    if not name:
+        return []
+
+    # SIMBAD already ignores case and many spaces in exact identifier lookups.
+    # A second, compact spelling also handles separators inserted in a catalog prefix.
+    compact = re.sub(r'[^\w.+\-\[\]]', '', name)
+    compact = re.sub(r'(?<=[A-Za-z])[-_]+(?=[A-Za-z0-9])', '', compact)
+    compact = re.sub(r'\+{2,}', '+', compact)
+    compact = re.sub(r'-{2,}', '-', compact)
+    return list(dict.fromkeys((name, compact)))
+
+
+def _aliases_from_row(row: Row, main_id: str, ra: float, dec: float, source_name: str):
+    identifiers = [main_id]
+    if 'ids' in row.colnames:
+        ids = row['ids']
+        if not getattr(ids, 'mask', False):
+            identifiers.extend(_decode_identifier(ids).split('|'))
+    aliases = []
+    seen = set()
+    for identifier in identifiers:
+        identifier = identifier.strip()
+        key = identifier.casefold()
+        if identifier and key not in seen:
+            aliases.append({'name': identifier, 'url': _simbad_url(ra, dec), 'source_name': source_name})
+            seen.add(key)
+    return aliases
+
+
 def _simbad_url(ra: float, dec: float) -> str:
     if ra is None or dec is None:
         return ''
@@ -76,7 +113,7 @@ class SimbadDataService(DataService):
     verbose_name = 'Simbad'
     update_on_daily_refresh = False
     info_url = 'https://simbad.cds.unistra.fr/simbad/'
-    service_notes = 'Query SIMBAD by RA/Dec using a fixed 3 arcsec cone search.'
+    service_notes = 'Query SIMBAD by object name or RA/Dec (3 arcsec cone search).'
 
     @classmethod
     def get_form_class(cls):
@@ -85,7 +122,7 @@ class SimbadDataService(DataService):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.simbad = Simbad()
-        self.simbad.add_votable_fields('propermotions', 'parallax')
+        self.simbad.add_votable_fields('propermotions', 'parallax', 'ids')
 
     def build_query_parameters(self, parameters, **kwargs):
         from custom_code.data_services.service_utils import resolve_query_coordinates
@@ -99,6 +136,12 @@ class SimbadDataService(DataService):
         return self.query_parameters
 
     def query_service(self, query_parameters, **kwargs):
+        for name in _name_query_variants(query_parameters.get('target_name')):
+            table = self.simbad.query_object(name)
+            if table is not None and len(table):
+                self.query_results = table
+                return table
+
         ra = _clean_number(query_parameters.get('ra'))
         dec = _clean_number(query_parameters.get('dec'))
         if ra is None or dec is None:
@@ -113,18 +156,24 @@ class SimbadDataService(DataService):
         if target_table is None or len(target_table) == 0:
             return []
 
-        row = _pick_best_row(target_table, float(query_parameters['ra']), float(query_parameters['dec']))
+        query_ra = _clean_number(query_parameters.get('ra'))
+        query_dec = _clean_number(query_parameters.get('dec'))
+        row = (
+            _pick_best_row(target_table, query_ra, query_dec)
+            if query_ra is not None and query_dec is not None
+            else target_table[0]
+        )
         main_id = _main_id_from_row(row)
-        ra = _clean_number(row['ra']) if 'ra' in row.colnames else float(query_parameters['ra'])
-        dec = _clean_number(row['dec']) if 'dec' in row.colnames else float(query_parameters['dec'])
+        ra = _clean_number(row['ra']) if 'ra' in row.colnames else query_ra
+        dec = _clean_number(row['dec']) if 'dec' in row.colnames else query_dec
         pmra = _clean_number(row['pmra']) if 'pmra' in row.colnames else None
         pmdec = _clean_number(row['pmdec']) if 'pmdec' in row.colnames else None
         parallax = _clean_number(row['plx_value']) if 'plx_value' in row.colnames else None
 
         if ra is None:
-            ra = float(query_parameters['ra'])
+            ra = query_ra
         if dec is None:
-            dec = float(query_parameters['dec'])
+            dec = query_dec
 
         result = {
             'name': main_id.replace(' ', '') if main_id else 'SIMBAD',
@@ -134,7 +183,7 @@ class SimbadDataService(DataService):
             'pmdec': pmdec,
             'plx_value': parallax,
             'main_id': main_id,
-            'aliases': [{'name': main_id, 'url': _simbad_url(ra, dec), 'source_name': self.name}] if main_id else [],
+            'aliases': _aliases_from_row(row, main_id, ra, dec, self.name),
             'target_updates': {
                 'ra': ra,
                 'dec': dec,

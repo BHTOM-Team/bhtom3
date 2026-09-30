@@ -106,7 +106,7 @@ from custom_code.data_services.lamost_dataservice import (
     needs_lamost_flux_rescale,
 )
 from custom_code.data_services.neowise_dataservice import NeoWISEDataService
-from custom_code.data_services.simbad_dataservice import SimbadDataService
+from custom_code.data_services.simbad_dataservice import SimbadDataService, _name_query_variants
 from custom_code.data_services.twomass_dataservice import TwoMASSDataService
 from custom_code.bhtom_catalogs.harvesters.simbad import target_from_result
 from custom_code.bhtom_catalogs.harvesters.crts import CRTSHarvester
@@ -1786,6 +1786,65 @@ class SimbadDataServiceTests(TestCase):
         service = object.__new__(SimbadDataService)
 
         self.assertEqual(service.query_targets({'ra': None, 'dec': None}), [])
+
+    def test_name_variants_clean_case_spacing_html_entities_and_extra_signs(self):
+        self.assertEqual(
+            _name_query_variants('  rx - J1927.3 + 6533!!!  '),
+            ['rx-J1927.3+6533', 'rxJ1927.3+6533'],
+        )
+        self.assertEqual(
+            _name_query_variants('&#x32;MASX J19271951+6533539'),
+            ['2MASX J19271951+6533539', '2MASXJ19271951+6533539'],
+        )
+
+    def test_name_only_query_returns_simbad_identifiers_as_aliases(self):
+        service = object.__new__(SimbadDataService)
+        service.simbad = Mock()
+        row = Table(rows=[(
+            'RX J1927.3+6533', 291.8313, 65.5649,
+            'RX J1927.3+6533|2MASX J19271951+6533539|1ES 1927+65.4',
+        )], names=('main_id', 'ra', 'dec', 'ids'))
+        service.simbad.query_object.return_value = row
+
+        for query in ('rx j1927.3+6533', '2MASX J19271951+6533539', '1es 1927+654'):
+            with self.subTest(query=query):
+                service.simbad.reset_mock()
+                results = service.query_targets({'target_name': query, 'ra': None, 'dec': None})
+
+                service.simbad.query_object.assert_called_once_with(query)
+                service.simbad.query_region.assert_not_called()
+                self.assertEqual(len(results), 1)
+                self.assertEqual(results[0]['name'], 'RXJ1927.3+6533')
+                self.assertEqual(
+                    [alias['name'] for alias in results[0]['aliases']],
+                    ['RX J1927.3+6533', '2MASX J19271951+6533539', '1ES 1927+65.4'],
+                )
+
+    def test_name_query_retries_compact_spelling(self):
+        service = object.__new__(SimbadDataService)
+        service.simbad = Mock()
+        service.simbad.query_object.side_effect = [None, Table(rows=[(
+            'RX J1927.3+6533', 291.8313, 65.5649,
+        )], names=('main_id', 'ra', 'dec'))]
+
+        results = service.query_targets({'target_name': 'RX-J1927.3+6533', 'ra': None, 'dec': None})
+
+        self.assertEqual(service.simbad.query_object.call_args_list[1].args, ('RXJ1927.3+6533',))
+        self.assertEqual(len(results), 1)
+        service.simbad.query_region.assert_not_called()
+
+    def test_name_miss_falls_back_to_coordinate_search(self):
+        service = object.__new__(SimbadDataService)
+        service.simbad = Mock()
+        service.simbad.query_object.return_value = None
+        service.simbad.query_region.return_value = Table(rows=[(
+            'RX J1927.3+6533', 291.8313, 65.5649,
+        )], names=('main_id', 'ra', 'dec'))
+
+        results = service.query_targets({'target_name': 'unknown', 'ra': 291.8313, 'dec': 65.5649})
+
+        self.assertEqual(len(results), 1)
+        service.simbad.query_region.assert_called_once()
 
 
 class TwoMASSDataServiceTests(TestCase):
