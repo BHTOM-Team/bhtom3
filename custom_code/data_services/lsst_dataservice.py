@@ -66,6 +66,11 @@ def _parse_rows(response_json):
 
 
 class LSSTDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 2.0
+
     name = 'LSST'
     verbose_name = 'LSST'
     update_on_daily_refresh = True

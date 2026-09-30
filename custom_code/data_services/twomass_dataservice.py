@@ -40,6 +40,11 @@ def _build_twomass_query(ra, dec, radius_arcsec):
 
 
 class TwoMASSDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 3.0
+
     name = '2MASS'
     verbose_name = '2MASS'
     update_on_daily_refresh = False

@@ -219,6 +219,11 @@ def _parse_photometry_rows(text):
 
 
 class MOADataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 5.0
+
     name = 'MOA'
     verbose_name = 'MOA'
     update_on_daily_refresh = False

@@ -47,6 +47,11 @@ def _build_wise_query(ra,dec,rad):
 
 
 class AllWISEDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 6.0
+
     name = 'AllWISE'
     verbose_name = 'AllWISE'
     update_on_daily_refresh = False
@@ -64,7 +69,7 @@ class AllWISEDataService(DataService):
             'target_name': target_name,
             'ra': ra,
             'dec': dec,
-            'radius_arcsec': parameters.get('radius_arcsec') or 5.0,
+            'radius_arcsec': parameters.get('radius_arcsec') or self.get_finding_chart_radius_arcsec(),
             'include_photometry': bool(parameters.get('include_photometry', True)),
         }
         return self.query_parameters
@@ -72,7 +77,7 @@ class AllWISEDataService(DataService):
     def query_service(self, query_parameters, **kwargs):
         ra = _to_float(query_parameters.get('ra'))
         dec = _to_float(query_parameters.get('dec'))
-        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or 5.0
+        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or self.get_finding_chart_radius_arcsec()
         if ra is None or dec is None:
             self.query_results = {'lc_data': [], 'alias': None, 'source_location': None}
             return self.query_results

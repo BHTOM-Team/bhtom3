@@ -104,6 +104,11 @@ def _get_filter(value):
 
 
 class AlerceDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 1.1
+
     name = 'Alerce'
     verbose_name = 'Alerce'
     update_on_daily_refresh = True

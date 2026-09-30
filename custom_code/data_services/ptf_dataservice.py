@@ -33,6 +33,11 @@ def _ptf_alias(id):
 
 
 class PTFDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 3.0
+
     name = 'PTF'
     verbose_name = 'PTF'
     update_on_daily_refresh = False

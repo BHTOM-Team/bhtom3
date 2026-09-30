@@ -8,9 +8,18 @@ from urllib.parse import quote, urlencode
 from tom_dataproducts.models import ReducedDatum
 
 from custom_code.astrometry import can_compute_current_coordinates
+from custom_code.finding_chart import survey_overlays
 from custom_code.sun_separation import get_live_target_values
 
 register = template.Library()
+
+
+@register.inclusion_tag('tom_targets/partials/survey_finderchart.html', takes_context=True)
+def survey_finderchart(context, target):
+    return {
+        'target': target,
+        'survey_overlays': survey_overlays(target, context.get('request')),
+    }
 
 
 def _guess_alias_source(alias_name, url=''):

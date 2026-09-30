@@ -83,6 +83,11 @@ def _good_detections(photometry):
 
 
 class PGIRDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return PGIR_DEFAULT_RADIUS_ARCSEC
+
     name = 'PGIR'
     verbose_name = 'PGIR'
     update_on_daily_refresh = False

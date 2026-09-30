@@ -105,6 +105,11 @@ def _read_pysis_table(fileobj):
 
 
 class KMTDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 5.0
+
     name = 'KMT'
     verbose_name = 'KMT'
     update_on_daily_refresh = False

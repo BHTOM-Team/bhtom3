@@ -27,6 +27,11 @@ def _to_float(value):
 
 
 class FAVADataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """The LAT 100 MeV 95% containment scale; this is not a source localization."""
+        return 43200.0
+
     name = 'FAVA'
     verbose_name = 'FAVA (Fermi-LAT)'
     update_on_daily_refresh = True

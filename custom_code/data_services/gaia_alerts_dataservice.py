@@ -80,6 +80,11 @@ def _alert_page_url(alert_name):
 
 
 class GaiaAlertsDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 5.0
+
     name = 'GaiaAlerts'
     verbose_name = 'GaiaAlerts'
     update_on_daily_refresh = False

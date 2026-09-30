@@ -3,6 +3,9 @@
 {% block title %}Target {{ object.name }}{% endblock %}
 {% block additional_css %}
 <link rel="stylesheet" href="{% static 'tom_targets/css/main.css' %}">
+{% if object.type == 'SIDEREAL' %}
+<link rel="stylesheet" href="https://aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.css">
+{% endif %}
 <style>
   /* Target detail should use full viewport width without side margins */
   main.container {
@@ -228,7 +231,7 @@
       {% bhtom_target_data object %}
       {% recent_photometry object limit=3 %}
       {% if object.type == 'SIDEREAL' %}
-      {% aladin_finderchart object %}
+      {% survey_finderchart object %}
       {% elif object.type == 'NON_SIDEREAL' %}
       {% non_sidereal_aladin object %}
       {% endif %}
@@ -356,4 +359,10 @@
   </div>
 </div>
 </div>
+{% endblock %}
+{% block extra_javascript %}
+{% if object.type == 'SIDEREAL' %}
+<script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/3.8.2/aladin.js" charset="utf-8" defer></script>
+<script src="{% static 'custom_code/js/survey_finderchart.js' %}" defer></script>
+{% endif %}
 {% endblock %}

@@ -51,6 +51,11 @@ def _build_skymapper_tap_query(ra, dec, radius_arcsec):
             """
 
 class SkyMapperDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 5.0
+
     name = 'SkyMapper'
     verbose_name = 'SkyMapper'
     update_on_daily_refresh = False

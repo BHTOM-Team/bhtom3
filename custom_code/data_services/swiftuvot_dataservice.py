@@ -28,6 +28,11 @@ def _to_float(value):
         return None
 
 class SwiftUVOTDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 5.0
+
     name = 'SwiftUVOT'
     verbose_name = 'SwiftUVOT'
     update_on_daily_refresh = True

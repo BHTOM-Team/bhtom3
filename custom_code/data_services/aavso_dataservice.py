@@ -296,6 +296,11 @@ def _resolve_vsx_names(ra, dec, radius_arcsec, timeout_seconds=None):
 
 
 class AAVSODataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return _DEFAULT_MATCH_RADIUS
+
     name = 'AAVSO'
     verbose_name = 'AAVSO Photometry'
     update_on_daily_refresh = True

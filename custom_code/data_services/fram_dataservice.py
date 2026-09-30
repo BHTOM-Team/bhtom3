@@ -88,6 +88,11 @@ def _parse_mjd_photometry(text):
 
 
 class FRAMDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 3.0
+
     name = 'FRAM'
     verbose_name = 'FRAM'
     update_on_daily_refresh = True

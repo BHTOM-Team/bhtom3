@@ -429,6 +429,11 @@ def _legacy_magellanic_rows():
 
 
 class OGLEEWSDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 5.0
+
     name = 'OGLEEWS'
     verbose_name = 'OGLE EWS'
     update_on_daily_refresh = True

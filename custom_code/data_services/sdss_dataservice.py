@@ -68,6 +68,11 @@ def _build_sdss_coord_page_url(ra, dec):
     return f"https://skyserver.sdss.org/dr19/VisualTools/explore/summary?ra={ra}&dec={dec}"
 
 class SDSSDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 10.0
+
     name = 'SDSS'
     verbose_name = 'SDSS'
     info_url = 'https://skyserver.sdss.org/dr19/VisualTools/navi'

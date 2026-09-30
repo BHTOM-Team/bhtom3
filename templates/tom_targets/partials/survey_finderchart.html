@@ -1,0 +1,39 @@
+<h3>Survey View</h3>
+<div class="js-survey-finderchart" data-target-ra="{{ target.ra }}" data-target-dec="{{ target.dec }}">
+  {{ survey_overlays|json_script:"survey-finderchart-overlays" }}
+  <div id="aladin-lite-div" style="width:300px;height:300px;">
+    <div class="d-flex justify-content-center" id="aladin-spinner">
+      <div class="spinner-border" role="status"><span class="sr-only">Loading...</span></div>
+    </div>
+  </div>
+  <div id="chart-form-div" style="width:300px;">
+    <form id="chart-form">
+      <div class="form-group mt-1 mb-1">
+        <div class="input-group">
+          <div class="input-group-prepend"><span class="input-group-text bg-transparent">Field of view</span></div>
+          <input type="number" class="form-control" aria-label="Field of view" id="fov" min="0" value="10">
+          <div class="input-group-append">
+            <select id="fov-units-select" class="form-control">
+              <option>arcsec</option><option selected>arcmin</option><option>deg</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="form-group mt-1 mb-1">
+        <div class="input-group">
+          <div class="input-group-prepend"><label class="input-group-text bg-transparent" for="scale-bar-units-select">Scale bar</label></div>
+          <input type="number" class="form-control" aria-label="Scale bar size" id="scale-bar-size" min="0" value="1">
+          <div class="input-group-append">
+            <select id="scale-bar-units-select" class="form-control">
+              <option>arcsec</option><option selected>arcmin</option><option>deg</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="form-group mt-1 mb-1">
+        <input class="btn btn-primary" type="button" id="update-finderchart" value="Update">
+        <a class="btn btn-primary" id="download-chart" href="" download="chart.png">Save Image</a>
+      </div>
+    </form>
+  </div>
+</div>

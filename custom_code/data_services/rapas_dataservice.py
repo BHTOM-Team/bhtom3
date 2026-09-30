@@ -538,6 +538,11 @@ def _fetch_records(cache_only=False):
 
 
 class RAPASDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 5.0
+
     name = 'RAPAS'
     verbose_name = 'RAPAS'
     update_on_daily_refresh = True

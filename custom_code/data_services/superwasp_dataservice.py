@@ -294,6 +294,11 @@ def parse_superwasp_ipac(text, *, metadata, source_url, retrieved_at=None):
 
 
 class SuperWASPDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return float(getattr(settings, 'SUPERWASP_MATCH_RADIUS_ARCSEC', DEFAULT_MATCH_RADIUS_ARCSEC))
+
     name = 'SuperWASP'
     verbose_name = 'SuperWASP (WASP DR1)'
     update_on_daily_refresh = True

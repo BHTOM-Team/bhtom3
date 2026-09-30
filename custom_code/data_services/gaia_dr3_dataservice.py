@@ -217,6 +217,11 @@ def _normalize_spectrum_table(table):
 
 
 class GaiaDR3DataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 1.0
+
     name = 'GaiaDR3'
     verbose_name = 'GaiaDR3'
     update_on_daily_refresh = False

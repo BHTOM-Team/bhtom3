@@ -42,6 +42,11 @@ def _build_crts_url(ra, dec, radius_arcmin):
 
 
 class CRTSDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 6.0
+
     name = 'CRTS'
     verbose_name = 'CRTS'
     update_on_daily_refresh = False

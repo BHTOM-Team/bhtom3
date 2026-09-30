@@ -197,6 +197,11 @@ def pick_flux_column(columns, header, prefer='sap'):
 
 
 class TESSDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return DEFAULT_RADIUS_ARCSEC
+
     name = 'TESS'
     verbose_name = 'TESS'
     update_on_daily_refresh = False

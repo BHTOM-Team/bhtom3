@@ -267,6 +267,11 @@ def _run_with_timeout(label, func, timeout_seconds=ASASSN_SKYPATROL_TIMEOUT_SECO
 
 
 class ASASSNDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return ASASSN_TRANSIENT_SEARCH_RADIUS_ARCSEC
+
     name = 'ASASSN'
     verbose_name = 'ASASSN'
     update_on_daily_refresh = True

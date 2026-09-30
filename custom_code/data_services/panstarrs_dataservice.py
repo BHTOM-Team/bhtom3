@@ -45,6 +45,11 @@ def _get_ps1_filter_name(filter_id):
 
 
 class PanSTARRSDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 1.2
+
     name = 'PS1'
     verbose_name = 'PS1'
     update_on_daily_refresh = False

@@ -325,6 +325,11 @@ def _ensure_alias(target, ra, dec):
 
 
 class ATLASDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """ATLAS image pixel scale; forced photometry has no cone search."""
+        return 1.86
+
     name = 'ATLAS'
     verbose_name = 'ATLAS Forced Photometry'
     update_on_daily_refresh = True

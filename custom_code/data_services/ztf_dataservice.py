@@ -71,6 +71,11 @@ def _ztf_object_ids(lc_data):
 
 
 class ZTFDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 1.1
+
     name = 'ZTF'
     verbose_name = 'ZTF'
     update_on_daily_refresh = True

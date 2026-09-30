@@ -117,6 +117,11 @@ def _extract_page_links(html_text, object_name, page_url):
 
 
 class OGLEOCVSDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return 5.0
+
     name = 'OGLEOCVS'
     verbose_name = 'OGLE OCVS'
     update_on_daily_refresh = False
