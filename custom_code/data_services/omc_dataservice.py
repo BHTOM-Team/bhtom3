@@ -9,9 +9,9 @@ One star often has several OMC light curves: the same exposures measured in diff
 OMC sub-windows, with magnitudes differing by a few 0.01 mag. Importing all of them would
 double-count every epoch, so only the longest light curve of the nearest source is used.
 
-Only points with PROBLEMS == 0 are imported. PROBLEMS is a bit register (centroid off,
-bad centroid, anomalous PSF, low flux, bad pixels, extended source, ...); see
-https://sdc.cab.inta-csic.es/omc/help/documentation.jsp.
+PROBLEMS is a bit register (centroid off, bad centroid, anomalous PSF, low flux, bad
+pixels, extended source, ...); see https://sdc.cab.inta-csic.es/omc/help/documentation.jsp.
+Points are imported when their only problems are in OMC_ALLOWED_PROBLEMS.
 """
 
 import io
@@ -43,6 +43,10 @@ OMC_FILTER = 'OMC(V)'
 OMC_DEFAULT_RADIUS_ARCSEC = 10.0
 # Light curves this much further than the nearest one are other stars, not duplicates.
 OMC_SAME_SOURCE_ARCSEC = 3.0
+# PROBLEMS bits that leave the photometry usable: 16 anomalous PSF shape (set on most
+# points, which agree with unflagged ones), 256/512 bad pixel in the 5x5/3x3 rim but not
+# the centre. Any other bit (centroid, low flux, sky, extended, unknown mag, ...) rejects.
+OMC_ALLOWED_PROBLEMS = 16 | 256 | 512
 OMC_MIN_MAG = 0.0
 OMC_MAX_MAG = 30.0
 OMC_MAX_MAG_ERROR = 1.0
@@ -145,8 +149,8 @@ class OMCDataService(DataService):
     service_notes = (
         'Query INTEGRAL Optical Monitoring Camera V-band light curves (2002 onwards, V < ~16-17) '
         'from the CAB OMC archive by coordinates. The longest light curve of the nearest OMC '
-        'source is imported, keeping only points with no PROBLEMS flag. Photometry only; no '
-        'aliases are added.'
+        'source is imported, keeping points that are unflagged or flagged only for an anomalous '
+        'PSF shape or a bad pixel outside the source centre. Photometry only; no aliases are added.'
     )
 
     @classmethod
@@ -262,18 +266,18 @@ class OMCDataService(DataService):
         mjds = np.ma.filled(np.ma.asarray(lc_table['Time'], dtype=float), np.nan)
         mags = np.ma.filled(np.ma.asarray(lc_table['Mag'], dtype=float), np.nan)
         errors = np.ma.filled(np.ma.asarray(lc_table['MagErr'], dtype=float), np.nan)
-        # A missing flag is not a clean flag.
-        problems = np.ma.filled(np.ma.asarray(lc_table['Problems'], dtype=float), np.nan)
+        # A missing flag is not a clean flag: -1 has every bit set, so it is rejected.
+        problems = np.ma.filled(np.ma.asarray(lc_table['Problems'], dtype=np.int64), -1)
         good = (
             np.isfinite(mjds) & np.isfinite(mags) & np.isfinite(errors)
-            & (problems == 0)
+            & ((problems & ~OMC_ALLOWED_PROBLEMS) == 0)
             & (mags > OMC_MIN_MAG) & (mags < OMC_MAX_MAG)
             & (errors > 0) & (errors <= OMC_MAX_MAG_ERROR)
         )
 
         omc_id = _omc_id(match['title'])
         output = []
-        for mjd, mag, error in zip(mjds[good], mags[good], errors[good]):
+        for mjd, mag, error, flags in zip(mjds[good], mags[good], errors[good], problems[good]):
             mjd = float(mjd)
             output.append({
                 'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
@@ -283,6 +287,7 @@ class OMCDataService(DataService):
                     'error': float(error),
                     'mjd': mjd,
                     'omc_id': omc_id,
+                    'omc_problems': int(flags),
                     'match_separation_arcsec': round(match['separation_arcsec'], 4),
                 },
             })
