@@ -29,6 +29,7 @@ SERVICE_CLASSES = {
     'LSST': ('lsst', 'LSSTDataService'),
     'MOA': ('moa', 'MOADataService'),
     'NeoWISE': ('neowise', 'NeoWISEDataService'),
+    'NSC': ('nsc', 'NSCDataService'),
     'OGLEEWS': ('ogle_ews', 'OGLEEWSDataService'),
     'OGLEOCVS': ('ogle_ocvs', 'OGLEOCVSDataService'),
     'PS1': ('panstarrs', 'PanSTARRSDataService'),

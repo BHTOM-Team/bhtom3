@@ -126,6 +126,11 @@ def _good_measurements(photometry):
 
 
 class NSCDataService(DataService):
+    @classmethod
+    def get_finding_chart_radius_arcsec(cls):
+        """Default coordinate-match radius shown on the finding chart."""
+        return NSC_DEFAULT_RADIUS_ARCSEC
+
     name = 'NSC'
     verbose_name = 'NOIRLab Source Catalog DR2 (DECam/DES)'
     # DR2 is a frozen release; nothing new appears between refreshes.
@@ -154,7 +159,7 @@ class NSCDataService(DataService):
             'target_name': target_name,
             'ra': ra,
             'dec': dec,
-            'radius_arcsec': parameters.get('radius_arcsec') or NSC_DEFAULT_RADIUS_ARCSEC,
+            'radius_arcsec': parameters.get('radius_arcsec') or self.get_finding_chart_radius_arcsec(),
             'include_photometry': bool(parameters.get('include_photometry', True)),
         }
         return self.query_parameters
@@ -162,7 +167,7 @@ class NSCDataService(DataService):
     def query_service(self, query_parameters, **kwargs):
         ra = _to_float(query_parameters.get('ra'))
         dec = _to_float(query_parameters.get('dec'))
-        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or NSC_DEFAULT_RADIUS_ARCSEC
+        radius_arcsec = _to_float(query_parameters.get('radius_arcsec')) or self.get_finding_chart_radius_arcsec()
 
         match = None
         lc_data = None
