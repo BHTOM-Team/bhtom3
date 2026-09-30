@@ -2397,11 +2397,14 @@ class ASASSNDataServiceTests(TestCase):
 
 
 def _lamost_fits(tmp_path, extname='COADD', flux=(100.0, 200.0, 300.0),
-                 wavelength=(4000.0, 5000.0, 6000.0)):
+                 wavelength=(4000.0, 5000.0, 6000.0), ra=None, dec=None):
     """Write a minimal LAMOST-shaped FITS (primary header + one coadd bintable) and return its path."""
     primary = fits.PrimaryHDU()
     primary.header['MJD'] = 56298
     primary.header['DESIG'] = 'LAMOST J000000.00+000000.0'
+    if ra is not None:
+        primary.header['RA'] = ra
+        primary.header['DEC'] = dec
     coadd = fits.BinTableHDU.from_columns([
         fits.Column(name='FLUX', format=f'{len(flux)}E', array=np.array([flux])),
         fits.Column(name='WAVELENGTH', format=f'{len(wavelength)}E', array=np.array([wavelength])),
@@ -2511,6 +2514,130 @@ class LAMOSTRescaleCommandTests(TestCase):
         self.assertEqual(ReducedDatum.objects.filter(target=self.target).count(), 2)
         raw.refresh_from_db()
         self.assertAlmostEqual(max(raw.value['flux']), 408.1e-17)
+
+
+class LAMOSTPositionCheckTests(TestCase):
+    """LAMOST's obsid lookup ignores the search radius, so each spectrum's own RA/DEC is checked."""
+
+    sn_ra = 8.165416666666665
+    sn_dec = -4.993555555555556
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmpdir, True)
+
+    def _fits(self, name, **kwargs):
+        return _lamost_fits(os.path.join(self.tmpdir, name), **kwargs)
+
+    def _datum(self, path, radius=2.5):
+        return LAMOSTDataService()._datum_from_fits(
+            path, 'LAMOST_LRS_spectrum', 840001225, position=(self.sn_ra, self.sn_dec, radius),
+        )
+
+    def test_spectrum_inside_the_radius_is_kept(self):
+        path = self._fits('near.fits', ra=self.sn_ra + 0.5 / 3600, dec=self.sn_dec)
+
+        self.assertIsNotNone(self._datum(path))
+
+    def test_spectrum_of_another_object_is_rejected(self):
+        # SN2026rez: the API returned an F5 star at RA 1.789, 6.35 deg away.
+        path = self._fits('far.fits', ra=1.789064, dec=-4.993517)
+
+        self.assertIsNone(self._datum(path))
+
+    def test_spectrum_just_outside_the_radius_is_rejected(self):
+        path = self._fits('edge.fits', ra=self.sn_ra, dec=self.sn_dec + 3.0 / 3600)
+
+        self.assertIsNone(self._datum(path))
+
+    def test_spectrum_without_a_position_is_rejected(self):
+        path = self._fits('nopos.fits')
+
+        self.assertIsNone(self._datum(path))
+
+    def test_mrs_obs_keywords_are_used_when_ra_dec_absent(self):
+        path = self._fits('obs.fits')
+        with fits.open(path, mode='update') as hdul:
+            hdul[0].header['RA_OBS'] = self.sn_ra
+            hdul[0].header['DEC_OBS'] = self.sn_dec
+
+        self.assertIsNotNone(self._datum(path))
+
+    def _query_targets(self, lookup, files_by_obsid):
+        real_open = fits.open
+
+        def open_local(url, *args, **kwargs):
+            obsid = int(url.rsplit('=', 1)[1])
+            return real_open(files_by_obsid[obsid])
+
+        with patch('custom_code.data_services.lamost_dataservice.requests.get') as mock_get, \
+             patch('custom_code.data_services.lamost_dataservice.fits.open', side_effect=open_local):
+            mock_get.return_value.json.return_value = lookup
+            return LAMOSTDataService().query_targets({'ra': self.sn_ra, 'dec': self.sn_dec, 'radius_arcsec': 2.5})
+
+    ERROR_PAYLOAD = {'description': '500 Internal Server Error: The server encountered an internal error.'}
+    GOOD_PAYLOAD = {'obsid-low': [484814241, 852706103], 'obsid-medium': [], 'uid': 'G12888853720002'}
+
+    def _lookup(self, *responses):
+        with patch('custom_code.data_services.lamost_dataservice.requests.get') as mock_get:
+            mock_get.side_effect = [
+                response if isinstance(response, Exception) else Mock(json=Mock(return_value=response))
+                for response in responses
+            ]
+            results = LAMOSTDataService().query_service({'ra': self.sn_ra, 'dec': self.sn_dec})
+        return results, mock_get.call_count
+
+    def test_error_payload_is_retried(self):
+        results, calls = self._lookup(self.ERROR_PAYLOAD, self.GOOD_PAYLOAD)
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(results['spectroscopy_data'], self.GOOD_PAYLOAD)
+
+    def test_request_exception_is_retried(self):
+        results, calls = self._lookup(requests.ConnectionError('reset'), self.GOOD_PAYLOAD)
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(results['spectroscopy_data'], self.GOOD_PAYLOAD)
+
+    def test_persistent_error_payload_gives_no_data(self):
+        results, calls = self._lookup(self.ERROR_PAYLOAD, self.ERROR_PAYLOAD)
+
+        self.assertEqual(calls, 2)
+        self.assertIsNone(results['spectroscopy_data'])
+
+    def test_error_payload_does_not_crash_query_targets(self):
+        with patch('custom_code.data_services.lamost_dataservice.requests.get') as mock_get:
+            mock_get.return_value.json.return_value = self.ERROR_PAYLOAD
+            self.assertEqual(LAMOSTDataService().query_targets({'ra': self.sn_ra, 'dec': self.sn_dec}), [])
+
+    def test_empty_answer_is_not_retried(self):
+        results, calls = self._lookup({})
+
+        self.assertEqual(calls, 1)
+        self.assertIsNone(results['spectroscopy_data'])
+
+    def test_no_result_and_no_alias_when_every_spectrum_is_elsewhere(self):
+        far = self._fits('far.fits', ra=1.789064, dec=-4.993517)
+
+        results = self._query_targets(
+            {'obsid-low': [840001225], 'obsid-medium': [], 'uid': 'G8812086407955'},
+            {840001225: far},
+        )
+
+        self.assertEqual(results, [])
+
+    def test_only_spectra_inside_the_radius_are_ingested(self):
+        near = self._fits('near.fits', ra=self.sn_ra, dec=self.sn_dec)
+        far = self._fits('far.fits', ra=1.789064, dec=-4.993517)
+
+        results = self._query_targets(
+            {'obsid-low': [1, 2], 'obsid-medium': [], 'uid': 'G1'},
+            {1: near, 2: far},
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['aliases'], ['LAMOST_G1'])
+        self.assertEqual(len(results[0]['reduced_datums']['spectroscopy']), 1)
 
 
 class LAMOSTRescaleGuardTests(TestCase):
