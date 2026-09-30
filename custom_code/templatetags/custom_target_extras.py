@@ -16,9 +16,14 @@ register = template.Library()
 
 @register.inclusion_tag('tom_targets/partials/survey_finderchart.html', takes_context=True)
 def survey_finderchart(context, target):
+    sources = set()
+    if ReducedDatum.objects.filter(target=target, source_name='FAVA', data_type='highenergy').exists():
+        sources.add('FAVA')
+    if ReducedDatum.objects.filter(target=target, source_name='NSC', data_type='photometry').exists():
+        sources.add('NSC')
     return {
         'target': target,
-        'survey_overlays': survey_overlays(target, context.get('request')),
+        'survey_overlays': survey_overlays(_target_other_names(target), sources),
     }
 
 
@@ -101,6 +106,32 @@ def _data_service_other_names(target, existing_sources):
     return rows
 
 
+def _target_other_names(target):
+    """Reuse the list rendered by Other Names for this target detail request."""
+    if hasattr(target, '_bhtom_other_names'):
+        return target._bhtom_other_names
+
+    other_names = []
+    for alias in target.aliases.all().select_related('alias_info'):
+        alias_info = getattr(alias, 'alias_info', None)
+        url = getattr(alias_info, 'url', '')
+        source_name = getattr(alias_info, 'source_name', '') or _guess_alias_source(alias.name, url)
+        if source_name == 'Simbad':
+            url = _simbad_coordinate_url(target)
+        other_names.append({
+            'source_name': source_name,
+            'name': alias.name,
+            'url': url,
+        })
+    other_names.extend(_data_service_other_names(
+        target,
+        {row['source_name'] for row in other_names},
+    ))
+    other_names.sort(key=lambda row: (row['source_name'].lower(), row['name'].lower()))
+    target._bhtom_other_names = other_names
+    return other_names
+
+
 @register.filter
 def truncate_decimals(value, places=4):
     if value in (None, ''):
@@ -167,23 +198,7 @@ def bhtom_target_data(context, target):
         },
     ]
     astrometry_rows = [row for row in astrometry_rows if row['value'] not in (None, '')]
-    other_names = []
-    for alias in target.aliases.all().select_related('alias_info'):
-        alias_info = getattr(alias, 'alias_info', None)
-        url = getattr(alias_info, 'url', '')
-        source_name = getattr(alias_info, 'source_name', '') or _guess_alias_source(alias.name, url)
-        if source_name == 'Simbad':
-            url = _simbad_coordinate_url(target)
-        other_names.append({
-            'source_name': source_name,
-            'name': alias.name,
-            'url': url,
-        })
-    other_names.extend(_data_service_other_names(
-        target,
-        {row['source_name'] for row in other_names},
-    ))
-    other_names.sort(key=lambda row: (row['source_name'].lower(), row['name'].lower()))
+    other_names = _target_other_names(target)
     try:
         transit_ephemeris = target.transit_ephemeris
     except Exception:

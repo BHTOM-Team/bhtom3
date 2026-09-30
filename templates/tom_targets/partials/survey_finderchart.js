@@ -28,7 +28,12 @@
 
   function bootstrap() {
     const chart = document.querySelector('.js-survey-finderchart');
-    if (!chart || !window.A || !A.init) return;
+    if (!chart) return;
+    const chartView = document.getElementById('aladin-lite-div');
+    if (!window.A || typeof A.aladin !== 'function') {
+      chartView.textContent = 'Sky view could not load. Please reload the page.';
+      return;
+    }
 
     const ra = Number(chart.dataset.targetRa);
     const dec = Number(chart.dataset.targetDec);
@@ -41,7 +46,7 @@
     const scaleUnits = document.getElementById('scale-bar-units-select');
     const fieldDegrees = () => toDegrees(Number(fieldSize.value), fieldUnits.value);
 
-    A.init.then(function () {
+    try {
       const spinner = document.getElementById('aladin-spinner');
       if (spinner) spinner.style.display = 'none';
 
@@ -50,6 +55,7 @@
         fov: fieldDegrees(),
         showReticle: false,
         target: String(ra) + ' ' + String(dec),
+        showLayersControl: true,
         showGotoControl: false,
         showZoomControl: false
       });
@@ -61,8 +67,8 @@
       // Aladin's Overlay layers menu. Keep them independent of chart annotations.
       overlays.forEach(function (item) {
         const layer = A.graphicOverlay({name: item.name, color: item.color, lineWidth: 2});
-        layer.add(A.circle(ra, dec, item.radius_arcsec / 3600));
         aladin.addOverlay(layer);
+        layer.add(A.circle(ra, dec, item.radius_arcsec / 3600));
         layer.hide();
         const show = layer.show.bind(layer);
         layer.show = function () {
@@ -119,7 +125,10 @@
       document.getElementById('download-chart').addEventListener('click', function () {
         this.href = aladin.getViewDataURL();
       });
-    });
+    } catch (error) {
+      chartView.textContent = 'Sky view could not load. Please reload the page.';
+      console.error('Aladin finding chart failed to initialize:', error);
+    }
   }
 
   if (document.readyState === 'loading') {
