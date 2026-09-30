@@ -593,6 +593,12 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             )
         )
 
+    # Legend in name order: detections first, then upper limits; spectra are appended last.
+    plot_data.sort(key=lambda trace: (
+        str(trace.name or '').endswith('-LIMIT'),
+        str(trace.name or '').casefold(),
+    ))
+
     try:
         spectroscopy_data_type = settings.DATA_PRODUCT_TYPES['spectroscopy'][0]
     except (AttributeError, KeyError):
