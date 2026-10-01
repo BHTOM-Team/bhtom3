@@ -483,6 +483,9 @@ DATA_SERVICES = {
 SUPERWASP_MATCH_RADIUS_ARCSEC = float(os.environ.get('SUPERWASP_MATCH_RADIUS_ARCSEC', '5.0'))
 SUPERWASP_HTTP_RETRIES = int(os.environ.get('SUPERWASP_HTTP_RETRIES', '3'))
 SUPERWASP_HTTP_RETRY_BACKOFF = float(os.environ.get('SUPERWASP_HTTP_RETRY_BACKOFF', '1.0'))
+# TAMMAG2 points with a larger error are not imported (faint-limit noise reaches errors of
+# several magnitudes).
+SUPERWASP_MAX_MAG_ERROR = float(os.environ.get('SUPERWASP_MAX_MAG_ERROR', '1.0'))
 
 _BASE_HARVESTER_CLASSES = [
     'custom_code.bhtom_catalogs.harvesters.simbad.SimbadHarvester',

@@ -56,6 +56,8 @@ SUPERWASP_RELEASE = 'WASP DR1'
 
 CORRECTED_FILTER = 'WASP/SuperWASP (TAMMAG2)'
 DEFAULT_MATCH_RADIUS_ARCSEC = 5.0
+# TAMMAG2 error cut; override with SUPERWASP_MAX_MAG_ERROR.
+DEFAULT_MAX_MAG_ERROR = 1.0
 WASP_ID_RE = re.compile(r'^1SWASP\s+J\d{6}(?:\.\d+)?[+-]\d{6}(?:\.\d+)?$', re.I)
 TILE_RE = re.compile(r'^tile\d{6}$')
 RETRYABLE_HTTP_STATUSES = (429, 500, 502, 503, 504)
@@ -196,6 +198,15 @@ def hjd_utc_to_bjd_tdb(hjd_utc, ra_deg, dec_deg):
     return float(hjd_utc) + float(hjd_as_utc.tdb.jd - hjd_as_utc.utc.jd) + sun_projection_days
 
 
+def _passes_photometry_cuts(magnitude, error):
+    """TAMMAG2 point is usable: has an error and error <= SUPERWASP_MAX_MAG_ERROR. Near
+    SuperWASP's faint limit (V ~ 15) the flux approaches zero and TAMMAG2 errors reach
+    several magnitudes."""
+    if magnitude is None or error is None or error <= 0:
+        return False
+    return error <= float(getattr(settings, 'SUPERWASP_MAX_MAG_ERROR', DEFAULT_MAX_MAG_ERROR))
+
+
 def parse_superwasp_ipac(text, *, metadata, source_url, retrieved_at=None):
     """Parse an unphased DR1 IPAC table into BHTOM ReducedDatum dictionaries."""
     header = _parse_ipac_header(text)
@@ -279,7 +290,7 @@ def parse_superwasp_ipac(text, *, metadata, source_url, retrieved_at=None):
 
         timestamp = hjd_utc_to_datetime(hjd)
         corrected_mag = common['archive_tammag2']
-        if corrected_mag is not None:
+        if _passes_photometry_cuts(corrected_mag, common['archive_tammag2_error']):
             corrected = {
                 **common,
                 'filter': CORRECTED_FILTER,

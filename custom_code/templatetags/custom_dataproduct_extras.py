@@ -319,6 +319,28 @@ ALERCE_SPECIAL_COLOR_MAP = {
 }
 
 
+NEGATIVE_DIFFERENCE_SUFFIX = ' (neg. diff)'
+
+
+def _photometry_trace_style(color_map, filter_name):
+    """[color, symbol, size] for a trace; negative-difference traces reuse their filter's colour
+    with an open marker so they stay visually tied to, but distinct from, the positive ones."""
+    base_name = filter_name
+    is_negative = filter_name.endswith(NEGATIVE_DIFFERENCE_SUFFIX)
+    if is_negative:
+        base_name = filter_name[:-len(NEGATIVE_DIFFERENCE_SUFFIX)]
+    color, symbol, size = color_map.get(base_name, ['gray', 'circle', 4])
+    if is_negative:
+        symbol = symbol if symbol.endswith('-open') else f'{symbol}-open'
+    return [color, symbol, size]
+
+
+def _negative_difference_hover(filter_name):
+    if filter_name.endswith(NEGATIVE_DIFFERENCE_SUFFIX):
+        return '<br>negative difference: fainter than the reference image'
+    return ''
+
+
 def _negative_difference_limit(diff_magnitude, diff_error, sigma=3.0):
     """3-sigma upper limit for a negative difference flux (fainter than the reference image).
 
@@ -440,8 +462,10 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             except (TypeError, ValueError):
                 negative_difference = False
             if negative_difference:
-                value = _negative_difference_limit(value, error)
-                error = -1.0
+                # A significant negative difference is a detection (source fainter than the
+                # reference image), plotted at the magnitude of |difference flux| as ALeRCE does,
+                # in its own trace so it is not read as a brightening.
+                filter_name = f'{filter_name}{NEGATIVE_DIFFERENCE_SUFFIX}'
         else:
             value = datum.value.get('magnitude')
             if value is None:
@@ -471,7 +495,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             custom = f"{facility}, {observer}".strip(', ')
 
         if diff_mode:
-            is_limit = negative_difference
+            is_limit = error is not None and error <= 0
             target_bucket = limits_data if is_limit else photometry_data
         else:
             is_limit = (datum.value.get('limit') is not None) or (error is not None and error <= 0)
@@ -512,9 +536,9 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
                 mode='markers',
                 opacity=trace_opacity,
                 marker=dict(
-                        color=PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[0],
-                        symbol=PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[1],
-                        size=1.2 * PHOTOMETRY_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[2],
+                        color=_photometry_trace_style(PHOTOMETRY_COLOR_MAP, filter_name)[0],
+                        symbol=_photometry_trace_style(PHOTOMETRY_COLOR_MAP, filter_name)[1],
+                        size=1.2 * _photometry_trace_style(PHOTOMETRY_COLOR_MAP, filter_name)[2],
                     ),
                 name=filter_name,
                 visible=_photometry_trace_visibility(filter_name),
@@ -533,6 +557,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
                 hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>'
                             'MJD= %{text:.6f}'
                             '<br>mag= %{y:.3f}&#177;%{error_y.array:.3f}'
+                            + _negative_difference_hover(filter_name) +
                             '<br>%{customdata[0]}',
             )   
         )
@@ -544,9 +569,9 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
                 mode='markers',
                 opacity=trace_opacity,
                 marker=dict(
-                        color=ALERCE_SPECIAL_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[0],
-                        symbol=ALERCE_SPECIAL_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[1],
-                        size=1.2 * ALERCE_SPECIAL_COLOR_MAP.get(filter_name, ['gray', 'circle', 4])[2],
+                        color=_photometry_trace_style(ALERCE_SPECIAL_COLOR_MAP, filter_name)[0],
+                        symbol=_photometry_trace_style(ALERCE_SPECIAL_COLOR_MAP, filter_name)[1],
+                        size=1.2 * _photometry_trace_style(ALERCE_SPECIAL_COLOR_MAP, filter_name)[2],
                     ),
                 name=filter_name,
                 visible=_photometry_trace_visibility(filter_name),
@@ -565,6 +590,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
                 hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>'
                             'MJD= %{text:.6f}'
                             '<br>mag= %{y:.3f}&#177;%{error_y.array:.3f}'
+                            + _negative_difference_hover(filter_name) +
                             '<br>%{customdata[0]}',
             )   
         )

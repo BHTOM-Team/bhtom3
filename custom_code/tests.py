@@ -3270,21 +3270,23 @@ class PhotometryDifferenceToggleTests(TestCase):
         self.assertIn(20.5, ys)
         self.assertNotIn(17.9, ys)
 
-    def test_negative_differences_are_plotted_as_upper_limits(self):
-        import math
+    def test_negative_differences_are_plotted_as_separate_detections(self):
+        # A negative difference is a real detection (fainter than the reference image), shown at
+        # its |difference| magnitude in its own trace, as ALeRCE does; never as an upper limit.
         self._datum(1, magnitude=17.9, error=0.02, diff_magnitude=20.1, diff_error=0.2, diff_sign=1)
         self._datum(2, magnitude=18.4, error=0.02, diff_magnitude=21.0, diff_error=0.3, diff_sign=-1)
 
         traces = self._traces(custom_photometry_for_target(self._context('diff'), self.target))
-        limits = [t for t in traces if t.get('name') == 'ZTF(zg)-LIMIT']
-        detections = [y for t in traces if t.get('name') == 'ZTF(zg)' for y in (t.get('y') or [])]
+        positive = [y for t in traces if t.get('name') == 'ZTF(zg)' for y in (t.get('y') or [])]
+        negative_traces = [t for t in traces if t.get('name') == 'ZTF(zg) (neg. diff)' and t.get('y')]
+        limits = [t for t in traces if str(t.get('name', '')).endswith('-LIMIT')]
 
-        self.assertEqual(len(limits), 1)
-        self.assertEqual(len(limits[0]['y']), 1)
-        self.assertAlmostEqual(limits[0]['y'][0], 21.0 - 2.5 * math.log10(3 * 0.3 / 1.0857), places=3)
-        self.assertEqual(limits[0]['marker']['symbol'], 'arrow-down-open')
-        self.assertNotIn(21.0, detections)
-        self.assertEqual(detections, [20.1])
+        self.assertEqual(positive, [20.1])
+        self.assertEqual(len(negative_traces), 1)
+        self.assertEqual(negative_traces[0]['y'], [21.0])
+        self.assertEqual(negative_traces[0]['error_y']['array'], [0.3])
+        self.assertTrue(negative_traces[0]['marker']['symbol'].endswith('-open'))
+        self.assertFalse(limits)
 
     def test_negative_difference_limit_is_fainter_than_a_significant_flux(self):
         from custom_code.templatetags.custom_dataproduct_extras import _negative_difference_limit
