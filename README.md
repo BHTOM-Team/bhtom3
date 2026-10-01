@@ -165,3 +165,57 @@ Settings modules:
 - `bhtom3.settings_dev` is for local development.
 - `bhtom3.settings_production` is for the visata deployment.
 - `bhtom3.settings` and `bhtom3/settings.production.py` remain as compatibility shims.
+
+## DataServices
+
+All DataServices registered in `custom_code/apps.py`, in alphabetical order. The
+service name is the one shown in BHTOM and stored as the data's source name.
+
+| Service | Data | Source |
+|---|---|---|
+| 2MASS | J, H, Ks photometry | [IRSA 2MASS Point Source Catalog](https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?submit=Select&projshort=2MASS) |
+| 6dFGS | Optical spectra | [6dF Galaxy Survey](http://www-wfau.roe.ac.uk/6dFGS/) via VizieR |
+| AAVSO | Multi-band time-series photometry | [AAVSO International Database](https://www.aavso.org/) |
+| Alerce | ZTF alert photometry | [ALeRCE broker](https://alerce.online/) |
+| AllWISE | W1, W2 photometry | [IRSA AllWISE](https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?submit=Select&projshort=WISE) |
+| ASASSN | V, g light curves | [ASAS-SN Sky Patrol](http://asas-sn.ifa.hawaii.edu/skypatrol) |
+| ATLAS | c, o forced photometry (requires an ATLAS account) | [ATLAS Forced Photometry Server](https://fallingstar-data.com/forcedphot/) |
+| BGDS | r, i light curves (plus some U, B, V, z and narrowbands), Galactic plane 2010–2019 | [GAVO Data Center, BGDS DR2](https://dc.g-vo.org/browse/bgds/l2) |
+| CRTS | Unfiltered (CL) light curves | [Catalina Real-Time Transient Survey](http://nunuku.caltech.edu/cgi-bin/getcssconedb_release_img.cgi) |
+| DESI | Spectra | [DESI DR1](https://data.desi.lbl.gov/doc/releases/dr1/) |
+| ESO | Archival spectra | [ESO Science Archive](https://archive.eso.org/scienceportal/home) |
+| ExoClock | Transit ephemerides | [ExoClock](https://www.exoclock.space/database/planets_json) |
+| FAVA | Fermi-LAT gamma-ray light curves | [Fermi All-sky Variability Analysis](https://fermi.gsfc.nasa.gov/ssc/data/access/lat/FAVA/) |
+| FRAM | Optical light curves | [FRAM Archive (FZU)](http://fram.fzu.cz/archive/search/photometry/) |
+| GaiaAlerts | G-band alert light curves | [Gaia Science Alerts](https://gsaweb.ast.cam.ac.uk/alerts) |
+| GaiaDR3 | G, BP, RP epoch photometry and XP spectra | [ESA Gaia Archive](https://gea.esac.esa.int/archive/) |
+| GALAH | Spectra | [GALAH DR4](https://www.galah-survey.org/dr4) |
+| Galex | FUV, NUV photometry (gPhoton) | [GALEX at MAST](https://galex.stsci.edu/GR6/) |
+| GeminiSpectra | Public spectra (counts) | [Gemini Observatory Archive](https://archive.gemini.edu/) via CADC |
+| Hipparcos | Hp, BT, VT mean photometry (J1991.25) | [Hipparcos/Tycho, VizieR I/239](https://vizier.cds.unistra.fr/viz-bin/VizieR-3?-source=I/239/hip_main) |
+| Hubble | HST light curves (Hubble Catalog of Variables) | [ESA Hubble Science Archive](https://hst.esac.esa.int/ehst/#/pages/hcv-explorer) |
+| JVAR | J-VAR light curves | [CEFCA J-VAR DR1](https://archive.cefca.es/catalogues/jvar-dr1) |
+| KMT | I-band microlensing photometry | [KMTNet](https://kmtnet.kasi.re.kr/ulens/event/) |
+| LAMOST | Low- and medium-resolution spectra | [LAMOST DR11 v2.0](https://www.lamost.org/dr11/v2.0/) |
+| LCOSpectra | Spectra | [LCO Science Archive](https://archive.lco.global/) |
+| LSST | Rubin/LSST alert photometry | [Fink broker](https://api.fink-portal.org) |
+| MOA | Microlensing photometry (magnitudes or difference flux) | [MOA](https://moaprime.massey.ac.nz/moaarchive) |
+| NeoWISE | W1, W2 multi-epoch photometry | [IRSA NEOWISE](https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?submit=Select&projshort=WISE) |
+| NSC | Single-exposure DECam (incl. DES), Mosaic3 and 90Prime photometry | [Astro Data Lab, NOIRLab Source Catalog DR2](https://datalab.noirlab.edu/data/nsc) |
+| OGLEEWS | I, V microlensing photometry | [OGLE Early Warning System](https://www.astrouw.edu.pl/ogle/ogle4/ews) |
+| OGLEOCVS | I, V variable-star photometry | [OGLE Collection of Variable Stars](https://ogledb.astrouw.edu.pl/~ogle/OCVS/) |
+| OMC | INTEGRAL OMC V-band light curves | [CAB OMC Archive](https://sdc.cab.inta-csic.es/omc/) |
+| PGIR | J-band light curves | [Astro Data Lab, Palomar Gattini-IR DR1](https://datalab.noirlab.edu/data/pgir) |
+| PhotometricClassification | Classification computed in BHTOM | Derived from Gaia, 2MASS and WISE photometry |
+| PS1 | g, r, i, z, y photometry | [Pan-STARRS1 at MAST](https://catalogs.mast.stsci.edu/panstarrs) |
+| PTF | g, R light curves | [Palomar Transient Factory](https://www.ptf.caltech.edu/) |
+| RAPAS | Photometry | RAPAS Google Sheets workbooks (`RAPAS_SPREADSHEETS`) |
+| SCAT | Transient spectra | [SCAT DR1](https://joysankar-astro.github.io/SCATv1/) |
+| SDSS | u, g, r, i, z photometry and spectra | [SDSS DR19 SkyServer](https://skyserver.sdss.org/dr19/VisualTools/navi) |
+| Simbad | Names, aliases and object data | [SIMBAD (CDS)](https://simbad.cds.unistra.fr/simbad/) |
+| SkyMapper | u, v, g, r, i, z photometry | [SkyMapper TAP](https://api.skymapper.nci.org.au/public/tap/) |
+| SuperWASP | WASP DR1 light curves | [NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/docs/SuperWASPMission.html) |
+| SwiftUVOT | UV and optical photometry | [Swift UVOT service](http://uvot.astrodot.tech/api/start) |
+| TESS | Light curves (converted to Tmag) | [TESS at MAST](https://archive.stsci.edu/missions-and-data/tess) |
+| TNS | Transient photometry | [Transient Name Server](https://www.wis-tns.org/) |
+| ZTF | g, r, i light curves | [IRSA ZTF](https://irsa.ipac.caltech.edu/Missions/ztf.html) |
