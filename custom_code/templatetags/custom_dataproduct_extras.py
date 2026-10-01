@@ -688,6 +688,7 @@ HIGHENERGY_COLOR_MAP = {
     'LAT(>100MeV)': ['#e63946', 'circle', 3],
     'LAT(>800MeV)': ['#457b9d', 'diamond', 3],
     'XRT(0.3-10keV)': ['#ff7f0e', 'square', 4],
+    'EPIC(0.2-12keV)': ['#2ca02c', 'diamond', 5],
 }
 
 HIGHENERGY_LIMITS_COLOR_MAP = {
@@ -696,7 +697,7 @@ HIGHENERGY_LIMITS_COLOR_MAP = {
     'XRT(0.3-10keV)': ['#ff7f0e', 'arrow-down-open', 4],
 }
 
-HIGHENERGY_FILTER_ORDER = ['LAT(>800MeV)', 'LAT(>100MeV)', 'XRT(0.3-10keV)']
+HIGHENERGY_FILTER_ORDER = ['LAT(>800MeV)', 'LAT(>100MeV)', 'XRT(0.3-10keV)', 'EPIC(0.2-12keV)']
 
 
 def _build_highenergy_plot(context, target, width=1000, height=600, background=None, label_color=None, grid=True):

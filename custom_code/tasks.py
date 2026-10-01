@@ -935,6 +935,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # Swift-XRT 90% position errors are a few arcsec.
         query_parameters['radius_arcsec'] = 10.0
 
+    if service_name == 'XMMEPIC':
+        # EPIC positions are good to ~1.5"; a wider cone mostly adds neighbours.
+        query_parameters['radius_arcsec'] = 5.0
+
     if 'source_id' in form_fields:
         query_parameters['radius_arcsec'] = 1.0
         source_id = _extract_id_from_target(target, r'(?i)gaia\s*dr3[_\s-]*(\d+)')

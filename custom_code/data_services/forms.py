@@ -566,6 +566,28 @@ class LSXPSQueryForm(BaseQueryForm):
         return cleaned
 
 
+class XMMEPICQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(
+        required=False,
+        initial=5.0,
+        min_value=1.0,
+        max_value=30.0,
+        label='Search radius (arcsec)',
+        help_text='In each XMM-Newton observation the EPIC detection nearest the target inside the cone is used.',
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 5.0
+        return cleaned
+
+
 class ASASSNQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()

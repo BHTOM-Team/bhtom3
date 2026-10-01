@@ -219,5 +219,6 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | SwiftUVOT | UV and optical photometry | [Swift UVOT service](http://uvot.astrodot.tech/api/start) |
 | TESS | Light curves (converted to Tmag) | [TESS at MAST](https://archive.stsci.edu/missions-and-data/tess) |
 | TNS | Transient photometry | [Transient Name Server](https://www.wis-tns.org/) |
+| XMMEPIC | XMM-Newton EPIC 0.2–12 keV X-ray fluxes, one point per observation (high-energy plot) | [XMM-Newton Science Archive, EPIC detections (5XMM-DR15)](https://nxsa.esac.esa.int/nxsa-web/) |
 | XMMOM | UVW2, UVM2, UVW1, U, B, V photometry, one point per XMM observation | [XMM-Newton Science Archive, XMM-OM SUSS 6.2](https://www.cosmos.esa.int/web/xmm-newton/om-catalogue) |
 | ZTF | g, r, i light curves | [IRSA ZTF](https://irsa.ipac.caltech.edu/Missions/ztf.html) |
