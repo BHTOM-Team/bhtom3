@@ -31,6 +31,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.xmmom_dataservice.XMMOMDataService'},
             {'class': f'{self.name}.data_services.lsxps_dataservice.LSXPSDataService'},
             {'class': f'{self.name}.data_services.xmmepic_dataservice.XMMEPICDataService'},
+            {'class': f'{self.name}.data_services.lcr_dataservice.LCRDataService'},
             {'class': f'{self.name}.data_services.asassn_dataservice.ASASSNDataService'},
             {'class': f'{self.name}.data_services.panstarrs_dataservice.PanSTARRSDataService'},
             {'class': f'{self.name}.data_services.allwise_dataservice.AllWISEDataService'},

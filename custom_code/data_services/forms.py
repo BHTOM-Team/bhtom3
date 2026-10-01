@@ -566,6 +566,44 @@ class LSXPSQueryForm(BaseQueryForm):
         return cleaned
 
 
+class LCRQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    cadence = forms.ChoiceField(
+        required=False,
+        initial='weekly',
+        choices=[('daily', '3-day'), ('weekly', 'Weekly'), ('monthly', 'Monthly')],
+        label='Light-curve cadence',
+    )
+    allow_unassociated = forms.BooleanField(
+        required=False,
+        initial=False,
+        label='Allow unassociated 4FGL sources',
+        help_text='Normally the target must be the 4FGL associated counterpart (within 3 arcsec). '
+                  'Tick to fall back to the nearest unassociated 4FGL source inside the radius below; '
+                  'it may not be the target.',
+    )
+    radius_arcmin = forms.FloatField(
+        required=False,
+        initial=3.0,
+        min_value=0.1,
+        max_value=15.0,
+        label='Unassociated search radius (arcmin)',
+        help_text='Used only when unassociated sources are allowed. LAT positions are uncertain by arcminutes.',
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('radius_arcmin') is None:
+            cleaned['radius_arcmin'] = 3.0
+        if not cleaned.get('cadence'):
+            cleaned['cadence'] = 'weekly'
+        return cleaned
+
+
 class XMMEPICQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()

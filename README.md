@@ -185,7 +185,8 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | DESI | Spectra | [DESI DR1](https://data.desi.lbl.gov/doc/releases/dr1/) |
 | ESO | Archival spectra | [ESO Science Archive](https://archive.eso.org/scienceportal/home) |
 | ExoClock | Transit ephemerides | [ExoClock](https://www.exoclock.space/database/planets_json) |
-| FAVA | Fermi-LAT gamma-ray light curves | [Fermi All-sky Variability Analysis](https://fermi.gsfc.nasa.gov/ssc/data/access/lat/FAVA/) |
+| FAVA | Fermi-LAT gamma-ray light curves (relative flux) | [Fermi All-sky Variability Analysis](https://fermi.gsfc.nasa.gov/ssc/data/access/lat/FAVA/) |
+| FermiLCR | Fermi-LAT 0.1–100 GeV calibrated energy-flux light curves of variable 4FGL sources (3-day, weekly or monthly; high-energy plot). Matched only when the target is the 4FGL-DR4 associated counterpart (within 3″, association probability ≥ 0.8) | [Fermi-LAT Light Curve Repository](https://fermi.gsfc.nasa.gov/ssc/data/access/lat/LightCurveRepository/) |
 | FRAM | Optical light curves | [FRAM Archive (FZU)](http://fram.fzu.cz/archive/search/photometry/) |
 | GaiaAlerts | G-band alert light curves | [Gaia Science Alerts](https://gsaweb.ast.cam.ac.uk/alerts) |
 | GaiaDR3 | G, BP, RP epoch photometry and XP spectra | [ESA Gaia Archive](https://gea.esac.esa.int/archive/) |
