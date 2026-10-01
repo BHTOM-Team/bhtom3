@@ -931,6 +931,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # OM detections of one source agree to well under an arcsec between observations.
         query_parameters['radius_arcsec'] = 3.0
 
+    if service_name == 'LSXPS':
+        # Swift-XRT 90% position errors are a few arcsec.
+        query_parameters['radius_arcsec'] = 10.0
+
     if 'source_id' in form_fields:
         query_parameters['radius_arcsec'] = 1.0
         source_id = _extract_id_from_target(target, r'(?i)gaia\s*dr3[_\s-]*(\d+)')

@@ -687,14 +687,16 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
 HIGHENERGY_COLOR_MAP = {
     'LAT(>100MeV)': ['#e63946', 'circle', 3],
     'LAT(>800MeV)': ['#457b9d', 'diamond', 3],
+    'XRT(0.3-10keV)': ['#ff7f0e', 'square', 4],
 }
 
 HIGHENERGY_LIMITS_COLOR_MAP = {
     'LAT(>100MeV)': ['#e63946', 'arrow-down-open', 3],
     'LAT(>800MeV)': ['#457b9d', 'arrow-down-open', 3],
+    'XRT(0.3-10keV)': ['#ff7f0e', 'arrow-down-open', 4],
 }
 
-HIGHENERGY_FILTER_ORDER = ['LAT(>800MeV)', 'LAT(>100MeV)']
+HIGHENERGY_FILTER_ORDER = ['LAT(>800MeV)', 'LAT(>100MeV)', 'XRT(0.3-10keV)']
 
 
 def _build_highenergy_plot(context, target, width=1000, height=600, background=None, label_color=None, grid=True):
@@ -705,6 +707,9 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
 
     detection_data = {}
     limits_data = {}
+    # Filters with physical fluxes (value has 'flux_unit', e.g. Swift-XRT in erg/cm2/s) go on the
+    # right-hand log axis; the rest (FAVA relative flux) stay on the left axis.
+    flux_axis_filters = set()
     if settings.TARGET_PERMISSIONS_ONLY:
         datums = ReducedDatum.objects.filter(target=target, data_type=highenergy_data_type)
     else:
@@ -736,13 +741,21 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
         observer = datum.value.get('observer') or ''
         custom = f"{facility}, {observer}".strip(', ')
 
-        is_limit = (value == -1) or (error is not None and error == 0)
+        # Upper limits: FAVA stores flux == -1; others use a non-positive error (-1, as in photometry).
+        is_limit = (value == -1) or (error is not None and error <= 0)
         target_bucket = limits_data if is_limit else detection_data
+
+        if datum.value.get('flux_unit'):
+            flux_axis_filters.add(filter_name)
+        else:
+            # Relative fluxes are O(1); physical fluxes (~1e-11) must not be rounded to zero.
+            value = np.around(value, 6)
+            error = np.around(error, 6) if error is not None else None
 
         target_bucket.setdefault(filter_name, {})
         target_bucket[filter_name].setdefault('time', []).append(datum.timestamp)
-        target_bucket[filter_name].setdefault('flux', []).append(np.around(value, 6))
-        target_bucket[filter_name].setdefault('error', []).append(np.around(error if error is not None else 0.0, 6))
+        target_bucket[filter_name].setdefault('flux', []).append(value)
+        target_bucket[filter_name].setdefault('error', []).append(error if error is not None else 0.0)
         target_bucket[filter_name].setdefault('customdata', []).append(custom)
 
     plot_data = []
@@ -760,10 +773,12 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
         if not filter_values.get('flux'):
             continue
         style = HIGHENERGY_COLOR_MAP.get(filter_name, ['gray', 'circle', 3])
+        on_flux_axis = filter_name in flux_axis_filters
         plot_data.append(
             go.Scatter(
                 x=filter_values['time'],
                 y=filter_values['flux'],
+                yaxis='y2' if on_flux_axis else 'y',
                 mode='markers',
                 opacity=0.75,
                 marker=dict(color=style[0], symbol=style[1], size=1.2 * style[2]),
@@ -771,10 +786,12 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
                 error_y=dict(type='data', array=filter_values['error'], visible=True, thickness=0.5, width=0),
                 text=mjds_to_plot[filter_name],
                 customdata=list(zip(filter_values['customdata'])),
-                hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>'
-                              'MJD= %{text:.6f}'
-                              '<br>rel. flux= %{y:.6f}&#177;%{error_y.array:.6f}'
-                              '<br>%{customdata[0]}',
+                hovertemplate=(
+                    '%{x|%Y/%m/%d %H:%M:%S.%L}<br>MJD= %{text:.6f}'
+                    + ('<br>flux= %{y:.3e}&#177;%{error_y.array:.2e} erg/cm²/s' if on_flux_axis
+                       else '<br>rel. flux= %{y:.6f}&#177;%{error_y.array:.6f}')
+                    + '<br>%{customdata[0]}'
+                ),
             )
         )
 
@@ -788,10 +805,12 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
         if not filter_values.get('flux'):
             continue
         style = HIGHENERGY_LIMITS_COLOR_MAP.get(filter_name, ['gray', 'arrow-down-open', 3])
+        on_flux_axis = filter_name in flux_axis_filters
         plot_data.append(
             go.Scatter(
                 x=filter_values['time'],
                 y=filter_values['flux'],
+                yaxis='y2' if on_flux_axis else 'y',
                 mode='markers',
                 visible='legendonly',
                 opacity=0.5,
@@ -799,10 +818,12 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
                 name=f'{filter_name}-LIMIT',
                 text=limit_mjds[filter_name],
                 customdata=list(zip(filter_values['customdata'])),
-                hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>'
-                              'MJD= %{text:.6f}'
-                              '<br>limit rel. flux= %{y:.6f}'
-                              '<br>%{customdata[0]}',
+                hovertemplate=(
+                    '%{x|%Y/%m/%d %H:%M:%S.%L}<br>MJD= %{text:.6f}'
+                    + ('<br>limit flux= %{y:.3e} erg/cm²/s' if on_flux_axis
+                       else '<br>limit rel. flux= %{y:.6f}')
+                    + '<br>%{customdata[0]}'
+                ),
             )
         )
 
@@ -811,17 +832,32 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
         layout=go.Layout(height=height, width=width, paper_bgcolor=background, plot_bgcolor=background),
     )
 
+    has_flux_axis = bool(flux_axis_filters)
+    has_relative_axis = any(
+        name not in flux_axis_filters for name in list(detection_data) + list(limits_data)
+    )
     fig.update_layout(
         showlegend=True,
-        margin=dict(t=40, r=20, b=40, l=80),
+        margin=dict(t=40, r=100 if has_flux_axis else 20, b=40, l=80),
         xaxis=dict(autorange=True, title='date', showgrid=grid, color=label_color,
-                   showline=True, linecolor=label_color, mirror=True),
+                   showline=True, linecolor=label_color, mirror=not has_flux_axis),
         yaxis=dict(autorange=True, title='relative flux', showgrid=grid, color=label_color,
-                   showline=True, linecolor=label_color, mirror=True, zeroline=True),
+                   showline=True, linecolor=label_color, mirror=not has_flux_axis, zeroline=True,
+                   visible=has_relative_axis or not has_flux_axis),
         legend=dict(yanchor='top', y=-0.15, xanchor='left', x=0.0, orientation='h',
                     font=dict(color=label_color)),
         clickmode='event+select',
     )
+    if has_flux_axis:
+        fig.update_layout(
+            yaxis2=dict(
+                type='log', autorange=True, overlaying='y', side='right',
+                title='flux (erg cm<sup>-2</sup> s<sup>-1</sup>)',
+                # Narrow log ranges otherwise label only the decade and show bare digits for the rest.
+                tickformat='.0e', dtick='D2', showgrid=False, color=label_color,
+                showline=True, linecolor=label_color,
+            ),
+        )
 
     return offline.plot(fig, output_type='div', show_link=False)
 

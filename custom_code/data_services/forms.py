@@ -544,6 +544,28 @@ class XMMOMQueryForm(BaseQueryForm):
         return cleaned
 
 
+class LSXPSQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(
+        required=False,
+        initial=10.0,
+        min_value=1.0,
+        max_value=60.0,
+        label='Search radius (arcsec)',
+        help_text='The X-ray light curve of the nearest Swift-XRT LSXPS source inside the cone is used.',
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 10.0
+        return cleaned
+
+
 class ASASSNQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()

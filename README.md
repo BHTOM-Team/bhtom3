@@ -199,6 +199,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | LAMOST | Low- and medium-resolution spectra | [LAMOST DR11 v2.0](https://www.lamost.org/dr11/v2.0/) |
 | LCOSpectra | Spectra | [LCO Science Archive](https://archive.lco.global/) |
 | LSST | Rubin/LSST alert photometry | [Fink broker](https://api.fink-portal.org) |
+| LSXPS | Swift-XRT 0.3–10 keV X-ray light curves (flux and upper limits, high-energy plot) | [UK Swift Science Data Centre, LSXPS](https://www.swift.ac.uk/LSXPS/) |
 | MOA | Microlensing photometry (magnitudes or difference flux) | [MOA](https://moaprime.massey.ac.nz/moaarchive) |
 | NeoWISE | W1, W2 multi-epoch photometry | [IRSA NEOWISE](https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?submit=Select&projshort=WISE) |
 | NSC | Single-exposure DECam (incl. DES), Mosaic3 and 90Prime photometry | [Astro Data Lab, NOIRLab Source Catalog DR2](https://datalab.noirlab.edu/data/nsc) |

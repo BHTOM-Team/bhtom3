@@ -5401,7 +5401,8 @@ def _periodicity_datasets(user, target):
             .exclude(**{f'value__{value_key}': None})
         )
         if kind == 'flux':
-            datums = datums.exclude(**{f'value__{value_key}': -1})  # FAVA upper limits
+            # Upper limits: FAVA stores flux == -1, Swift-XRT (LSXPS) stores error == -1.
+            datums = datums.exclude(**{f'value__{value_key}': -1}).exclude(value__error=-1)
         groups = (
             datums.order_by()
             .values('filter_text')
@@ -5459,8 +5460,8 @@ def _load_periodicity_dataset(user, target, dataset_id):
             continue
         if err is not None and not math.isfinite(err):
             err = None
-        # High-energy upper limits are stored as flux == -1 or a zero error.
-        if kind == 'flux' and (value == -1 or err == 0):
+        # High-energy upper limits are stored as flux == -1 or a non-positive error.
+        if kind == 'flux' and (value == -1 or (err is not None and err <= 0)):
             continue
 
         telescope = str(data.get('telescope') or data.get('facility') or source_name or 'Unknown').strip() or 'Unknown'
