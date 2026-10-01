@@ -143,6 +143,8 @@ PHOTOMETRY_COLOR_MAP = {
     'BGDS(OIII)': ['#17becf', 'star-triangle-up-open', 5],
     'BGDS(SII)': ['#bcbd22', 'star-triangle-up-open', 5],
     'OMC(V)': ['#006d2c', 'hexagram-open', 5],
+    'unTimely(W1)': ['#e6a800', 'hourglass', 6],
+    'unTimely(W2)': ['#1f3a93', 'hourglass', 6],
     'VIRAC2(Z)': ['#17becf', 'triangle-left-open', 5],
     'VIRAC2(Y)': ['#bcbd22', 'triangle-left-open', 5],
     'VIRAC2(J)': ['#8c564b', 'triangle-left', 5],

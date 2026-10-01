@@ -935,6 +935,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # Swift-XRT 90% position errors are a few arcsec.
         query_parameters['radius_arcsec'] = 10.0
 
+    if service_name == 'unTimely':
+        # unWISE positions are good to well under one 2.75" pixel for detected sources.
+        query_parameters['radius_arcsec'] = 3.0
+
     if service_name == 'VIRAC2':
         # ~100 VIRAC2 sources per 14" cone in the bulge; 5" would often pick a neighbour.
         query_parameters['radius_arcsec'] = 1.0
