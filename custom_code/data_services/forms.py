@@ -888,6 +888,38 @@ class ESOSpectraQueryForm(BaseQueryForm):
             cleaned['radius_arcsec'] = 5.0
         return cleaned
 
+class HSTSpectraQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(
+        required=False,
+        initial=5.0,
+        min_value=0.5,
+        max_value=60.0,
+        label='Search radius (arcsec)',
+    )
+    max_spectra = forms.IntegerField(
+        required=False,
+        initial=30,
+        min_value=1,
+        max_value=100,
+        label='Maximum number of spectra',
+        help_text='The most recent spectra are kept; each is a separate download from MAST.',
+    )
+    include_spectroscopy = forms.BooleanField(required=False, initial=True, label='Include spectroscopy')
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 5.0
+        if cleaned.get('max_spectra') is None:
+            cleaned['max_spectra'] = 30
+        return cleaned
+
+
 class TESSQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()

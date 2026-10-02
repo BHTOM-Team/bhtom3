@@ -196,6 +196,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | Galex | FUV, NUV photometry (gPhoton) | [GALEX at MAST](https://galex.stsci.edu/GR6/) |
 | GeminiSpectra | Public spectra (counts) | [Gemini Observatory Archive](https://archive.gemini.edu/) via CADC |
 | Hipparcos | Hp, BT, VT mean photometry (J1991.25) | [Hipparcos/Tycho, VizieR I/239](https://vizier.cds.unistra.fr/viz-bin/VizieR-3?-source=I/239/hip_main) |
+| HSTSpectra | HST COS and STIS UV/optical spectra, one calibrated 1D spectrum per dataset (binned to ≤4000 points) | [MAST HST archive](https://mast.stsci.edu/search/ui/#/hst) |
 | Hubble | HST light curves (Hubble Catalog of Variables) | [ESA Hubble Science Archive](https://hst.esac.esa.int/ehst/#/pages/hcv-explorer) |
 | JVAR | J-VAR light curves | [CEFCA J-VAR DR1](https://archive.cefca.es/catalogues/jvar-dr1) |
 | KMT | I-band microlensing photometry | [KMTNet](https://kmtnet.kasi.re.kr/ulens/event/) |
