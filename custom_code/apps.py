@@ -34,6 +34,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.lcr_dataservice.LCRDataService'},
             {'class': f'{self.name}.data_services.virac2_dataservice.VIRAC2DataService'},
             {'class': f'{self.name}.data_services.vmc_dataservice.VMCDataService'},
+            {'class': f'{self.name}.data_services.alma_dataservice.ALMADataService'},
             {'class': f'{self.name}.data_services.untimely_dataservice.UnTimelyDataService'},
             {'class': f'{self.name}.data_services.dasch_dataservice.DASCHDataService'},
             {'class': f'{self.name}.data_services.asassn_dataservice.ASASSNDataService'},

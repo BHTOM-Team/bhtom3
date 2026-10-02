@@ -330,6 +330,107 @@ ALERCE_SPECIAL_COLOR_MAP = {
 }
 
 
+# Radio flux densities (data_type 'radio') share the photometry plot on a right-hand log axis in mJy.
+RADIO_FLUX_UNIT_TO_MJY = {'mJy': 1.0, 'Jy': 1000.0, 'uJy': 1e-3}
+
+# ALMA bands, from Band 1 (~40 GHz, blue) to Band 10 (~870 GHz, purple).
+RADIO_COLOR_MAP = {
+    'ALMA(B1)': ['#1e3a8a', 'star', 6],
+    'ALMA(B2)': ['#2563eb', 'star', 6],
+    'ALMA(B3)': ['#0891b2', 'star', 6],
+    'ALMA(B4)': ['#059669', 'star', 6],
+    'ALMA(B5)': ['#65a30d', 'star', 6],
+    'ALMA(B6)': ['#ca8a04', 'star', 6],
+    'ALMA(B7)': ['#ea580c', 'star', 6],
+    'ALMA(B8)': ['#dc2626', 'star', 6],
+    'ALMA(B9)': ['#be185d', 'star', 6],
+    'ALMA(B10)': ['#7e22ce', 'star', 6],
+}
+
+
+def _power_of_ten_ticks(values):
+    """(tickvals, ticktext) for a log axis labelled as 10^n, adding 2x10^n and 5x10^n when the data
+    span less than ~1.5 decades so a narrow range still gets labels."""
+    positive = [v for v in values if v is not None and np.isfinite(v) and v > 0]
+    if not positive:
+        return None, None
+    low, high = np.log10(min(positive)), np.log10(max(positive))
+    mantissas = (1, 2, 5) if high - low < 1.5 else (1,)
+    tickvals, ticktext = [], []
+    for exponent in range(int(np.floor(low)) - 1, int(np.ceil(high)) + 2):
+        for mantissa in mantissas:
+            tickvals.append(mantissa * 10.0 ** exponent)
+            ticktext.append(f'10<sup>{exponent}</sup>' if mantissa == 1 else f'{mantissa}×10<sup>{exponent}</sup>')
+    return tickvals, ticktext
+
+
+def _radio_traces(datums):
+    """Radio flux-density traces on the photometry plot's right-hand log axis (y3), in mJy.
+    Upper limits use error <= 0, as in photometry."""
+    detections = {}
+    limits = {}
+    for datum in datums:
+        value = datum.value if isinstance(datum.value, dict) else {}
+        filter_name = str(value.get('filter') or '').strip()
+        scale = RADIO_FLUX_UNIT_TO_MJY.get(str(value.get('flux_unit') or 'mJy'))
+        try:
+            flux = float(value.get('flux'))
+            error = float(value['error']) if value.get('error') is not None else None
+        except (TypeError, ValueError):
+            continue
+        if not filter_name or scale is None or not np.isfinite(flux) or flux <= 0:
+            continue
+        try:
+            frequency = float(value.get('frequency_ghz'))
+        except (TypeError, ValueError):
+            frequency = None
+        facility = value.get('facility') or datum.source_name or ''
+        is_limit = error is not None and error <= 0
+        bucket = (limits if is_limit else detections).setdefault(
+            filter_name, {'time': [], 'flux': [], 'error': [], 'customdata': []})
+        bucket['time'].append(datum.timestamp)
+        bucket['flux'].append(flux * scale)
+        bucket['error'].append(error * scale if error is not None and error > 0 else 0.0)
+        bucket['customdata'].append((f'{facility}, {frequency:g} GHz' if frequency else facility, ''))
+
+    traces = []
+    for filter_name, values in detections.items():
+        color, symbol, size = RADIO_COLOR_MAP.get(filter_name, ['gray', 'star', 6])
+        traces.append(go.Scatter(
+            x=values['time'],
+            y=values['flux'],
+            yaxis='y3',
+            mode='markers',
+            opacity=0.75,
+            marker=dict(color=color, symbol=symbol, size=1.2 * size),
+            name=filter_name,
+            error_y=dict(type='data', array=values['error'], visible=True, thickness=0.5, width=0),
+            text=Time(values['time'], format='datetime').mjd,
+            customdata=values['customdata'],
+            hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>MJD= %{text:.6f}'
+                          '<br>flux density= %{y:.4g}&#177;%{error_y.array:.2g} mJy'
+                          '<br>%{customdata[0]}',
+        ))
+    for filter_name, values in limits.items():
+        color, _symbol, size = RADIO_COLOR_MAP.get(filter_name, ['gray', 'star', 6])
+        traces.append(go.Scatter(
+            x=values['time'],
+            y=values['flux'],
+            yaxis='y3',
+            mode='markers',
+            visible='legendonly',
+            opacity=0.5,
+            marker=dict(color=color, symbol='arrow-down-open', size=1.2 * size),
+            name=f'{filter_name}-LIMIT',
+            text=Time(values['time'], format='datetime').mjd,
+            customdata=values['customdata'],
+            hovertemplate='%{x|%Y/%m/%d %H:%M:%S.%L}<br>MJD = %{text:.6f}'
+                          '<br>limit flux density = %{y:.4g} mJy'
+                          '<br>%{customdata[0]}',
+        ))
+    return traces
+
+
 NEGATIVE_DIFFERENCE_SUFFIX = ' (neg. diff)'
 
 
@@ -636,6 +737,23 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             )
         )
 
+    try:
+        radio_data_type = settings.DATA_PRODUCT_TYPES['radio'][0]
+    except (AttributeError, KeyError):
+        radio_data_type = 'radio'
+    radio_datums = ReducedDatum.objects.filter(target=target, data_type=radio_data_type)
+    if not settings.TARGET_PERMISSIONS_ONLY:
+        radio_datums = get_objects_for_user(
+            context['request'].user,
+            'tom_dataproducts.view_reduceddatum',
+            klass=radio_datums,
+        )
+    # Radio flux densities belong with apparent photometry, not with difference-image photometry.
+    radio_traces = [] if diff_mode else _radio_traces(radio_datums)
+    plot_data.extend(radio_traces)
+    has_radio = bool(radio_traces)
+    has_magnitudes = bool(photometry_data or limits_data)
+
     # Legend in name order: detections first, then upper limits; spectra are appended last.
     plot_data.sort(key=lambda trace: (
         str(trace.name or '').endswith('-LIMIT'),
@@ -658,6 +776,10 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             klass=spectroscopy_datums,
         )
     plot_data.extend(_spectrum_time_traces(spectroscopy_datums))
+    # A wrapped horizontal legend otherwise gives every entry the width of the longest name, leaving
+    # few columns and empty space; one legend group per trace lets each entry keep its own width.
+    for index, trace in enumerate(plot_data):
+        trace.legendgroup = str(index)
 
     fig = go.Figure(
         data=plot_data,
@@ -671,7 +793,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
 
     fig.update_layout(
         showlegend=True,
-        margin=dict(t=40, r=20, b=40, l=80),
+        margin=dict(t=40, r=100 if has_radio else 20, b=40, l=80),
         xaxis=dict(
             autorange=True,
             title='date',
@@ -679,7 +801,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             color=label_color,
             showline=True,
             linecolor=label_color,
-            mirror=True,
+            mirror=not has_radio,
         ),
         yaxis=dict(
             autorange=False,
@@ -689,8 +811,10 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             color=label_color,
             showline=True,
             linecolor=label_color,
-            mirror=True,
+            mirror=not has_radio,
             zeroline=False,
+            # A radio-only target has no magnitudes; leave just the flux-density axis.
+            visible=has_magnitudes or not has_radio,
         ),
         yaxis2=dict(
             overlaying='y',
@@ -706,9 +830,28 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
             x=0.0,
             orientation='h',
             font=dict(color=label_color),
+            traceorder='grouped',
+            groupclick='toggleitem',
+            tracegroupgap=0,
         ),
         clickmode='event',
     )
+    if has_radio:
+        radio_values = [
+            value + sign * error
+            for trace in radio_traces
+            for value, error in zip(trace.y, (trace.error_y.array if trace.error_y.array is not None else [0.0] * len(trace.y)))
+            for sign in (-1, 1)
+        ]
+        tickvals, ticktext = _power_of_ten_ticks(radio_values)
+        fig.update_layout(
+            yaxis3=dict(
+                type='log', autorange=True, overlaying='y', side='right',
+                title='flux density (mJy)', showgrid=False, color=label_color,
+                showline=True, linecolor=label_color, zeroline=False,
+                tickmode='array' if tickvals else 'auto', tickvals=tickvals, ticktext=ticktext,
+            ),
+        )
 
     he_result = _build_highenergy_plot(context, target, width=width, height=height,
                                        background=background, label_color=label_color, grid=grid)
