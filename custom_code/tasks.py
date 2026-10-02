@@ -947,6 +947,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # ~100 VIRAC2 sources per 14" cone in the bulge; 5" would often pick a neighbour.
         query_parameters['radius_arcsec'] = 1.0
 
+    if service_name == 'VMC':
+        # The LMC bar is crowded; a wider cone would often pick a neighbour.
+        query_parameters['radius_arcsec'] = 1.0
+
     if service_name == 'XMMEPIC':
         # EPIC positions are good to ~1.5"; a wider cone mostly adds neighbours.
         query_parameters['radius_arcsec'] = 5.0
