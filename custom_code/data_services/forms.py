@@ -952,6 +952,25 @@ class WiggleZQueryForm(BaseQueryForm):
         return cleaned
 
 
+class SuperCOSMOSQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(
+        required=False, initial=3.0, min_value=0.5, max_value=15.0, label='Search radius (arcsec)',
+        help_text='The nearest detection on each plate inside the cone is used.',
+    )
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 3.0
+        return cleaned
+
+
 class TESSQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()

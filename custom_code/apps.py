@@ -39,6 +39,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.alma_dataservice.ALMADataService'},
             {'class': f'{self.name}.data_services.untimely_dataservice.UnTimelyDataService'},
             {'class': f'{self.name}.data_services.dasch_dataservice.DASCHDataService'},
+            {'class': f'{self.name}.data_services.supercosmos_dataservice.SuperCOSMOSDataService'},
             {'class': f'{self.name}.data_services.asassn_dataservice.ASASSNDataService'},
             {'class': f'{self.name}.data_services.panstarrs_dataservice.PanSTARRSDataService'},
             {'class': f'{self.name}.data_services.allwise_dataservice.AllWISEDataService'},

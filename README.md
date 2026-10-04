@@ -220,6 +220,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | SDSS | u, g, r, i, z photometry and spectra | [SDSS DR19 SkyServer](https://skyserver.sdss.org/dr19/VisualTools/navi) |
 | Simbad | Names, aliases and object data | [SIMBAD (CDS)](https://simbad.cds.unistra.fr/simbad/) |
 | SkyMapper | u, v, g, r, i, z photometry | [SkyMapper TAP](https://api.skymapper.nci.org.au/public/tap/) |
+| SuperCOSMOS | Photographic B_J, R, I plate photometry, 1950s–1990s (UKST, ESO-R, POSS-I, POSS-II; ~0.3 mag) | [SuperCOSMOS Science Archive (WFAU)](http://ssa.roe.ac.uk/) |
 | SuperWASP | WASP DR1 light curves | [NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/docs/SuperWASPMission.html) |
 | SwiftUVOT | UV and optical photometry | [Swift UVOT service](http://uvot.astrodot.tech/api/start) |
 | TESS | Light curves (converted to Tmag) | [TESS at MAST](https://archive.stsci.edu/missions-and-data/tess) |
