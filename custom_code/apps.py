@@ -22,6 +22,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.swiftuvot_dataservice.SwiftUVOTDataService'},
             {'class': f'{self.name}.data_services.galex_dataservice.GalexDataService'},
             {'class': f'{self.name}.data_services.gs6df_dataservice.Gs6dfDataService'},
+            {'class': f'{self.name}.data_services.gs2df_dataservice.Gs2dfDataService'},
             {'class': f'{self.name}.data_services.desi_dataservice.DESIDataService'},
             {'class': f'{self.name}.data_services.scat_dataservice.SCATDataService'},
             {'class': f'{self.name}.data_services.pgir_dataservice.PGIRDataService'},

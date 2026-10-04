@@ -173,6 +173,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 
 | Service | Data | Source |
 |---|---|---|
+| 2dFGRS | Optical galaxy spectra (counts, not flux calibrated) | [2dF Galaxy Redshift Survey](https://datacentral.org.au/services/ssa/) via AAO Data Central |
 | 2MASS | J, H, Ks photometry | [IRSA 2MASS Point Source Catalog](https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?submit=Select&projshort=2MASS) |
 | 6dFGS | Optical spectra | [6dF Galaxy Survey](http://www-wfau.roe.ac.uk/6dFGS/) via VizieR |
 | AAVSO | Multi-band time-series photometry | [AAVSO International Database](https://www.aavso.org/) |
