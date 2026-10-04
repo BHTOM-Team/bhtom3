@@ -1015,6 +1015,38 @@ class SuperCOSMOSQueryForm(BaseQueryForm):
         return cleaned
 
 
+class KeplerQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(
+        required=False, initial=4.0, min_value=0.5, max_value=30.0, label='Search radius (arcsec)',
+        help_text='One Kepler pixel is 4 arcsec; the nearest target with a light curve is used.',
+    )
+    flux_type = forms.ChoiceField(
+        required=False,
+        initial='pdcsap',
+        choices=[('pdcsap', 'PDCSAP (corrected)'), ('sap', 'SAP (simple aperture)')],
+        label='Flux',
+        help_text='PDCSAP removes instrumental systematics and some slow intrinsic trends; SAP keeps both.',
+    )
+    include_photometry = forms.BooleanField(required=False, initial=True, label='Include photometry')
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 4.0
+        if not cleaned.get('flux_type'):
+            cleaned['flux_type'] = 'pdcsap'
+        return cleaned
+
+
+class K2QueryForm(KeplerQueryForm):
+    pass
+
+
 class TESSQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()

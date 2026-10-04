@@ -68,6 +68,8 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.gemini_spectra_dataservice.GeminiSpectraDataService'},
             {'class': f'{self.name}.data_services.hipparcos_dataservice.HipparcosDataService'},
             {'class': f'{self.name}.data_services.tess_dataservice.TESSDataService'},
+            {'class': f'{self.name}.data_services.kepler_dataservice.KeplerDataService'},
+            {'class': f'{self.name}.data_services.k2_dataservice.K2DataService'},
             {'class': f'{self.name}.data_services.superwasp_dataservice.SuperWASPDataService'},
         ]
 

@@ -214,6 +214,9 @@ PHOTOMETRY_COLOR_MAP = {
     # TESS: 600-1000 nm, so a deep red. A sector is ~15000 unbinned cadences, so
     # the marker is deliberately tiny -- anything larger renders as a solid bar.
     'TESS(T)': ['#a4133c', 'circle', 1],
+    # Kepler/K2: ~4,400 cadences per quarter/campaign at 29.4 min, so also tiny markers.
+    'Kepler(Kp)': ['#0f766e', 'circle', 1],
+    'K2(Kp)': ['#b45309', 'circle', 1],
     # Hipparcos/Tycho: one mean point per band at J1991.25, so these are large and
     # share the bowtie shape as a family. Hp is coloured violet rather than green
     # on purpose: it is a broad unfiltered band, not V, and must not read as VT.
