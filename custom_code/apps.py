@@ -34,6 +34,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.lsxps_dataservice.LSXPSDataService'},
             {'class': f'{self.name}.data_services.xmmepic_dataservice.XMMEPICDataService'},
             {'class': f'{self.name}.data_services.lcr_dataservice.LCRDataService'},
+            {'class': f'{self.name}.data_services.rxte_asm_dataservice.RXTEASMDataService'},
             {'class': f'{self.name}.data_services.virac2_dataservice.VIRAC2DataService'},
             {'class': f'{self.name}.data_services.vmc_dataservice.VMCDataService'},
             {'class': f'{self.name}.data_services.alma_dataservice.ALMADataService'},

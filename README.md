@@ -216,6 +216,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | PS1 | g, r, i, z, y photometry | [Pan-STARRS1 at MAST](https://catalogs.mast.stsci.edu/panstarrs) |
 | PTF | g, R light curves | [Palomar Transient Factory](https://www.ptf.caltech.edu/) |
 | RAPAS | Photometry | RAPAS Google Sheets workbooks (`RAPAS_SPREADSHEETS`) |
+| RXTEASM | RXTE All-Sky Monitor 1.5–12 keV daily X-ray fluxes, 1996–2011, ~590 bright sources (Crab-scaled to erg/cm²/s; high-energy plot) | [HEASARC RXTE/ASM products](https://heasarc.gsfc.nasa.gov/docs/xte/asm_products.html) |
 | SCAT | Transient spectra | [SCAT DR1](https://joysankar-astro.github.io/SCATv1/) |
 | SDSS | u, g, r, i, z photometry and spectra | [SDSS DR19 SkyServer](https://skyserver.sdss.org/dr19/VisualTools/navi) |
 | Simbad | Names, aliases and object data | [SIMBAD (CDS)](https://simbad.cds.unistra.fr/simbad/) |
