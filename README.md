@@ -227,6 +227,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | unTimely | unWISE time-domain W1, W2 light curves (~16 six-monthly epochs 2010–2020, Vega) | [unWISE Time-Domain Catalog (NERSC files; IRSA)](https://irsa.ipac.caltech.edu/data/WISE/unWISE/overview.html) |
 | VIRAC2 | VVV/VVVX near-IR Z, Y, J, H, Ks light curves of the southern Galactic bulge and disc (Vega) | [ESO Science Archive, VIRAC2 catalogue](https://archive.eso.org/scienceportal/home?data_collection=VVVX) |
 | VMC | VISTA Magellanic Clouds survey near-IR Y, J, Ks light curves of the LMC, SMC, Bridge and Stream (DR7, Vega) | [ESO Science Archive, VMC catalogue](https://archive.eso.org/scienceportal/home?data_collection=VMC) |
+| WiggleZ | Galaxy spectra, 0.2 < z < 1 (full resolution; relatively flux calibrated) | [WiggleZ Dark Energy Survey](https://datacentral.org.au/services/ssa/) via AAO Data Central |
 | XMMEPIC | XMM-Newton EPIC 0.2–12 keV X-ray fluxes, one point per observation (high-energy plot) | [XMM-Newton Science Archive, EPIC detections (5XMM-DR15)](https://nxsa.esac.esa.int/nxsa-web/) |
 | XMMOM | UVW2, UVM2, UVW1, U, B, V photometry, one point per XMM observation | [XMM-Newton Science Archive, XMM-OM SUSS 6.2](https://www.cosmos.esa.int/web/xmm-newton/om-catalogue) |
 | ZTF | g, r, i light curves | [IRSA ZTF](https://irsa.ipac.caltech.edu/Missions/ztf.html) |

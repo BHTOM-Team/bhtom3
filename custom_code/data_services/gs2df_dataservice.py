@@ -69,13 +69,13 @@ def _votable_rows(content):
     return [{name: row[name] for name in table.colnames} for row in table]
 
 
-def _search_spectra(ra, dec, radius_arcsec):
-    """SSA rows of the 2dFGRS object nearest to the position (all of its spectra)."""
+def _search_spectra(ra, dec, radius_arcsec, collection=GS2DF_COLLECTION):
+    """SSA rows of the Data Central object nearest to the position (all of its spectra)."""
     response = requests.get(GS2DF_SSA_URL, params={
         'REQUEST': 'queryData',
         'POS': f'{ra},{dec}',
         'SIZE': radius_arcsec / 3600.0,
-        'COLLECTION': GS2DF_COLLECTION,
+        'COLLECTION': collection,
     }, timeout=DATA_SERVICE_HTTP_TIMEOUT)
     response.raise_for_status()
     rows = [row for row in _votable_rows(response.content) if _text(row.get('target_name'))]
@@ -88,7 +88,7 @@ def _search_spectra(ra, dec, radius_arcsec):
 
 
 def _fetch_spectrum(access_url):
-    """(wavelength [A], counts/s) from the FITS file behind a spectrum's DataLink."""
+    """(wavelength [A], values, BUNIT) from the FITS file behind a spectrum's DataLink."""
     links = requests.get(access_url, timeout=DATA_SERVICE_HTTP_TIMEOUT)
     links.raise_for_status()
     file_url = next(
@@ -103,10 +103,11 @@ def _fetch_spectrum(access_url):
     with fits.open(io.BytesIO(response.content)) as hdul:
         header = hdul[0].header
         counts = np.asarray(hdul[0].data, dtype=float).ravel()
+        unit = _text(header.get('BUNIT'))
     pixels = np.arange(1, counts.size + 1)
     wavelength = header['CRVAL1'] + (pixels - header['CRPIX1']) * header['CDELT1']
     good = np.isfinite(counts)
-    return wavelength[good], counts[good]
+    return wavelength[good], counts[good], unit
 
 
 class Gs2dfDataService(DataService):
@@ -237,7 +238,7 @@ class Gs2dfDataService(DataService):
     def _build_spectroscopy_datums(self, spectra, name):
         output = []
         serializer = SpectrumSerializer()
-        for row, (wavelength, counts) in spectra:
+        for row, (wavelength, counts, _unit) in spectra:
             mjd = _to_float(row.get('t_midpoint'))
             if mjd is None:
                 continue
