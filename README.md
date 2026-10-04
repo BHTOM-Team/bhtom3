@@ -184,6 +184,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | ATLAS | c, o forced photometry (requires an ATLAS account) | [ATLAS Forced Photometry Server](https://fallingstar-data.com/forcedphot/) |
 | BGDS | r, i light curves (plus some U, B, V, z and narrowbands), Galactic plane 2010–2019 | [GAVO Data Center, BGDS DR2](https://dc.g-vo.org/browse/bgds/l2) |
 | CRTS | Unfiltered (CL) light curves | [Catalina Real-Time Transient Survey](http://nunuku.caltech.edu/cgi-bin/getcssconedb_release_img.cgi) |
+| CSC | Chandra ACIS 0.5–7 keV (and HRC) X-ray fluxes, one point per Chandra observation, detections only (high-energy plot) | [Chandra Source Catalog 2.1 (CXC TAP)](https://cxc.cfa.harvard.edu/csc/) |
 | DASCH | Harvard plate B-band light curves, ~1890–1990 (calibrated to APASS), with upper limits | [DASCH DR7 (Starglass API)](https://dasch.cfa.harvard.edu/dr7/) |
 | DESI | Spectra | [DESI DR1](https://data.desi.lbl.gov/doc/releases/dr1/) |
 | ESO | Archival spectra | [ESO Science Archive](https://archive.eso.org/scienceportal/home) |

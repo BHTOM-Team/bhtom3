@@ -873,6 +873,8 @@ HIGHENERGY_COLOR_MAP = {
     'XRT(0.3-10keV)': ['#ff7f0e', 'square', 4],
     'EPIC(0.2-12keV)': ['#2ca02c', 'diamond', 5],
     'ASM(1.5-12keV)': ['#8c564b', 'triangle-up', 4],
+    'ACIS(0.5-7keV)': ['#d62728', 'star', 6],
+    'HRC(0.1-10keV)': ['#e377c2', 'star-open', 6],
     'LAT-LCR(3-day)': ['#9467bd', 'circle-open', 4],
     'LAT-LCR(weekly)': ['#9467bd', 'circle', 4],
     'LAT-LCR(monthly)': ['#5b2a86', 'circle', 5],
@@ -891,7 +893,7 @@ HIGHENERGY_LIMITS_COLOR_MAP = {
 HIGHENERGY_FILTER_ORDER = [
     'LAT(>800MeV)', 'LAT(>100MeV)',
     'LAT-LCR(3-day)', 'LAT-LCR(weekly)', 'LAT-LCR(monthly)',
-    'XRT(0.3-10keV)', 'EPIC(0.2-12keV)', 'ASM(1.5-12keV)',
+    'XRT(0.3-10keV)', 'EPIC(0.2-12keV)', 'ACIS(0.5-7keV)', 'HRC(0.1-10keV)', 'ASM(1.5-12keV)',
 ]
 
 

@@ -935,6 +935,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # OM detections of one source agree to well under an arcsec between observations.
         query_parameters['radius_arcsec'] = 3.0
 
+    if service_name == 'CSC':
+        # Chandra positions are sub-arcsecond; the Galactic Centre has several sources within 2".
+        query_parameters['radius_arcsec'] = 3.0
+
     if service_name == 'RXTEASM':
         # xteasmlong positions are rounded to 0.01 deg; ASM sources are bright and sparse.
         query_parameters['radius_arcsec'] = 60.0
