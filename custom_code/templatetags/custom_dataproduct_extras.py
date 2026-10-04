@@ -217,10 +217,10 @@ PHOTOMETRY_COLOR_MAP = {
     # Kepler/K2: ~4,400 cadences per quarter/campaign at 29.4 min, so also tiny markers.
     'Kepler(Kp)': ['#0f766e', 'circle', 1],
     'K2(Kp)': ['#b45309', 'circle', 1],
-    # Hipparcos/Tycho: one mean point per band at J1991.25, so these are large and
-    # share the bowtie shape as a family. Hp is coloured violet rather than green
-    # on purpose: it is a broad unfiltered band, not V, and must not read as VT.
-    'Hp': ['#7048e8', 'bowtie', 9],
+    # Hipparcos/Tycho: Hp is the epoch photometry (~100 transits, 1989-1993); BT/VT are
+    # one mean point per band at J1991.25, so these are large bowties. Hp is coloured
+    # violet rather than green on purpose: it is a broad unfiltered band, not V.
+    'Hp': ['#7048e8', 'bowtie', 4],
     'BT': ['#3b5bdb', 'bowtie', 9],
     'VT': ['#2f9e44', 'bowtie', 9],
 }

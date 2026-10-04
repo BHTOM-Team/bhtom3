@@ -491,6 +491,8 @@ SUPERWASP_MAX_MAG_ERROR = float(os.environ.get('SUPERWASP_MAX_MAG_ERROR', '1.0')
 # Disk cache for the compact unTimely catalogue index (a few MB). Use shared storage when web
 # and worker run in separate containers.
 UNTIMELY_CACHE_DIR = os.environ.get('UNTIMELY_CACHE_DIR', os.path.join(tempfile.gettempdir(), 'bhtom3-untimely-cache'))
+# Disk cache for the Hipparcos Epoch Photometry index (~2 MB).
+HIPPARCOS_CACHE_DIR = os.environ.get('HIPPARCOS_CACHE_DIR', os.path.join(tempfile.gettempdir(), 'bhtom3-hipparcos-cache'))
 
 _BASE_HARVESTER_CLASSES = [
     'custom_code.bhtom_catalogs.harvesters.simbad.SimbadHarvester',
