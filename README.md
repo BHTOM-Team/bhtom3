@@ -202,6 +202,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | Hubble | HST light curves (Hubble Catalog of Variables) | [ESA Hubble Science Archive](https://hst.esac.esa.int/ehst/#/pages/hcv-explorer) |
 | JVAR | J-VAR light curves | [CEFCA J-VAR DR1](https://archive.cefca.es/catalogues/jvar-dr1) |
 | K2 | K2 long-cadence light curves, 2014–2018, ecliptic campaigns (converted to Kepler magnitude) | [K2 at MAST](https://archive.stsci.edu/missions-and-data/k2) |
+| KELT | KELT DR1 light curves of bright stars, 2005–2014, TFA-detrended or raw (instrumental magnitudes shifted to ~V) | [NASA Exoplanet Archive, KELT](https://exoplanetarchive.ipac.caltech.edu/docs/KELT.html) |
 | Kepler | Kepler long-cadence light curves, 2009–2013, Cygnus–Lyra field (converted to Kepler magnitude) | [Kepler at MAST](https://archive.stsci.edu/missions-and-data/kepler) |
 | KMT | I-band microlensing photometry | [KMTNet](https://kmtnet.kasi.re.kr/ulens/event/) |
 | LAMOST | Low- and medium-resolution spectra | [LAMOST DR11 v2.0](https://www.lamost.org/dr11/v2.0/) |

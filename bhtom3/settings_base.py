@@ -493,6 +493,8 @@ SUPERWASP_MAX_MAG_ERROR = float(os.environ.get('SUPERWASP_MAX_MAG_ERROR', '1.0')
 UNTIMELY_CACHE_DIR = os.environ.get('UNTIMELY_CACHE_DIR', os.path.join(tempfile.gettempdir(), 'bhtom3-untimely-cache'))
 # Disk cache for the Hipparcos Epoch Photometry index (~2 MB).
 HIPPARCOS_CACHE_DIR = os.environ.get('HIPPARCOS_CACHE_DIR', os.path.join(tempfile.gettempdir(), 'bhtom3-hipparcos-cache'))
+# Disk cache for the KELT light-curve file index (~11 MB, built once in ~30 s).
+KELT_CACHE_DIR = os.environ.get('KELT_CACHE_DIR', os.path.join(tempfile.gettempdir(), 'bhtom3-kelt-cache'))
 
 _BASE_HARVESTER_CLASSES = [
     'custom_code.bhtom_catalogs.harvesters.simbad.SimbadHarvester',

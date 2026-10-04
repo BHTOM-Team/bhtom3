@@ -71,6 +71,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.kepler_dataservice.KeplerDataService'},
             {'class': f'{self.name}.data_services.k2_dataservice.K2DataService'},
             {'class': f'{self.name}.data_services.superwasp_dataservice.SuperWASPDataService'},
+            {'class': f'{self.name}.data_services.kelt_dataservice.KELTDataService'},
         ]
 
     def ready(self):
