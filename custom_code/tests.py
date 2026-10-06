@@ -5917,6 +5917,46 @@ class TokenAuthAndProfileTests(TestCase):
 
         self.assertRedirects(response, reverse('user-update', kwargs={'pk': user.pk}))
 
+    def test_anonymous_user_update_redirects_to_login(self):
+        url = reverse('user-update', kwargs={'pk': 26})
+        for method in ('get', 'post'):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(url)
+
+                self.assertRedirects(
+                    response,
+                    f'{reverse("login")}?next={url}',
+                    fetch_redirect_response=False,
+                )
+
+    def test_user_cannot_view_or_update_another_users_profile(self):
+        user = get_user_model().objects.create_user(username='profile-owner', password='secret')
+        other_user = get_user_model().objects.create_user(username='other-profile', first_name='Before')
+        self.client.force_login(user)
+        url = reverse('user-update', kwargs={'pk': other_user.pk})
+
+        for method in ('get', 'post'):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(url, data={'first_name': 'After'})
+
+                self.assertRedirects(
+                    response,
+                    reverse('user-update', kwargs={'pk': user.pk}),
+                    fetch_redirect_response=False,
+                )
+        other_user.refresh_from_db()
+        self.assertEqual(other_user.first_name, 'Before')
+
+    def test_superuser_can_view_another_users_profile(self):
+        admin = get_user_model().objects.create_superuser('profile-access-admin', 'admin@example.com', 'secret')
+        user = get_user_model().objects.create_user(username='profile-access-user')
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse('user-update', kwargs={'pk': user.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['object'], user)
+
     def test_user_update_page_displays_copy_token_button(self):
         user = get_user_model().objects.create_user(username='profile-button-user', password='secret')
         self.client.force_login(user)

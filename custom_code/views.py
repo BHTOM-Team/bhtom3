@@ -5255,6 +5255,12 @@ class BhtomDataProductSaveView(LoginRequiredMixin, View):
 class UserUpdateWithTokenView(TomCommonUserUpdateView):
     form_class = BhtomUserUpdateForm
 
+    def dispatch(self, request, *args, **kwargs):
+        # TOM checks profile ownership before its LoginRequiredMixin runs.
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        return super().dispatch(request, *args, **kwargs)
+
     def form_valid(self, form):
         self.object = form.save()
         if self.object == self.request.user:
@@ -5332,9 +5338,9 @@ class UpdateReducedDataAndDataServicesView(LoginRequiredMixin, RedirectView):
     def _run_update_reduced_data(self, out, target_id=None):
         try:
             if target_id:
-                call_command('updatereduceddata', target_id=target_id, stdout=out)
+                call_command('update_broker_data', target_id=target_id, stdout=out)
             else:
-                call_command('updatereduceddata', stdout=out)
+                call_command('update_broker_data', stdout=out)
         except Exception as exc:
             logger.exception('Reduced data update failed (target_id=%s): %s', target_id, exc)
             messages.warning(
