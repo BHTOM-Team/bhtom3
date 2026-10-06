@@ -198,6 +198,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | GALAH | Spectra | [GALAH DR4](https://www.galah-survey.org/dr4) |
 | Galex | FUV, NUV photometry (gPhoton) | [GALEX at MAST](https://galex.stsci.edu/GR6/) |
 | GeminiSpectra | Public spectra (counts) | [Gemini Observatory Archive](https://archive.gemini.edu/) via CADC |
+| HETDEX | HETDEX Public Source Catalog 2 spectra, 3470–5540 Å at R ≈ 800, one per observation (2017–2024; 87 deg² of extragalactic fields) | [HETDEX Public Data Release 1](https://hetdex.org/data-results/) (TACC) |
 | Hipparcos | Hp epoch photometry (individual transits, 1989–1993) and Tycho mean BT, VT (J1991.25) | [Hipparcos/Tycho, VizieR I/239 and its Epoch Photometry Annex](https://cdsarc.cds.unistra.fr/ftp/I/239/epophot/) |
 | HSTSpectra | HST COS and STIS UV/optical spectra, one calibrated 1D spectrum per dataset (binned to ≤4000 points) | [MAST HST archive](https://mast.stsci.edu/search/ui/#/hst) |
 | Hubble | HST light curves (Hubble Catalog of Variables) | [ESA Hubble Science Archive](https://hst.esac.esa.int/ehst/#/pages/hcv-explorer) |

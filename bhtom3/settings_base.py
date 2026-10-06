@@ -496,6 +496,9 @@ HIPPARCOS_CACHE_DIR = os.environ.get('HIPPARCOS_CACHE_DIR', os.path.join(tempfil
 # Disk cache for the KELT light-curve file index (~11 MB, built once in ~30 s).
 KELT_CACHE_DIR = os.environ.get('KELT_CACHE_DIR', os.path.join(tempfile.gettempdir(), 'bhtom3-kelt-cache'))
 
+# Disk cache for the HETDEX HPSC2 position index (~25 MB, built once from ~300 MB of downloads).
+HETDEX_CACHE_DIR = os.environ.get('HETDEX_CACHE_DIR', os.path.join(tempfile.gettempdir(), 'bhtom3-hetdex-cache'))
+
 _BASE_HARVESTER_CLASSES = [
     'custom_code.bhtom_catalogs.harvesters.simbad.SimbadHarvester',
     'tom_catalogs.harvesters.ned.NEDHarvester',
