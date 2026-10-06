@@ -28,6 +28,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.scat_dataservice.SCATDataService'},
             {'class': f'{self.name}.data_services.pgir_dataservice.PGIRDataService'},
             {'class': f'{self.name}.data_services.nsc_dataservice.NSCDataService'},
+            {'class': f'{self.name}.data_services.decaps_dataservice.DECaPSDataService'},
             {'class': f'{self.name}.data_services.bgds_dataservice.BGDSDataService'},
             {'class': f'{self.name}.data_services.omc_dataservice.OMCDataService'},
             {'class': f'{self.name}.data_services.xmmom_dataservice.XMMOMDataService'},

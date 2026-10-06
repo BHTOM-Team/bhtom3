@@ -186,6 +186,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | CRTS | Unfiltered (CL) light curves | [Catalina Real-Time Transient Survey](http://nunuku.caltech.edu/cgi-bin/getcssconedb_release_img.cgi) |
 | CSC | Chandra ACIS 0.5–7 keV (and HRC) X-ray fluxes, one point per Chandra observation, detections only (high-energy plot) | [Chandra Source Catalog 2.1 (CXC TAP)](https://cxc.cfa.harvard.edu/csc/) |
 | DASCH | Harvard plate B-band light curves, ~1890–1990 (calibrated to APASS), with upper limits | [DASCH DR7 (Starglass API)](https://dasch.cfa.harvard.edu/dr7/) |
+| DECaPS | DECam Plane Survey DR1 per-exposure g, r, i, z, Y photometry of the southern Galactic plane, 2016–2017 (AB) | [Astro Data Lab, DECaPS](https://datalab.noirlab.edu/data/decaps) |
 | DESI | Spectra | [DESI DR1](https://data.desi.lbl.gov/doc/releases/dr1/) |
 | ESO | Archival spectra | [ESO Science Archive](https://archive.eso.org/scienceportal/home) |
 | ExoClock | Transit ephemerides | [ExoClock](https://www.exoclock.space/database/planets_json) |

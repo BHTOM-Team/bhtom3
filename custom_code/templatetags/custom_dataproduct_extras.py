@@ -218,6 +218,11 @@ PHOTOMETRY_COLOR_MAP = {
     'Kepler(Kp)': ['#0f766e', 'circle', 1],
     'K2(Kp)': ['#b45309', 'circle', 1],
     'KELT': ['#0e7490', 'circle', 2],
+    'DECaPS(g)': ['#16a34a', 'square-open', 5],
+    'DECaPS(r)': ['#dc2626', 'square-open', 5],
+    'DECaPS(i)': ['#7f1d1d', 'square-open', 5],
+    'DECaPS(z)': ['#db2777', 'square-open', 5],
+    'DECaPS(Y)': ['#a16207', 'square-open', 5],
     # Hipparcos/Tycho: Hp is the epoch photometry (~100 transits, 1989-1993); BT/VT are
     # one mean point per band at J1991.25, so these are large bowties. Hp is coloured
     # violet rather than green on purpose: it is a broad unfiltered band, not V.

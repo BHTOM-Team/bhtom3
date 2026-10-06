@@ -935,6 +935,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # OM detections of one source agree to well under an arcsec between observations.
         query_parameters['radius_arcsec'] = 3.0
 
+    if service_name == 'DECaPS':
+        # Crowded Galactic plane; DECaPS positions are good to well under 1".
+        query_parameters['radius_arcsec'] = 1.5
+
     if service_name == 'KELT':
         # KELT pixels are 23"; source positions come from a reference catalogue.
         query_parameters['radius_arcsec'] = 10.0
