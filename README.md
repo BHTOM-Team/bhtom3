@@ -203,6 +203,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | HSTSpectra | HST COS and STIS UV/optical spectra, one calibrated 1D spectrum per dataset (binned to ≤4000 points) | [MAST HST archive](https://mast.stsci.edu/search/ui/#/hst) |
 | Hubble | HST light curves (Hubble Catalog of Variables) | [ESA Hubble Science Archive](https://hst.esac.esa.int/ehst/#/pages/hcv-explorer) |
 | JVAR | J-VAR light curves | [CEFCA J-VAR DR1](https://archive.cefca.es/catalogues/jvar-dr1) |
+| JWSTSpectra | JWST NIRSpec (fixed slit, MOS, IFU) and MIRI (LRS, MRS) 0.6–28 µm spectra, one merged 1D spectrum per observation (binned to ≤8000 points) | [MAST JWST archive](https://mast.stsci.edu/search/ui/#/jwst) |
 | K2 | K2 long-cadence light curves, 2014–2018, ecliptic campaigns (converted to Kepler magnitude) | [K2 at MAST](https://archive.stsci.edu/missions-and-data/k2) |
 | KELT | KELT DR1 light curves of bright stars, 2005–2014, TFA-detrended or raw (instrumental magnitudes shifted to ~V) | [NASA Exoplanet Archive, KELT](https://exoplanetarchive.ipac.caltech.edu/docs/KELT.html) |
 | Kepler | Kepler long-cadence light curves, 2009–2013, Cygnus–Lyra field (converted to Kepler magnitude) | [Kepler at MAST](https://archive.stsci.edu/missions-and-data/kepler) |

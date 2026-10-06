@@ -963,6 +963,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # Plate astrometry is good to ~0.3"; a wider cone mostly adds neighbours.
         query_parameters['radius_arcsec'] = 3.0
 
+    if service_name == 'JWSTSpectra':
+        # Level-3 products are centred on the proposed target position.
+        query_parameters['radius_arcsec'] = 3.0
+
     if service_name == 'HETDEX':
         # HETDEX source positions are good to ~0.5"; seeing ~1.8".
         query_parameters['radius_arcsec'] = 3.0
