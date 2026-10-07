@@ -8,7 +8,7 @@ from urllib.parse import quote, urlencode
 from tom_dataproducts.models import ReducedDatum
 
 from custom_code.astrometry import can_compute_current_coordinates
-from custom_code.finding_chart import survey_overlays
+from custom_code.finding_chart import SERVICE_CLASSES, survey_overlays
 from custom_code.sun_separation import get_live_target_values
 
 register = template.Library()
@@ -16,11 +16,11 @@ register = template.Library()
 
 @register.inclusion_tag('tom_targets/partials/survey_finderchart.html', takes_context=True)
 def survey_finderchart(context, target):
-    sources = set()
-    if ReducedDatum.objects.filter(target=target, source_name='FAVA', data_type='highenergy').exists():
-        sources.add('FAVA')
-    if ReducedDatum.objects.filter(target=target, source_name='NSC', data_type='photometry').exists():
-        sources.add('NSC')
+    # Services that store data but no alias (e.g. FAVA, NSC, DECaPS, JWSTSpectra) are found from their data.
+    sources = set(
+        ReducedDatum.objects.filter(target=target, source_name__in=SERVICE_CLASSES)
+        .values_list('source_name', flat=True).distinct()
+    )
     return {
         'target': target,
         'survey_overlays': survey_overlays(_target_other_names(target), sources),

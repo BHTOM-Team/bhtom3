@@ -22,5 +22,15 @@ class FindingChartOverlayTests(SimpleTestCase):
         ])
         self.assertEqual(len({item['color'] for item in overlays}), 3)
 
+    def test_newer_services_have_search_radius_circles(self):
+        overlays = survey_overlays([], {'DECaPS', 'JWSTSpectra', 'Kepler', 'RXTEASM'})
+
+        self.assertEqual([item['name'] for item in overlays], [
+            'DECaPS (1.5″ search radius)',
+            'JWSTSpectra (3″ search radius)',
+            'Kepler (4″ search radius)',
+            'RXTEASM (60″ search radius)',
+        ])
+
     def test_no_sources_means_no_circle_layers(self):
         self.assertEqual(survey_overlays([{'source_name': 'Simbad'}]), [])
