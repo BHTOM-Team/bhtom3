@@ -1,5 +1,6 @@
 import logging
 import math
+import re
 
 from astropy.time import Time
 from datetime import timezone
@@ -10,7 +11,7 @@ from urllib.parse import quote
 from tom_dataservices.dataservices import DataService
 from tom_targets.models import Target, TargetName
 
-from custom_code.data_services.forms import ZTFQueryForm
+from custom_code.data_services.forms import AlerceQueryForm
 from custom_code.data_services.service_utils import (
     DATA_SERVICE_HTTP_TIMEOUT,
     add_difference_photometry,
@@ -22,6 +23,8 @@ from custom_code.data_services.service_utils import (
 logger = logging.getLogger(__name__)
 
 ALERCE_PAGE = "https://alerce.online/"
+# ZTF object ids: 'ZTF', two-digit year, seven lowercase letters (e.g. ZTF24aaipblm).
+ZTF_OID_RE = re.compile(r'^ztf(\d{2})([a-z]{7})$', re.IGNORECASE)
 
 
 def _alerce_object_url(oid):
@@ -33,6 +36,22 @@ def _to_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _ztf_oid(name):
+    """Canonical ZTF object id (ZTF24aaipblm) if the name is one, else None."""
+    match = ZTF_OID_RE.match(str(name or '').strip())
+    return f'ZTF{match.group(1)}{match.group(2).lower()}' if match else None
+
+
+def _getAlerceObjectById(oid):
+  url=f"https://api.alerce.online/ztf/v1/objects/{quote(oid, safe='')}"
+  headers = {"accept": "application/json"}
+  response = requests.get(url, headers=headers, timeout=DATA_SERVICE_HTTP_TIMEOUT)
+  if response.status_code == 404:
+      return None
+  response.raise_for_status()
+  return response.json()
 
 
 def _getAlerceObjcet(ra,dec,rad):
@@ -115,17 +134,30 @@ class AlerceDataService(DataService):
     info_url = ALERCE_PAGE
     # Photometry values carry origin_ra/origin_dec; see upsert_reduced_datums.
     stores_origin_coordinates = True
-    service_notes = 'Query ZTF by coordinates and ingest ZTF photometry through Alerce.'
+    service_notes = 'Query ZTF by coordinates or ZTF object id (e.g. ZTF24aaipblm) and ingest ZTF photometry through Alerce.'
 
     @classmethod
     def get_form_class(cls):
-        return ZTFQueryForm
+        return AlerceQueryForm
 
     def build_query_parameters(self, parameters, **kwargs):
         from custom_code.data_services.service_utils import resolve_query_coordinates
         target_name, ra, dec = resolve_query_coordinates(parameters)
+        oid = _ztf_oid(target_name)
+        if oid and (ra in (None, '') or dec in (None, '')):
+            # A ZTF object id that is not a local target: take its position from ALeRCE.
+            try:
+                obj = _getAlerceObjectById(oid)
+            except (requests.RequestException, ValueError) as exc:
+                logger.warning('Alerce lookup of %s failed: %s', oid, exc)
+                obj = None
+            if obj:
+                ra, dec = _to_float(obj.get('meanra')), _to_float(obj.get('meandec'))
+            else:
+                logger.debug('Alerce has no object %s', oid)
         self.query_parameters = {
             'target_name': target_name,
+            'oid': oid,
             'ra': ra,
             'dec': dec,
             'radius_arcsec': parameters.get('radius_arcsec') or 1.1,
@@ -147,6 +179,10 @@ class AlerceDataService(DataService):
         try:
             objcet_data = _getAlerceObjcet(ra,dec,radius_arcsec)
             objects = _objects_nearest_first(objcet_data.get('items') or [], ra, dec)
+            # A queried ZTF id leads, even when another object's mean position is nearer.
+            named = query_parameters.get('oid')
+            if named and objects and objects[0]['oid'] != named:
+                objects.sort(key=lambda item: item['oid'] != named)
             if objects:
                 oid = objects[0]['oid']
                 lc_data = _merged_detections(objects)
