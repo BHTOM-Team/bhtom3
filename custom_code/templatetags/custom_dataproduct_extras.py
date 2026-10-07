@@ -185,12 +185,14 @@ PHOTOMETRY_COLOR_MAP = {
     'SkyMapper(i)': ['#800000', 'triangle-up-open', 5],
     'SkyMapper(z)': ['#ff0074', 'triangle-up-open', 5],
     'SkyMapper(v)': ['darkgreen', 'triangle-up-open', 5],
-    'LSST(u)': ['#40E0D0', 'pentagon-open', 5],
-    'LSST(g)': ['green', 'pentagon-open', 5],
-    'LSST(r)': ['red', 'pentagon-open', 5],
-    'LSST(i)': ['#800000', 'pentagon-open', 5],
-    'LSST(z)': ['#ff0074', 'pentagon-open', 5],
-    'LSST(y)': ['#DAA520', 'pentagon-open', 5],
+    # Rubin's own filter colours; a filled star-diamond with an outline (_photometry_marker_line)
+    # keeps LSST distinct from NSC/DECam (open pentagons/squares) and easy to spot.
+    'LSST(u)': ['#0c71ff', 'star-diamond', 7],
+    'LSST(g)': ['#49be61', 'star-diamond', 7],
+    'LSST(r)': ['#c61c00', 'star-diamond', 7],
+    'LSST(i)': ['#ffc200', 'star-diamond', 7],
+    'LSST(z)': ['#f341a2', 'star-diamond', 7],
+    'LSST(y)': ['#5d0000', 'star-diamond', 7],
     'HST(ACS_F814W)': ['#b5a300', 'hexagram', 5],
     'HST(ACS_F606W)': ['#5c0011', 'hexagram', 5],
     'JVAR(J0395)': ['#6a00ff', 'pentagon', 4],
@@ -459,6 +461,13 @@ def _photometry_trace_style(color_map, filter_name):
     return [color, symbol, size]
 
 
+def _photometry_marker_line(filter_name):
+    """Outline for highlighted surveys (LSST); other markers keep Plotly's default (none)."""
+    if filter_name.startswith('LSST(') and not filter_name.endswith(NEGATIVE_DIFFERENCE_SUFFIX):
+        return dict(width=0.8, color='#1f1f1f')
+    return dict(width=0)
+
+
 def _negative_difference_hover(filter_name):
     if filter_name.endswith(NEGATIVE_DIFFERENCE_SUFFIX):
         return '<br>negative difference: fainter than the reference image'
@@ -663,6 +672,7 @@ def custom_photometry_for_target(context, target, width=1000, height=600, backgr
                         color=_photometry_trace_style(PHOTOMETRY_COLOR_MAP, filter_name)[0],
                         symbol=_photometry_trace_style(PHOTOMETRY_COLOR_MAP, filter_name)[1],
                         size=1.2 * _photometry_trace_style(PHOTOMETRY_COLOR_MAP, filter_name)[2],
+                        line=_photometry_marker_line(filter_name),
                     ),
                 name=filter_name,
                 visible=_photometry_trace_visibility(filter_name),
