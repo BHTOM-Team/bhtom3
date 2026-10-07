@@ -24,6 +24,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.gs6df_dataservice.Gs6dfDataService'},
             {'class': f'{self.name}.data_services.gs2df_dataservice.Gs2dfDataService'},
             {'class': f'{self.name}.data_services.wigglez_dataservice.WiggleZDataService'},
+            {'class': f'{self.name}.data_services.ozdes_dataservice.OzDESDataService'},
             {'class': f'{self.name}.data_services.hetdex_dataservice.HETDEXDataService'},
             {'class': f'{self.name}.data_services.desi_dataservice.DESIDataService'},
             {'class': f'{self.name}.data_services.scat_dataservice.SCATDataService'},

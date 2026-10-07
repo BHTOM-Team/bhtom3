@@ -218,6 +218,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | OGLEEWS | I, V microlensing photometry | [OGLE Early Warning System](https://www.astrouw.edu.pl/ogle/ogle4/ews) |
 | OGLEOCVS | I, V variable-star photometry | [OGLE Collection of Variable Stars](https://ogledb.astrouw.edu.pl/~ogle/OCVS/) |
 | OMC | INTEGRAL OMC V-band light curves | [CAB OMC Archive](https://sdc.cab.inta-csic.es/omc/) |
+| OzDES | OzDES DR2 AAT 2dF/AAOmega spectra of the DES deep fields, 2013–2019 (AGN monitoring, transients, hosts; one spectrum per night plus the coadd, counts) | [OzDES DR2](https://datacentral.org.au/services/ssa/) via AAO Data Central |
 | PGIR | J-band light curves | [Astro Data Lab, Palomar Gattini-IR DR1](https://datalab.noirlab.edu/data/pgir) |
 | PhotometricClassification | Classification computed in BHTOM | Derived from Gaia, 2MASS and WISE photometry |
 | PS1 | g, r, i, z, y photometry | [Pan-STARRS1 at MAST](https://catalogs.mast.stsci.edu/panstarrs) |

@@ -1016,6 +1016,37 @@ class JWSTSpectraQueryForm(BaseQueryForm):
         return cleaned
 
 
+class OzDESQueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    radius_arcsec = forms.FloatField(
+        required=False, initial=2.0, min_value=0.5, max_value=10.0, label='Search radius (arcsec)',
+        help_text='The nearest OzDES object inside the cone is used.',
+    )
+    epochs = forms.ChoiceField(
+        required=False,
+        initial='nightly',
+        choices=(
+            ('nightly', 'One averaged spectrum per night, plus the coadd'),
+            ('exposures', 'Every individual exposure, plus the coadd'),
+            ('coadd', 'Coadd only'),
+        ),
+        label='Spectra to import',
+    )
+    include_spectroscopy = forms.BooleanField(required=False, initial=True, label='Include spectroscopy')
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('radius_arcsec') is None:
+            cleaned['radius_arcsec'] = 2.0
+        if not cleaned.get('epochs'):
+            cleaned['epochs'] = 'nightly'
+        return cleaned
+
+
 class WiggleZQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()

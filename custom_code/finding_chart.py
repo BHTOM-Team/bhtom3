@@ -42,6 +42,7 @@ SERVICE_CLASSES = {
     'OGLEOCVS': ('ogle_ocvs', 'OGLEOCVSDataService'),
     'OMC': ('omc', 'OMCDataService'),
     'PS1': ('panstarrs', 'PanSTARRSDataService'),
+    'OzDES': ('ozdes', 'OzDESDataService'),
     'PGIR': ('pgir', 'PGIRDataService'),
     'PTF': ('ptf', 'PTFDataService'),
     'RAPAS': ('rapas', 'RAPASDataService'),
