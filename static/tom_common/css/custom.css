@@ -76,8 +76,30 @@ body {
 }
 
 .btn-primary {
+    color: #ffffff;
     background-color: #f7586f;
     border-color: #f7586f;
+}
+
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary.focus {
+    color: #ffffff;
+    background-color: #e8445d;
+    border-color: #e8445d;
+}
+
+.btn-primary:not(:disabled):not(.disabled):active,
+.btn-primary:not(:disabled):not(.disabled).active {
+    color: #ffffff;
+    background-color: #d6364f;
+    border-color: #d6364f;
+}
+
+.btn-primary:focus,
+.btn-primary.focus,
+.btn-primary:not(:disabled):not(.disabled):active:focus {
+    box-shadow: 0 0 0 0.2rem rgba(247, 88, 111, 0.4);
 }
 
 .btn-outline-primary {
@@ -148,7 +170,8 @@ textarea::placeholder {
   background-color: rgba(255, 255, 255, 0.06) !important;
 }
 
-.table a {
+/* Links only: link-styled buttons (e.g. "Create") keep their own button colours. */
+.table a:not(.btn) {
   color: #ff5f7a !important;
 }
 

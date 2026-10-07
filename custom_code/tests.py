@@ -3898,6 +3898,19 @@ class CatalogServiceRegistrationTests(TestCase):
         self.assertIn('OGLE OCVS', get_service_classes())
         self.assertIn('OGLEOCVS', _get_data_service_classes())
 
+    def test_alerce_is_listed_in_catalog_services(self):
+        from tom_catalogs.harvester import get_service_classes
+
+        self.assertIn('ALeRCE', get_service_classes())
+
+    def test_alerce_recognises_ztf_object_ids(self):
+        from custom_code.bhtom_catalogs.harvesters.alerce import get_all, ztf_oid
+
+        self.assertEqual(ztf_oid(' ztf24AAIPBLM '), 'ZTF24aaipblm')
+        self.assertIsNone(ztf_oid('SN 2023ixf'))
+        # A name that is not a ZTF id is not sent to ALeRCE, even with coordinates.
+        self.assertEqual(get_all('SN 2023ixf', 210.9, 54.3), [])
+
     def test_moa_is_listed_in_catalog_services(self):
         from tom_catalogs.harvester import get_service_classes
 

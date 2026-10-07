@@ -138,6 +138,7 @@ from custom_code.geosat import (
 )
 from custom_code.data_services.geosat_dataservice import GeoSatDataService
 from custom_code.tasks import enqueue_target_dataservices_update
+from custom_code.bhtom_catalogs.harvesters import alerce as alerce_harvester
 from custom_code.bhtom_catalogs.harvesters import gaia_alerts as gaia_alerts_harvester
 from custom_code.bhtom_catalogs.harvesters import ogle_ews as ogle_ews_harvester
 from custom_code.bhtom_catalogs.harvesters import ogle_ocvs as ogle_ocvs_harvester
@@ -165,6 +166,7 @@ LIST_OBSERVER_PRESETS = {
 }
 GENERIC_TARGET_SEARCH_RADIUS_ARCSEC = 3.0
 ALL_CATALOG_QUERY_SERVICE_NAMES = (
+    'ALeRCE',
     'ExoClock',
     'Gaia Alerts',
     'Gaia DR3',
@@ -674,6 +676,8 @@ def _catalog_query_services_for_input(cleaned_data):
         if service_name == 'ExoClock' and not is_exoplanet_like:
             continue
         if service_name == 'JPL Horizons' and not is_solar_system_like:
+            continue
+        if service_name == 'ALeRCE' and not alerce_harvester.ztf_oid(term):
             continue
         filtered_service_names.append(service_name)
     return filtered_service_names or service_names
@@ -3245,6 +3249,8 @@ def _guess_alias_source(alias_name, url=''):
         return 'DESI'
     if upper.startswith('CRTS'):
         return 'CRTS'
+    if alerce_harvester.ztf_oid(value):
+        return 'Alerce'
     return 'Other'
 
 
@@ -3300,6 +3306,13 @@ def _target_create_params(target):
 
 def _get_catalog_matches(service_name, cleaned_data):
     term = (cleaned_data.get('term') or '').strip()
+    if service_name == 'ALeRCE':
+        return alerce_harvester.get_all(
+            term,
+            cleaned_data.get('ra'),
+            cleaned_data.get('dec'),
+            cleaned_data.get('radius_arcsec') or GENERIC_TARGET_SEARCH_RADIUS_ARCSEC,
+        )
     if service_name == 'Gaia Alerts':
         return gaia_alerts_harvester.get_all(term)
     if service_name == 'Gaia DR3':
@@ -3334,6 +3347,10 @@ def _get_catalog_matches(service_name, cleaned_data):
 
 
 def _build_catalog_target_from_match(service_name, match):
+    if service_name == 'ALeRCE':
+        harvester = alerce_harvester.AlerceHarvester()
+        harvester.catalog_data = match
+        return harvester.to_target()
     if service_name == 'Gaia Alerts':
         return _build_gaia_alerts_catalog_target(match)
     if service_name == 'Gaia DR3':
@@ -3357,7 +3374,10 @@ def _build_catalog_target_from_match(service_name, match):
 
 def _build_catalog_result_row(service_name, index, match):
     target = _build_catalog_target_from_match(service_name, match)
-    if service_name == 'Gaia Alerts':
+    if service_name == 'ALeRCE':
+        view_url = alerce_harvester.object_url(target.name)
+        summary = alerce_harvester.summary(match)
+    elif service_name == 'Gaia Alerts':
         view_url = f'https://gsaweb.ast.cam.ac.uk/alerts/alert/{target.name}' if target.name else gaia_alerts_harvester.GAIA_ALERTS_CSV_URL
         summary = str(match.get('Comment') or '').strip()
     elif service_name == 'OGLE EWS':
@@ -3931,7 +3951,7 @@ class BhtomCatalogQueryView(FormView):
         if matches:
             return self._render_catalog_results(form, matches)
 
-        if service_name in {'Gaia Alerts', 'Gaia DR3', 'OGLE EWS', 'OGLE OCVS', 'Simbad'}:
+        if service_name in {'ALeRCE', 'Gaia Alerts', 'Gaia DR3', 'OGLE EWS', 'OGLE OCVS', 'Simbad'}:
             error_target = 'ra' if service_name == 'Simbad' else 'term'
             form.add_error(error_target, ValidationError('Object not found'))
             return self.form_invalid(form)
