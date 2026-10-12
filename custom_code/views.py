@@ -3251,6 +3251,8 @@ def _guess_alias_source(alias_name, url=''):
         return 'CRTS'
     if upper.startswith('OZDES_'):
         return 'OzDES'
+    if upper.startswith('RAVE '):
+        return 'RAVE'
     if alerce_harvester.ztf_oid(value):
         return 'Alerce'
     return 'Other'

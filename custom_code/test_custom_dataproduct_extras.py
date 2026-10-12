@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 from plotly import graph_objects as go
 
 from custom_code.templatetags.custom_dataproduct_extras import (
@@ -58,3 +58,34 @@ class SpectrumTimeTraceTests(SimpleTestCase):
 
         self.assertEqual(_spectrum_source_label(datum), 'Imported spectra')
         self.assertEqual(_spectrum_time_traces([datum]), [])
+
+
+class SpectroscopyUnitTests(TestCase):
+    def test_normalised_spectra_get_their_own_axis_and_bad_units_are_skipped(self):
+        import json
+
+        from tom_dataproducts.models import ReducedDatum
+        from tom_targets.models import Target
+
+        from custom_code.templatetags.custom_dataproduct_extras import custom_spectroscopy_for_target
+
+        target = Target.objects.create(name='spectrum-units', type='SIDEREAL', ra=1.0, dec=2.0, epoch=2000)
+        base = {'wavelength': [8500.0, 8501.0], 'wavelength_units': 'Angstrom'}
+        for day, flux_units, source in (
+            (1, '', 'RAVE'),                                   # continuum-normalised
+            (2, 'erg / (Angstrom cm2 s)', 'SDSS'),             # calibrated flux density
+            (3, 'ct', '2dFGRS'),                               # counts
+            (4, 'm', 'Broken'),                                # not convertible: skipped
+        ):
+            ReducedDatum.objects.create(
+                target=target, data_type='spectroscopy', source_name=source,
+                timestamp=datetime(2020, 1, day, tzinfo=timezone.utc),
+                value={**base, 'flux': [0.9, 1.0], 'flux_units': flux_units},
+            )
+
+        spectra = json.loads(custom_spectroscopy_for_target({}, target)['spectra_data'])
+
+        self.assertEqual([spectrum['unit'] for spectrum in spectra],
+                         ['normalised', 'erg / (Angstrom s cm2)', 'ct'])
+        self.assertEqual(spectra[0]['flux'], [0.9, 1.0])
+

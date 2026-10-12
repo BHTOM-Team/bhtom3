@@ -971,6 +971,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # Level-3 products are centred on the proposed target position.
         query_parameters['radius_arcsec'] = 3.0
 
+    if service_name == 'RAVE':
+        # RAVE input positions come from Tycho-2 / 2MASS / DENIS and are good to well under 1".
+        query_parameters['radius_arcsec'] = 3.0
+
     if service_name == 'OzDES':
         # OzDES targets are DES positions; 2dF fibres are 2.1" across.
         query_parameters['radius_arcsec'] = 2.0

@@ -10,6 +10,7 @@ from plotly.subplots import make_subplots
 import numpy as np
 import astropy.units as u
 import json
+import logging
 
 from tom_dataproducts.models import ReducedDatum
 from tom_dataproducts.processors.data_serializers import SpectrumSerializer
@@ -20,6 +21,7 @@ from custom_code.forms import BhtomDataProductUploadForm
 
 
 register = template.Library()
+logger = logging.getLogger(__name__)
 
 
 @register.inclusion_tag('tom_dataproducts/partials/upload_dataproduct.html', takes_context=True)
@@ -1131,6 +1133,14 @@ def custom_spectroscopy_for_target(context, target, dataproduct=None):
             "unit": unit_str,
             "label": label
             })
+        elif spectrum.flux.unit == u.dimensionless_unscaled:
+            # Continuum-normalised spectra (e.g. RAVE) have no flux scale: own axis.
+            spectra_json.append({
+                "wavelength": spectrum.wavelength.value.tolist(),
+                "flux": spectrum.flux.value.tolist(),
+                "unit": 'normalised',
+                "label": label,
+            })
         else:
             #flux_other_data.append(
             #    go.Scatter(
@@ -1141,7 +1151,12 @@ def custom_spectroscopy_for_target(context, target, dataproduct=None):
             #    )
             #)
             wavelength = spectrum.wavelength.value.tolist()
-            flux = spectrum.flux.to(u.erg / (u.cm**2 * u.s * u.AA)).value.tolist()
+            try:
+                flux = spectrum.flux.to(u.erg / (u.cm**2 * u.s * u.AA)).value.tolist()
+            except u.UnitConversionError:
+                # One spectrum in an unexpected unit must not break the whole plot.
+                logger.warning('Spectrum %s has unsupported flux unit %s', datum.pk, spectrum.flux.unit)
+                continue
             unit_str = str(u.erg / (u.cm**2 * u.s * u.AA))
             spectra_json.append({
             "wavelength": wavelength,

@@ -166,6 +166,10 @@ function updateSpectraPlot() {
     if (spec.unit === 'ct') {
       trace.yaxis = 'y2';
       trace.name += " (counts)";
+    } else if (spec.unit === 'normalised') {
+      trace.yaxis = 'y3';
+      trace.name += " (normalised)";
+      trace.hovertemplate = 'λ=%{x:.2f}<br>norm. flux=%{y:.3f}<extra>%{fullData.name}</extra>';
     }
 
     traces.push(trace);
@@ -250,6 +254,19 @@ function updateSpectraPlot() {
   shapes: shapes,
   annotations: annotations
 };
+
+  // Continuum-normalised spectra get a third axis, outside the counts axis on the right.
+  if (spectraData.some(spec => spec.unit === 'normalised')) {
+    layout.xaxis.domain = [0, 0.9];
+    layout.yaxis3 = {
+      title: "Normalised flux",
+      overlaying: 'y',
+      side: 'right',
+      anchor: 'free',
+      position: 1.0,
+      showgrid: false
+    };
+  }
 
   Plotly.react('spectra-plot', traces, layout, {responsive: true});
   Plotly.relayout('spectra-plot', {

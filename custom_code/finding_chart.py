@@ -46,6 +46,7 @@ SERVICE_CLASSES = {
     'PGIR': ('pgir', 'PGIRDataService'),
     'PTF': ('ptf', 'PTFDataService'),
     'RAPAS': ('rapas', 'RAPASDataService'),
+    'RAVE': ('rave', 'RAVEDataService'),
     'RXTEASM': ('rxte_asm', 'RXTEASMDataService'),
     'SDSS': ('sdss', 'SDSSDataService'),
     'SkyMapper': ('skymapper', 'SkyMapperDataService'),
