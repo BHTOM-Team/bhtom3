@@ -8,7 +8,7 @@ from urllib.parse import quote, urlencode
 from tom_dataproducts.models import ReducedDatum
 
 from custom_code.astrometry import can_compute_current_coordinates
-from custom_code.finding_chart import SERVICE_CLASSES, survey_overlays
+from custom_code.finding_chart import SERVICE_CLASSES, fibre_overlays, survey_overlays
 from custom_code.sun_separation import get_live_target_values
 
 register = template.Library()
@@ -21,9 +21,18 @@ def survey_finderchart(context, target):
         ReducedDatum.objects.filter(target=target, source_name__in=SERVICE_CLASSES)
         .values_list('source_name', flat=True).distinct()
     )
+    overlays = survey_overlays(_target_other_names(target), sources)
+    # Only the fibre keys are read, not the (large) flux arrays of the spectra.
+    fibres = ReducedDatum.objects.filter(
+        target=target, data_type='spectroscopy', value__has_key='fiber_diameter_arcsec',
+    ).values_list('value__instrument', 'value__fiber_ra', 'value__fiber_dec', 'value__fiber_diameter_arcsec')
+    overlays += fibre_overlays(
+        [dict(zip(('instrument', 'fiber_ra', 'fiber_dec', 'fiber_diameter_arcsec'), row)) for row in fibres],
+        start_index=len(overlays),
+    )
     return {
         'target': target,
-        'survey_overlays': survey_overlays(_target_other_names(target), sources),
+        'survey_overlays': overlays,
     }
 
 

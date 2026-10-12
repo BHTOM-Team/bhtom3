@@ -82,6 +82,51 @@ def survey_overlays(other_names, additional_sources=()):
         overlays.append({
             'name': f'{source} ({radius_label}{detail})',
             'radius_arcsec': radius,
-            'color': f'hsl({(index * 137.508 + 35) % 360:.0f}, 90%, 60%)',
+            'color': _overlay_color(index),
         })
     return overlays
+
+
+def _overlay_color(index):
+    return f'hsl({(index * 137.508 + 35) % 360:.0f}, 90%, 60%)'
+
+
+def fibre_overlays(fibres, start_index=0):
+    """Circles of the spectrograph fibres that took a target's spectra.
+
+    `fibres` are dicts with instrument, fiber_ra, fiber_dec and fiber_diameter_arcsec, as stored
+    in the spectrum values of SDSS/BOSS/APOGEE and DESI. One layer per instrument and fibre size,
+    with a circle at every distinct fibre position, so a fibre that also covered a neighbour (or
+    was placed off the target) is visible.
+    """
+    groups = {}
+    for fibre in fibres:
+        try:
+            ra = float(fibre['fiber_ra'])
+            dec = float(fibre['fiber_dec'])
+            diameter = float(fibre['fiber_diameter_arcsec'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(ra) and math.isfinite(dec) and math.isfinite(diameter) and diameter > 0):
+            continue
+        instrument = str(fibre.get('instrument') or 'Fibre')
+        group = groups.setdefault((instrument, diameter), {'positions': {}, 'count': 0})
+        group['count'] += 1
+        # Repeat spectra through the same fibre position (within ~0.04") share one circle.
+        group['positions'].setdefault((round(ra, 5), round(dec, 5)), (ra, dec))
+
+    overlays = []
+    for offset, ((instrument, diameter), group) in enumerate(
+            sorted(groups.items(), key=lambda item: (item[0][0].casefold(), item[0][1]))):
+        count = group['count']
+        overlays.append({
+            'name': f'{instrument} fibre ({diameter:g}\u2033 diameter, {count} spectr{"um" if count == 1 else "a"})',
+            'radius_arcsec': diameter / 2.0,
+            'circles': [
+                {'ra': ra, 'dec': dec, 'radius_arcsec': diameter / 2.0}
+                for ra, dec in group['positions'].values()
+            ],
+            'color': _overlay_color(start_index + offset),
+        })
+    return overlays
+

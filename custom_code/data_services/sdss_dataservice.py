@@ -16,6 +16,7 @@ from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import SDSSQueryForm
+from custom_code.data_services.service_utils import upsert_reduced_datums
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,12 @@ def _build_sdss_spectroscopy_query(ra,dec,rad):
     a.mjd,
     a.sas_url,
     a.apogee_id,
+    a.ra AS fiber_ra,
+    a.dec AS fiber_dec,
+    a.instrument,
+    a.observatory,
+    a.fiberid,
+    a.plate_or_fps_field,
     dbo.fDistanceEq(a.ra, a.dec, {ra}, {dec}) AS distance
     FROM AllSpec AS a
     WHERE
@@ -51,6 +58,37 @@ def _build_sdss_spectroscopy_query(ra,dec,rad):
     AND dbo.fDistanceEq(a.ra, a.dec, {ra}, {dec}) <= {rad/60.0}
     ORDER BY distance, a.mjd
     """
+
+# Fibre diameters on the sky (arcsec). The SDSS spectrograph (SDSS-I/II) used 3" fibres, the
+# BOSS spectrographs (BOSS, eBOSS, SDSS-V) and APOGEE at APO 2" fibres; at Las Campanas the
+# du Pont plate scale makes the same fibres 1.3".
+SDSS_FIBER_DIAMETER_ARCSEC = {('sdss', 'APO'): 3.0, ('boss', 'APO'): 2.0, ('apogee', 'APO'): 2.0,
+                              ('boss', 'LCO'): 1.3, ('apogee', 'LCO'): 1.3}
+SDSS_FIBER_LABELS = {'sdss': 'SDSS', 'boss': 'BOSS', 'apogee': 'APOGEE'}
+
+
+def _fiber_info(datum):
+    """Fibre position, diameter and instrument of one AllSpec row (empty if not a fibre)."""
+    instrument = str(datum.get('instrument') or '').strip().lower()
+    observatory = str(datum.get('observatory') or '').strip().upper()
+    diameter = SDSS_FIBER_DIAMETER_ARCSEC.get((instrument, observatory))
+    fiber_ra, fiber_dec = _to_float(datum.get('fiber_ra')), _to_float(datum.get('fiber_dec'))
+    if diameter is None or fiber_ra is None or fiber_dec is None:
+        return {}
+    info = {
+        'instrument': SDSS_FIBER_LABELS[instrument],
+        'observatory': observatory,
+        'fiber_ra': round(fiber_ra, 7),
+        'fiber_dec': round(fiber_dec, 7),
+        'fiber_diameter_arcsec': diameter,
+    }
+    for key in ('fiberid', 'plate_or_fps_field'):
+        value = datum.get(key)
+        # SDSS-V robotic (FPS) spectra carry fiberid = -999, a placeholder.
+        if value is not None and not pd.isna(value) and str(value).strip() and str(value).strip() != '-999':
+            info[key] = str(value).strip()
+    return info
+
 
 def _build_sdss_page_url(id):
     return f"https://skyserver.sdss.org/dr19/VisualTools/explore/summary?id={id}"
@@ -191,6 +229,14 @@ class SDSSDataService(DataService):
         if data_type not in {'photometry', 'spectroscopy'} or not data:
             return
         source_location = kwargs.get('source_location') or self.info_url
+        if data_type == 'spectroscopy':
+            # Match stored spectra by type and flux so a re-query fills in keys added later
+            # (fibre position and size) instead of storing the spectrum a second time.
+            upsert_reduced_datums(
+                target=target, data_type=data_type, source_name=self.name, source_location=source_location,
+                datums=data, identity_keys=('spectrum_type', 'flux'),
+            )
+            return
         for datum in data:
             ReducedDatum.objects.get_or_create(
                 target=target,
@@ -299,7 +345,8 @@ class SDSSDataService(DataService):
                     serialized.update({
                         'filter': 'APOGEE',
                         'source_id': str(sdss_id),
-                        'spectrum_type': 'SDSS_APOGEE_spectrum',})
+                        'spectrum_type': 'SDSS_APOGEE_spectrum',
+                        **_fiber_info(datum),})
                     output.append({
                         'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
                         'value': serialized,})
@@ -319,7 +366,8 @@ class SDSSDataService(DataService):
                     serialized.update({
                             'filter': 'SDSS',
                             'source_id': str(sdss_id),
-                            'spectrum_type': 'SDSS_OPTICAL_spectrum',})
+                            'spectrum_type': 'SDSS_OPTICAL_spectrum',
+                            **_fiber_info(datum),})
                     output.append({
                             'timestamp': Time(mjd, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),
                             'value': serialized,})

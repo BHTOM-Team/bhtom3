@@ -13,18 +13,19 @@ import pandas as pd
 from io import StringIO
 
 from tom_dataservices.dataservices import DataService
-from tom_dataproducts.models import ReducedDatum
 from tom_targets.models import Target, TargetName
 
 from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 from custom_code.data_services.forms import DESIQueryForm
-from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
+from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT, upsert_reduced_datums
 
 
 
 logger = logging.getLogger(__name__)
 
 DESI_PAGE_URL = 'https://data.desi.lbl.gov/doc/releases/dr1/'
+# DESI fibres are 107 um across, ~1.5" on the sky (1.46-1.52" depending on focal-plane position).
+DESI_FIBER_DIAMETER_ARCSEC = 1.5
 
 
 def _desi_source_location(id):
@@ -79,6 +80,7 @@ class DESIDataService(DataService):
         spec_id = None
         time = None
         spectra_data = None
+        fiber = {}
         
 
         if ra is None or dec is None:
@@ -112,6 +114,18 @@ class DESIDataService(DataService):
                 cat_name = datalab_table['desiname'][0]
                 spec_id = datalab_table['targetid'][0]
                 time = datalab_table['mean_mjd'][0]
+                fiber_ra = _to_float(datalab_table['mean_fiber_ra'][0])
+                fiber_dec = _to_float(datalab_table['mean_fiber_dec'][0])
+                if fiber_ra is not None and fiber_dec is not None:
+                    fiber = {
+                        'instrument': 'DESI',
+                        'fiber_ra': round(fiber_ra, 7),
+                        'fiber_dec': round(fiber_dec, 7),
+                        'fiber_diameter_arcsec': DESI_FIBER_DIAMETER_ARCSEC,
+                    }
+                    for key in ('survey', 'program'):
+                        if key in datalab_table.columns and not pd.isna(datalab_table[key][0]):
+                            fiber[f'desi_{key}'] = str(datalab_table[key][0])
                 specids = [int(spec_id)]
                 find_url = "https://astrosparcl.datalab.noirlab.edu/api/find/?limit=500"
                 find_payload = {
@@ -145,6 +159,7 @@ class DESIDataService(DataService):
             'spec_id':spec_id or None,
             'time':time or None,
             'spectroscopy_data': spectra_data or None,
+            'fiber': fiber,
             'source_location':_desi_source_location(spec_id),
             'ra': ra,
             'dec': dec,
@@ -168,7 +183,7 @@ class DESIDataService(DataService):
             'ra': ra,
             'dec': dec,
             'aliases': [cat_name],
-            'reduced_datums': {'spectroscopy': self._build_spectroscopy_datums(spectroscopy_data,time,cat_name)},
+            'reduced_datums': {'spectroscopy': self._build_spectroscopy_datums(spectroscopy_data, time, cat_name, data.get('fiber'))},
             'source_location': data.get('source_location'),
         }]
 
@@ -188,17 +203,12 @@ class DESIDataService(DataService):
         if data_type != 'spectroscopy' or not data:
             return
         source_location = kwargs.get('source_location') or self.info_url
-        for datum in data:
-            ReducedDatum.objects.get_or_create(
-                target=target,
-                data_type='spectroscopy',
-                timestamp=datum['timestamp'],
-                value=datum['value'],
-                defaults={
-                    'source_name': self.name,
-                    'source_location': source_location,
-                },
-            )
+        # Match stored spectra by type and flux so a re-query fills in keys added later
+        # (fibre position and size) instead of storing the spectrum a second time.
+        upsert_reduced_datums(
+            target=target, data_type='spectroscopy', source_name=self.name, source_location=source_location,
+            datums=data, identity_keys=('spectrum_type', 'flux'),
+        )
 
 
     def to_reduced_datums(self, target, data_results=None, **kwargs):
@@ -212,7 +222,7 @@ class DESIDataService(DataService):
                 source_location=self.query_results.get('source_location') or self.info_url,
             )
 
-    def _build_spectroscopy_datums(self, spec_data, time,cat_name):
+    def _build_spectroscopy_datums(self, spec_data, time, cat_name, fiber=None):
         output = []
         serializer = SpectrumSerializer()
         wlength = np.array(spec_data['wavelength'])
@@ -226,6 +236,7 @@ class DESIDataService(DataService):
                 'filter': 'DESI-DR1',
                 'source_id': str(cat_name),
                 'spectrum_type': 'DESI_DR1_spectrum',
+                **(fiber or {}),
             })
         output.append({
                 'timestamp': Time(time, format='mjd', scale='utc').to_datetime(timezone=timezone.utc),

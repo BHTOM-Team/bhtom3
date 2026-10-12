@@ -65,14 +65,20 @@
 
       // One graphic layer per service gives each radius its own checkbox in
       // Aladin's Overlay layers menu. Keep them independent of chart annotations.
+      // Search radii are centred on the target; spectrograph fibres (item.circles) are drawn at
+      // the fibre positions that were actually observed.
       overlays.forEach(function (item) {
         const layer = A.graphicOverlay({name: item.name, color: item.color, lineWidth: 2});
         aladin.addOverlay(layer);
-        layer.add(A.circle(ra, dec, item.radius_arcsec / 3600));
+        const circles = item.circles || [{ra: ra, dec: dec, radius_arcsec: item.radius_arcsec}];
+        circles.forEach(function (circle) {
+          layer.add(A.circle(circle.ra, circle.dec, circle.radius_arcsec / 3600));
+        });
         layer.hide();
         const show = layer.show.bind(layer);
         layer.show = function () {
-          const diameter = item.radius_arcsec * 2.2 / 3600;
+          // Fibres are tiny: zoom so the circle is clearly visible (at least ~10 arcsec field).
+          const diameter = Math.max(item.radius_arcsec * 2.2, item.circles ? 10 : 0) / 3600;
           if (aladin.getFov()[0] < diameter) {
             aladin.setFov(diameter);
             fieldUnits.value = 'deg';
