@@ -180,6 +180,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | Alerce | ZTF alert photometry | [ALeRCE broker](https://alerce.online/) |
 | AllWISE | W1, W2 photometry | [IRSA AllWISE](https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?submit=Select&projshort=WISE) |
 | ALMA | mm/sub-mm flux densities (mJy) of ALMA calibrators, Bands 1–10, 2011 onwards (right-hand axis of the photometry plot) | [ALMA Calibrator Source Catalogue](https://almascience.eso.org/alma-data/calibrator-catalogue) |
+| APPLAUSE | Historical photographic-plate photometry (~1900–1980s; Hamburg, Bamberg, Potsdam, Tartu, Tautenburg …), one Gaia-calibrated natural-system magnitude per plate, grouped as photovisual (pv), blue (pg) and UV plates (~0.1–0.4 mag) | [APPLAUSE DR4 TAP](https://www.plate-archive.org/) |
 | ASASSN | V, g light curves | [ASAS-SN Sky Patrol](http://asas-sn.ifa.hawaii.edu/skypatrol) |
 | ATCA | cm flux densities (mJy) of ATCA calibrators at 2.1, 5.5, 9, 17, 33 and 93 GHz, 1990s onwards, from the per-epoch band models (right-hand radio axis of the photometry plot) | [ATCA Calibrator Database](https://www.narrabri.atnf.csiro.au/calibrators/) |
 | ATLAS | c, o forced photometry (requires an ATLAS account) | [ATLAS Forced Photometry Server](https://fallingstar-data.com/forcedphot/) |

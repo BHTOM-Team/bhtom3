@@ -963,6 +963,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # Swift-XRT 90% position errors are a few arcsec.
         query_parameters['radius_arcsec'] = 10.0
 
+    if service_name == 'APPLAUSE':
+        # Plate astrometry of the patrol cameras is good to a few arcsec.
+        query_parameters['radius_arcsec'] = 5.0
+
     if service_name == 'SuperCOSMOS':
         # Plate astrometry is good to ~0.3"; a wider cone mostly adds neighbours.
         query_parameters['radius_arcsec'] = 3.0

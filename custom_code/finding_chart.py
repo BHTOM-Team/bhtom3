@@ -10,6 +10,7 @@ SERVICE_CLASSES = {
     'Alerce': ('alerce', 'AlerceDataService'),
     'AllWISE': ('allwise', 'AllWISEDataService'),
     'ALMA': ('alma', 'ALMADataService'),
+    'APPLAUSE': ('applause', 'APPLAUSEDataService'),
     'ASASSN': ('asassn', 'ASASSNDataService'),
     'ATCA': ('atca', 'ATCADataService'),
     'ATLAS': ('atlas', 'ATLASDataService'),
