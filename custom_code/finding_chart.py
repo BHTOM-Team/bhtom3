@@ -11,6 +11,7 @@ SERVICE_CLASSES = {
     'AllWISE': ('allwise', 'AllWISEDataService'),
     'ALMA': ('alma', 'ALMADataService'),
     'ASASSN': ('asassn', 'ASASSNDataService'),
+    'ATCA': ('atca', 'ATCADataService'),
     'ATLAS': ('atlas', 'ATLASDataService'),
     'BGDS': ('bgds', 'BGDSDataService'),
     'CRTS': ('crts', 'CRTSDataService'),

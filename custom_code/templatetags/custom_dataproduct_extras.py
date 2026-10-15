@@ -361,6 +361,13 @@ RADIO_COLOR_MAP = {
     'ALMA(B8)': ['#dc2626', 'star', 6],
     'ALMA(B9)': ['#be185d', 'star', 6],
     'ALMA(B10)': ['#7e22ce', 'star', 6],
+    # ATCA calibrator bands (cm): diamonds, cool (low frequency) to warm (high frequency).
+    'ATCA(2.1GHz)': ['#0f172a', 'diamond', 6],
+    'ATCA(5.5GHz)': ['#334155', 'diamond', 6],
+    'ATCA(9GHz)': ['#0e7490', 'diamond', 6],
+    'ATCA(17GHz)': ['#15803d', 'diamond', 6],
+    'ATCA(33GHz)': ['#b45309', 'diamond', 6],
+    'ATCA(93GHz)': ['#b91c1c', 'diamond', 6],
 }
 
 

@@ -919,6 +919,10 @@ def _build_query_parameters_for_service(target, service_name, service, force=Fal
         # NSC objects are dense in the DES deep fields; 5" would often pick a neighbour.
         query_parameters['radius_arcsec'] = 1.5
 
+    if service_name == 'ATCA':
+        # ATCA calibrator positions are VLBI-grade; 5" allows for a loosely positioned target.
+        query_parameters['radius_arcsec'] = 5.0
+
     if service_name == 'ALMA':
         # Calibrator positions are VLBI-grade; 5" allows for a loosely positioned target.
         query_parameters['radius_arcsec'] = 5.0
