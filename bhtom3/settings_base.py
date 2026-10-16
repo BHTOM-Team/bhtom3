@@ -7,6 +7,7 @@ import pkgutil
 import ast
 import tempfile
 import importlib.util
+from importlib.metadata import PackageNotFoundError, version as package_version
 
 from dotenv import dotenv_values
 
@@ -97,6 +98,11 @@ SECRET_KEY = secret.get("SECRET_KEY", '')
 
 TOM_NAME = 'bhtom3'
 
+try:
+    TOMTOOLKIT_MAJOR_VERSION = int(package_version('tomtoolkit').split('.')[0])
+except (PackageNotFoundError, ValueError):
+    TOMTOOLKIT_MAJOR_VERSION = 0
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -129,6 +135,10 @@ INSTALLED_APPS = [
     'django_tasks.backends.database',
     'tom_swift',
 ]
+
+if TOMTOOLKIT_MAJOR_VERSION >= 3:
+    # tomtoolkit 3.x templates load django_bootstrap5
+    INSTALLED_APPS.insert(INSTALLED_APPS.index('bootstrap4') + 1, 'django_bootstrap5')
 
 if ORCID_ENABLED and ORCID_ALLAUTH_AVAILABLE:
     INSTALLED_APPS += [

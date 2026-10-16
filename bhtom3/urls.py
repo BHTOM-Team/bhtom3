@@ -115,11 +115,15 @@ urlpatterns = [
         UpdateReducedDataAndDataServicesView.as_view(),
         name='update-reduced-data-services',
     ),
-    # tomtoolkit 3.x no longer registers these in tom_common.urls
-    path('alerts/', include('tom_alerts.urls', namespace='alerts')),
-    path('catalogs/', include('tom_catalogs.urls', namespace='catalogs')),
     path('', include('tom_common.urls')),
 ]
+
+if getattr(settings, 'TOMTOOLKIT_MAJOR_VERSION', 0) >= 3:
+    # tomtoolkit 3.x no longer registers these in tom_common.urls (2.x does)
+    urlpatterns[-1:-1] = [
+        path('alerts/', include('tom_alerts.urls', namespace='alerts')),
+        path('catalogs/', include('tom_catalogs.urls', namespace='catalogs')),
+    ]
 
 if getattr(settings, 'ORCID_ENABLED', True):
     urlpatterns.insert(-1, path('accounts/social/orcid/login/', OrcidLoginView.as_view(), name='orcid_login'))
