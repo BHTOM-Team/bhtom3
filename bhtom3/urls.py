@@ -115,6 +115,9 @@ urlpatterns = [
         UpdateReducedDataAndDataServicesView.as_view(),
         name='update-reduced-data-services',
     ),
+    # tomtoolkit 3.x no longer registers these in tom_common.urls
+    path('alerts/', include('tom_alerts.urls', namespace='alerts')),
+    path('catalogs/', include('tom_catalogs.urls', namespace='catalogs')),
     path('', include('tom_common.urls')),
 ]
 
