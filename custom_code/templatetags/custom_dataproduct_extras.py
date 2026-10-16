@@ -928,6 +928,73 @@ HIGHENERGY_FILTER_ORDER = [
 ]
 
 
+NEUTRINO_DATA_TYPE = 'neutrino'
+# Association strength from the IceCube service's per-event signal/background weight.
+# Low-association events are drawn hollow and faint: they are most likely atmospheric background.
+NEUTRINO_ASSOCIATION_STYLE = [
+    ('high', '#16a34a', 'circle', 0.85),
+    ('low', '#dc2626', 'circle-open', 0.3),
+]
+
+
+def _neutrino_events_for_target(context, target):
+    """IceCube events matched to the target, oldest first, as plain dicts for the strip plot."""
+    datums = ReducedDatum.objects.filter(target=target, data_type=NEUTRINO_DATA_TYPE)
+    if not settings.TARGET_PERMISSIONS_ONLY:
+        datums = get_objects_for_user(context['request'].user, 'tom_dataproducts.view_reduceddatum', klass=datums)
+    events = []
+    for datum in datums.order_by('timestamp'):
+        value = datum.value if isinstance(datum.value, dict) else {}
+        energy = value.get('log10_energy_gev')
+        if not isinstance(energy, (int, float)):
+            continue
+        events.append({'time': datum.timestamp, **value})
+    return events
+
+
+def _neutrino_association(event):
+    from custom_code.data_services.icecube_dr2_dataservice import association_level, association_log10_sb
+    log10_sb = event.get('log10_sb')
+    if not isinstance(log10_sb, (int, float)):
+        # Rows stored without the score: rank by AngErr and offset against a uniform background.
+        try:
+            log10_sb = float(association_log10_sb(
+                float(event['separation_deg']), float(event['ang_err_deg']), 1 / (4 * np.pi)))
+        except (KeyError, TypeError, ValueError):
+            return 'low'
+    return association_level(log10_sb)
+
+
+def _neutrino_strip_traces(events, yaxis):
+    """One circle per neutrino at its arrival time and energy, coloured by association strength."""
+    traces = []
+    for level, color, symbol, opacity in NEUTRINO_ASSOCIATION_STYLE:
+        group = [event for event in events if _neutrino_association(event) == level]
+        if not group:
+            continue
+        traces.append(go.Scatter(
+            x=[event['time'] for event in group],
+            y=[event['log10_energy_gev'] for event in group],
+            yaxis=yaxis,
+            mode='markers',
+            name=f'IceCube Tracks ({level})',
+            marker=dict(symbol=symbol, size=6, color=color, opacity=opacity),
+            text=Time([event['time'] for event in group], format='datetime').mjd,
+            customdata=[
+                [event.get('ang_err_deg'), event.get('separation_deg'), event.get('log10_sb', '')]
+                for event in group
+            ],
+            hovertemplate=(
+                '%{x|%Y/%m/%d %H:%M:%S}<br>MJD= %{text:.5f}'
+                '<br>log<sub>10</sub>E/GeV= %{y:.2f}'
+                '<br>AngErr= %{customdata[0]:.2f}°, separation= %{customdata[1]:.2f}°'
+                f'<br>association: {level} (log<sub>10</sub> S/B= %{{customdata[2]}})'
+                '<extra>IceCube DR2</extra>'
+            ),
+        ))
+    return traces
+
+
 def _build_highenergy_plot(context, target, width=1000, height=600, background=None, label_color=None, grid=True):
     try:
         highenergy_data_type = settings.DATA_PRODUCT_TYPES['highenergy'][0]
@@ -947,8 +1014,9 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
             'tom_dataproducts.view_reduceddatum',
             klass=ReducedDatum.objects.filter(target=target, data_type=highenergy_data_type),
         )
+    neutrino_events = _neutrino_events_for_target(context, target)
 
-    if not datums.exists():
+    if not datums.exists() and not neutrino_events:
         return None
 
     for datum in datums:
@@ -1056,6 +1124,14 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
             )
         )
 
+    has_light_curve = bool(plot_data)
+    if neutrino_events:
+        # Light curve present: the neutrinos get a strip of their own under it (yaxis3), sharing
+        # the date axis. Neutrinos only: they take the whole, shorter, plot on the main y axis.
+        plot_data.extend(_neutrino_strip_traces(neutrino_events, 'y3' if has_light_curve else 'y'))
+        if not has_light_curve:
+            height = max(250, int(height * 0.45))
+
     fig = go.Figure(
         data=plot_data,
         layout=go.Layout(height=height, width=width, paper_bgcolor=background, plot_bgcolor=background),
@@ -1065,18 +1141,29 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
     has_relative_axis = any(
         name not in flux_axis_filters for name in list(detection_data) + list(limits_data)
     )
+    has_strip = bool(neutrino_events) and has_light_curve
     fig.update_layout(
         showlegend=True,
         margin=dict(t=40, r=100 if has_flux_axis else 20, b=40, l=80),
         xaxis=dict(autorange=True, title='date', showgrid=grid, color=label_color,
-                   showline=True, linecolor=label_color, mirror=not has_flux_axis),
+                   showline=True, linecolor=label_color, mirror=not (has_flux_axis or has_strip),
+                   anchor='y3' if has_strip else 'y'),
         yaxis=dict(autorange=True, title='relative flux', showgrid=grid, color=label_color,
                    showline=True, linecolor=label_color, mirror=not has_flux_axis, zeroline=True,
-                   visible=has_relative_axis or not has_flux_axis),
+                   visible=has_relative_axis or not has_flux_axis,
+                   domain=[0.3, 1.0] if has_strip else [0.0, 1.0]),
         legend=dict(yanchor='top', y=-0.15, xanchor='left', x=0.0, orientation='h',
                     font=dict(color=label_color)),
         clickmode='event+select',
     )
+    neutrino_axis = dict(
+        autorange=True, title='ν log<sub>10</sub>E<br>(GeV)', showgrid=grid, color=label_color,
+        showline=True, linecolor=label_color, mirror=True, zeroline=False,
+    )
+    if has_strip:
+        fig.update_layout(yaxis3=dict(domain=[0.0, 0.22], anchor='x', **neutrino_axis))
+    elif neutrino_events:
+        fig.update_layout(yaxis=neutrino_axis)
     if has_flux_axis:
         fig.update_layout(
             yaxis2=dict(

@@ -66,6 +66,7 @@ class CustomCodeConfig(AppConfig):
             {'class': f'{self.name}.data_services.jvar_dataservice.JVARDataService'},
             {'class': f'{self.name}.data_services.fram_dataservice.FRAMDataService'},
             {'class': f'{self.name}.data_services.fava_dataservice.FAVADataService'},
+            {'class': f'{self.name}.data_services.icecube_dr2_dataservice.IceCubeDR2DataService'},
             {'class': f'{self.name}.data_services.lamost_dataservice.LAMOSTDataService'},
             {'class': f'{self.name}.data_services.galah_dataservice.GALAHDataService'},
             {'class': f'{self.name}.data_services.atlas_dataservice.ATLASDataService'},

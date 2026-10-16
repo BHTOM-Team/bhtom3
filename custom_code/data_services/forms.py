@@ -1384,6 +1384,38 @@ class FAVAQueryForm(BaseQueryForm):
         return cleaned
 
 
+class IceCubeDR2QueryForm(BaseQueryForm):
+    target_name = target_name_field()
+    ra = ra_field()
+    dec = dec_field()
+    n_sigma = forms.FloatField(
+        required=False,
+        initial=1.0,
+        min_value=0.1,
+        max_value=5.0,
+        label='Match within n x AngErr',
+        help_text="An event matches when the target lies within n times the event's own angular error.",
+    )
+    max_radius_deg = forms.FloatField(
+        required=False,
+        initial=3.0,
+        min_value=0.1,
+        max_value=10.0,
+        label='Maximum separation (deg)',
+        help_text='Caps matches from events with very large angular errors.',
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        if not has_target_name(cleaned) and not has_coords(cleaned):
+            raise forms.ValidationError('Provide target name or RA+Dec.')
+        if cleaned.get('n_sigma') is None:
+            cleaned['n_sigma'] = 1.0
+        if cleaned.get('max_radius_deg') is None:
+            cleaned['max_radius_deg'] = 3.0
+        return cleaned
+
+
 class FRAMQueryForm(BaseQueryForm):
     target_name = target_name_field()
     ra = ra_field()
