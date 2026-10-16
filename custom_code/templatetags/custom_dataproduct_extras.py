@@ -930,11 +930,16 @@ HIGHENERGY_FILTER_ORDER = [
 
 NEUTRINO_DATA_TYPE = 'neutrino'
 # Association strength from the IceCube service's per-event signal/background weight.
-# Low-association events are drawn hollow and faint: they are most likely atmospheric background.
+# Low-association events are drawn hollow and faint, and start hidden (one legend click shows
+# them): they are most likely atmospheric background and should not read as detections.
 NEUTRINO_ASSOCIATION_STYLE = [
-    ('high', '#16a34a', 'circle', 0.85),
-    ('low', '#dc2626', 'circle-open', 0.3),
+    ('high', '#16a34a', 'circle', 0.85, True),
+    ('low', '#dc2626', 'circle-open', 0.3, 'legendonly'),
 ]
+NEUTRINO_BACKGROUND_NOTE = (
+    'IceCube DR2 tracks matched by position: most are atmospheric background, '
+    'not detections of this object.'
+)
 
 
 def _neutrino_events_for_target(context, target):
@@ -968,7 +973,7 @@ def _neutrino_association(event):
 def _neutrino_strip_traces(events, yaxis):
     """One circle per neutrino at its arrival time and energy, coloured by association strength."""
     traces = []
-    for level, color, symbol, opacity in NEUTRINO_ASSOCIATION_STYLE:
+    for level, color, symbol, opacity, visible in NEUTRINO_ASSOCIATION_STYLE:
         group = [event for event in events if _neutrino_association(event) == level]
         if not group:
             continue
@@ -978,6 +983,7 @@ def _neutrino_strip_traces(events, yaxis):
             yaxis=yaxis,
             mode='markers',
             name=f'IceCube Tracks ({level})',
+            visible=visible,
             marker=dict(symbol=symbol, size=6, color=color, opacity=opacity),
             text=Time([event['time'] for event in group], format='datetime').mjd,
             customdata=[
@@ -1164,6 +1170,13 @@ def _build_highenergy_plot(context, target, width=1000, height=600, background=N
         fig.update_layout(yaxis3=dict(domain=[0.0, 0.22], anchor='x', **neutrino_axis))
     elif neutrino_events:
         fig.update_layout(yaxis=neutrino_axis)
+    if neutrino_events:
+        # Above the neutrino panel: just over the strip, or at the top of a neutrino-only plot.
+        fig.add_annotation(
+            text=NEUTRINO_BACKGROUND_NOTE, xref='paper', yref='paper', x=0.0,
+            y=0.22 if has_strip else 1.0, xanchor='left', yanchor='bottom', showarrow=False,
+            font=dict(size=10, color=label_color or '#6b7280'),
+        )
     if has_flux_axis:
         fig.update_layout(
             yaxis2=dict(
