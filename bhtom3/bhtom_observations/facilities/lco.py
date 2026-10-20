@@ -413,9 +413,15 @@ class BhtomLCOFormMixin:
         return choices or [(0, 'No proposals found')]
 
     def _get_instruments(self):
+        # Form construction asks for instruments repeatedly. Keep a failed lookup
+        # local to this form so the next page load can retry.
+        if hasattr(self, '_bhtom_instrument_catalog'):
+            return self._bhtom_instrument_catalog
+
         cache_key = f'{self.facility_settings.facility_name}_instruments'
         cached_instruments = cache.get(cache_key)
-        if cached_instruments:
+        if self._is_instrument_catalog(cached_instruments):
+            self._bhtom_instrument_catalog = cached_instruments
             return cached_instruments
 
         timeout = getattr(settings, 'LCO_INSTRUMENTS_TIMEOUT_SECONDS', 8)
@@ -423,17 +429,31 @@ class BhtomLCOFormMixin:
         try:
             response = requests.get(
                 urljoin(self.facility_settings.get_setting('portal_url'), '/api/instruments/'),
-                headers={'Authorization': f'Token {self.facility_settings.get_setting("api_key")}'},
+                # This catalog is public. An empty or expired global API token
+                # causes LCO to reject it, even when the proposal account is valid.
                 timeout=timeout,
             )
             response.raise_for_status()
-            cached_instruments = {key: value for key, value in response.json().items()}
+            cached_instruments = response.json()
+            if not self._is_instrument_catalog(cached_instruments):
+                raise ValueError('LCO returned an empty or invalid instrument catalog')
         except Exception as exc:
-            logger.warning('Could not load LCO instruments within %ss: %s', timeout, exc)
-            cached_instruments = self.facility_settings.default_instrument_config
+            logger.warning('Could not load LCO instruments (timeout %ss): %s', timeout, exc)
+            self._bhtom_instrument_catalog = self.facility_settings.default_instrument_config
+            return self._bhtom_instrument_catalog
 
         cache.set(cache_key, cached_instruments, cache_seconds)
+        self._bhtom_instrument_catalog = cached_instruments
         return cached_instruments
+
+    @staticmethod
+    def _is_instrument_catalog(catalog):
+        # Reject the legacy cached "No Instrument Found" placeholder as well as
+        # empty/malformed responses, so a previous failure cannot hide instruments.
+        return isinstance(catalog, dict) and bool(catalog) and all(
+            isinstance(instrument, dict) and instrument.get('type') in ('IMAGE', 'SPECTRA')
+            for instrument in catalog.values()
+        )
 
     def _expand_cadence_request(self, payload):
         proposal = self._proposal_for_payload(payload)

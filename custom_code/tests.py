@@ -6727,6 +6727,35 @@ class LCOFacilityAccountRoutingTests(TestCase):
         self.assertGreater(exposure_1m0, exposure_2m0)
 
     @patch('bhtom3.bhtom_observations.facilities.lco.requests.get')
+    def test_lco_instrument_loading_uses_public_catalog_and_caches_success(self, mock_get):
+        mock_get.return_value = Mock(json=Mock(return_value=_minimal_lco_instruments()))
+        form = BhtomLCOMonitoringObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+
+        self.assertIn('1M0-SCICAM-SINISTRO', dict(form.fields['c_1_instrument_type'].choices))
+        self.assertTrue(form.fields['c_1_ic_1_readout_mode'].choices)
+        mock_get.assert_called_once_with('https://observe.lco.global/api/instruments/', timeout=8)
+        self.assertEqual(cache.get('LCO_instruments'), _minimal_lco_instruments())
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.requests.get')
+    def test_lco_instrument_loading_recovers_from_cached_placeholder(self, mock_get):
+        cache.set('LCO_instruments', AccountLCOSettings().default_instrument_config, 86400)
+        mock_get.return_value = Mock(json=Mock(return_value=_minimal_lco_instruments()))
+
+        form = BhtomLCOMonitoringObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+
+        self.assertIn('0M4-SCICAM-QHY600', dict(form.fields['c_1_instrument_type'].choices))
+        mock_get.assert_called_once()
+        self.assertEqual(cache.get('LCO_instruments'), _minimal_lco_instruments())
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.requests.get')
     def test_lco_instrument_loading_uses_timeout_and_fallback(self, mock_get):
         mock_get.side_effect = TimeoutError('slow LCO instruments')
         form = BhtomLCOImagingObservationForm(initial={
@@ -6739,6 +6768,33 @@ class LCOFacilityAccountRoutingTests(TestCase):
 
         self.assertIn('No Instrument Found', instruments)
         self.assertEqual(mock_get.call_args.kwargs['timeout'], 8)
+        mock_get.assert_called_once()
+        self.assertIsNone(cache.get('LCO_instruments'))
+
+        # A new page load retries instead of reusing the failed lookup for a day.
+        mock_get.side_effect = None
+        mock_get.return_value = Mock(json=Mock(return_value=_minimal_lco_instruments()))
+        recovered_form = BhtomLCOImagingObservationForm(initial={
+            'request_user_id': self.user.pk,
+            'target_id': self.target.pk,
+            'facility': 'LCO',
+        })
+        self.assertIn('1M0-SCICAM-SINISTRO', dict(recovered_form.fields['c_1_instrument_type'].choices))
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.requests.get')
+    def test_lco_instrument_loading_does_not_cache_invalid_responses(self, mock_get):
+        for payload in ({}, [], {'detail': 'Unavailable'}, {'bad': {}}):
+            with self.subTest(payload=payload):
+                mock_get.return_value = Mock(json=Mock(return_value=payload))
+                form = BhtomLCOImagingObservationForm(initial={
+                    'request_user_id': self.user.pk,
+                    'target_id': self.target.pk,
+                    'facility': 'LCO',
+                })
+
+                self.assertIn('No Instrument Found', form._get_instruments())
+                self.assertIsNone(cache.get('LCO_instruments'))
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BhtomLCOFormMixin._get_instruments')
     def test_lco_monitoring_form_prefills_week_window_and_target_cadence(self, mock_get_instruments):
