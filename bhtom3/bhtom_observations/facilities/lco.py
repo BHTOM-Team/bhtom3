@@ -37,6 +37,7 @@ from custom_code.bhtom2_uploads import (
     save_extra_data_dict,
 )
 from custom_code.facility_proposals import get_proposal_by_pk, get_proposal_choices_for_user
+from custom_code.facility_urls import normalize_facility_url
 
 
 logger = logging.getLogger(__name__)
@@ -372,11 +373,11 @@ class AccountLCOSettings(LCOSettings):
         self.account = account
 
     def get_setting(self, key):
+        if key in ('portal_url', 'archive_url'):
+            default = normalize_facility_url(super().get_setting(key), self.default_settings[key])
+            value = (self.account.account_data or {}).get(key) if self.account else None
+            return normalize_facility_url(value, default)
         if self.account:
-            if key == 'portal_url':
-                return self.account.account_data.get('portal_url', super().get_setting(key))
-            if key == 'archive_url':
-                return self.account.account_data.get('archive_url', super().get_setting(key))
             if key == 'api_key':
                 return self.account.credentials.get('api_key', '')
         return super().get_setting(key)

@@ -4,6 +4,8 @@ from django.utils import timezone
 import requests
 from dateutil.parser import parse as parse_datetime
 
+from custom_code.facility_urls import normalize_facility_url
+
 from custom_code.models import (
     Facility,
     FacilityAccount,
@@ -444,10 +446,10 @@ def sync_remote_proposals_for_account(account, owner=None, shared_users=None):
     if not api_key:
         raise ValueError('API key is required before syncing proposals.')
 
-    portal_url = account.account_data.get('portal_url') or 'https://observe.lco.global'
-    archive_url = account.account_data.get('archive_url') or 'https://archive-api.lco.global/'
-    account.account_data.setdefault('portal_url', portal_url)
-    account.account_data.setdefault('archive_url', archive_url)
+    portal_url = normalize_facility_url(account.account_data.get('portal_url'), 'https://observe.lco.global')
+    archive_url = normalize_facility_url(account.account_data.get('archive_url'), 'https://archive-api.lco.global/')
+    account.account_data['portal_url'] = portal_url
+    account.account_data['archive_url'] = archive_url
 
     response = requests.get(
         f'{portal_url.rstrip("/")}/api/profile/',

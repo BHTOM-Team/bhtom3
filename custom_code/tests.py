@@ -198,6 +198,7 @@ from custom_code.views import (
     EXOCLOCK_RECOMMENDED_OBSERVING_STRATEGY,
     TNS_RECOMMENDED_OBSERVING_STRATEGY,
     ProposalAwareObservationCreateView,
+    ProposalAwareLCOSettings,
 )
 
 
@@ -6301,6 +6302,50 @@ class LCOFacilityAccountRoutingTests(TestCase):
 
         self.assertEqual(settings.get_setting('api_key'), 'account-api-key')
         self.assertEqual(settings.get_setting('portal_url'), 'https://observe.lco.global')
+
+    def test_lco_settings_unwrap_markdown_portal_and_archive_urls(self):
+        self.account.account_data = {
+            'portal_url': '[https://observe.lco.global](https://observe.lco.global)',
+            'archive_url': '[Archive](https://archive-api.lco.global/)',
+        }
+        for settings_class in (AccountLCOSettings, ProposalAwareLCOSettings):
+            with self.subTest(settings_class=settings_class):
+                account_settings = settings_class(account=self.account)
+                self.assertEqual(account_settings.get_setting('portal_url'), 'https://observe.lco.global')
+                self.assertEqual(account_settings.get_setting('archive_url'), 'https://archive-api.lco.global/')
+                self.assertEqual(account_settings.get_setting('api_key'), 'account-api-key')
+
+    @patch('bhtom3.bhtom_observations.facilities.lco.requests.get')
+    def test_monitoring_loads_instruments_with_markdown_account_url(self, mock_get):
+        self.account.account_data['portal_url'] = '[https://observe.lco.global](https://observe.lco.global)'
+        mock_get.return_value = Mock(json=Mock(return_value=_minimal_lco_instruments()))
+
+        form = BhtomLCOMonitoringObservationForm(
+            initial={'request_user_id': self.user.pk, 'target_id': self.target.pk, 'facility': 'LCO'},
+            facility_settings=ProposalAwareLCOSettings(account=self.account),
+        )
+
+        mock_get.assert_called_once_with('https://observe.lco.global/api/instruments/', timeout=8)
+        self.assertIn('0M4-SCICAM-QHY600', dict(form.fields['c_1_instrument_type'].choices))
+        self.assertIn('1M0-SCICAM-SINISTRO', dict(form.fields['c_1_instrument_type'].choices))
+        self.assertTrue(form.fields['c_1_ic_1_readout_mode'].choices)
+
+    @patch('custom_code.facility_proposals.requests.get')
+    def test_lco_proposal_sync_repairs_markdown_account_urls(self, mock_get):
+        self.facility.supports_remote_proposal_sync = True
+        self.facility.save(update_fields=['supports_remote_proposal_sync'])
+        self.account.account_data = {
+            'portal_url': '[Portal](https://observe.lco.global)',
+            'archive_url': '[Archive](https://archive-api.lco.global/)',
+        }
+        mock_get.return_value = Mock(json=Mock(return_value={'proposals': []}))
+
+        sync_remote_proposals_for_account(self.account)
+
+        self.assertEqual(mock_get.call_args.args[0], 'https://observe.lco.global/api/profile/')
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.account_data['portal_url'], 'https://observe.lco.global')
+        self.assertEqual(self.account.account_data['archive_url'], 'https://archive-api.lco.global/')
 
     @patch('bhtom3.bhtom_observations.facilities.lco.BaseLCOFacility.all_data_products', autospec=True)
     def test_observation_detail_data_products_use_proposal_account_credentials(self, mock_all_data_products):
