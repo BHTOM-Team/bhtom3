@@ -1,5 +1,5 @@
 from astropy.time import Time
-from django import template
+from django import forms, template
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.shortcuts import reverse
@@ -12,6 +12,7 @@ import astropy.units as u
 import json
 import logging
 
+from tom_dataproducts.forms import DataShareForm
 from tom_dataproducts.models import ReducedDatum
 from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 from tom_observations.models import ObservationRecord
@@ -1458,6 +1459,58 @@ def astrometry_for_target(context, target):
         'point_count': point_count,
         'series_count': len(series_list),
         'request': context.get('request'),
+    }
+
+
+@register.inclusion_tag('tom_dataproducts/partials/photometry_datalist_for_target.html', takes_context=True)
+def get_photometry_data(context, target, target_share=False):
+    """Override the magnitude table tag to tolerate difference-only photometry rows."""
+    photometry = ReducedDatum.objects.filter(data_type='photometry', target=target).order_by('-timestamp')
+    if not settings.TARGET_PERMISSIONS_ONLY:
+        photometry = get_objects_for_user(
+            context['request'].user,
+            'tom_dataproducts.view_reduceddatum',
+            klass=photometry,
+        )
+
+    data = []
+    for datum in photometry.iterator():
+        value = datum.value if isinstance(datum.value, dict) else {}
+        is_limit = value.get('limit') is not None
+        magnitude = value.get('limit') if is_limit else value.get('magnitude')
+        # Difference magnitudes and fluxes cannot be displayed as apparent magnitudes.
+        try:
+            magnitude = float(magnitude)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(magnitude):
+            continue
+        data.append({
+            'id': datum.pk,
+            'timestamp': datum.timestamp,
+            'source': datum.source_name,
+            'filter': value.get('filter', ''),
+            'telescope': value.get('telescope', ''),
+            'error': value.get('error', value.get('magnitude_error', '')),
+            'magnitude': magnitude,
+            'limit': is_limit,
+        })
+
+    form = DataShareForm(initial={
+        'submitter': context['request'].user,
+        'target': target,
+        'data_type': 'photometry',
+        'share_title': f"Updated data for {target.name} from {getattr(settings, 'TOM_NAME', 'TOM Toolkit')}.",
+    })
+    form.fields['data_type'].widget = forms.HiddenInput()
+    sharing = getattr(settings, 'DATA_SHARING', None)
+    return {
+        'data': data,
+        'target': target,
+        'target_data_share_form': form,
+        'sharing_destinations': form.fields['share_destination'].choices,
+        'hermes_sharing': sharing and sharing.get('hermes', {}).get('HERMES_API_KEY'),
+        'target_share': target_share,
     }
 
 

@@ -181,3 +181,7 @@ custom_code/migrations/*
 !custom_code/migrations/0003_bhtomuserprofile.py
 !custom_code/migrations/0013_userbhtom2uploadpreference.py
 info.txt
+pl.bhtom3.certbot-renew.plist
+pl.eassttom.certbot-renew.plist
+.gitignore
+.gitignore
