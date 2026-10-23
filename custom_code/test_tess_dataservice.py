@@ -241,3 +241,110 @@ class TESSMagnitudeFilterTests(SimpleTestCase):
 
         self.assertEqual(len(datums), 2)
         self.assertTrue(all(d['value']['error'] > 0 for d in datums))
+
+
+class TESSQLPFallbackTests(SimpleTestCase):
+    source_ra = 80.11716179217501
+    source_dec = 20.485366805848887
+    tic_rows = Table({'ID': ['6240885'], 'ra': [80.11716179217501], 'dec': [20.485366805848887]})
+
+    def _qlp_observation(self, sector):
+        return {
+            's_ra': self.source_ra,
+            's_dec': self.source_dec,
+            'target_name': '6240885',
+            'provenance_name': 'QLP',
+            'obs_id': f'hlsp_qlp_tess_ffi_s{sector:04d}-0000000006240885_tess_v01_llc',
+            'sequence_number': sector,
+            't_exptime': 600.0,
+        }
+
+    def _query(self, responses):
+        service = TESSDataService()
+        with patch(
+            'astroquery.mast.Catalogs.query_region', return_value=self.tic_rows
+        ), patch(
+            'astroquery.mast.Observations.query_criteria', side_effect=responses
+        ) as query_criteria, patch.object(
+            service, '_collect_lightcurve_products', return_value=['sector43_llc.fits']
+        ):
+            result = service.query_service({'ra': self.source_ra, 'dec': self.source_dec})
+        return result, [call.kwargs['provenance_name'] for call in query_criteria.call_args_list]
+
+    def test_qlp_is_queried_only_when_there_is_no_spoc_lightcurve(self):
+        result, provenances = self._query([[], [self._qlp_observation(43)]])
+
+        self.assertEqual(provenances, [['SPOC', 'TESS-SPOC'], ['QLP']])
+        self.assertEqual(result['pipeline'], 'QLP')
+        self.assertEqual(result['products'], ['sector43_llc.fits'])
+
+    def test_star_with_spoc_lightcurve_never_queries_qlp(self):
+        spoc = dict(self._qlp_observation(43), provenance_name='TESS-SPOC', t_exptime=200.0)
+        result, provenances = self._query([[spoc]])
+
+        self.assertEqual(provenances, [['SPOC', 'TESS-SPOC']])
+        self.assertEqual(result['pipeline'], 'SPOC')
+
+    def test_qlp_lightcurve_filename_is_recognised(self):
+        products = Table({
+            'productFilename': ['hlsp_qlp_tess_ffi_s0043-0000000006240885_tess_v01_llc.fits'],
+            'productSubGroupDescription': ['--'],
+            'productType': ['SCIENCE'],
+        })
+
+        class FakeObservations:
+            @staticmethod
+            def filter_products(product_list, **filters):
+                keep = [all(str(row[k]) == v for k, v in filters.items()) for row in product_list]
+                return product_list[keep]
+
+        found = TESSDataService._filter_lightcurve_products(FakeObservations, products)
+        self.assertEqual(len(found), 1)
+
+
+class TESSQLPConversionTests(SimpleTestCase):
+    def _qlp_lightcurve(self, column, flux, flux_err, quality=None, tessmag=11.8513):
+        import os
+        import shutil
+
+        import numpy as np
+        from astropy.io import fits
+
+        n = len(flux)
+        table = fits.BinTableHDU.from_columns([
+            fits.Column(name='TIME', format='D', array=np.arange(n, dtype=float) + 2474.5),
+            fits.Column(name='SAP_FLUX', format='E', array=np.linspace(1.02, 0.88, n)),  # raw ramp, unused
+            fits.Column(name=column, format='E', array=np.array(flux, dtype=float)),
+            fits.Column(name=f'{column}_ERR', format='E', array=np.array(flux_err, dtype=float)),
+            fits.Column(name='QUALITY', format='J', array=np.array(quality or [0] * n, dtype=int)),
+        ], name='LIGHTCURVE')
+        primary = fits.PrimaryHDU()
+        primary.header['SECTOR'] = 43
+        if tessmag is not None:
+            primary.header['TESSMAG'] = tessmag
+        tmpdir = __import__('tempfile').mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, True)
+        path = os.path.join(tmpdir, 'sector43_llc.fits')
+        fits.HDUList([primary, table]).writeto(path)
+        return path
+
+    def test_detrended_flux_is_anchored_to_the_tic_magnitude(self):
+        path = self._qlp_lightcurve('KSPSAP_FLUX', [1.0, 1.01, 0.99], [0.002, 0.002, 0.002])
+
+        datums = TESSDataService()._build_photometry_datums([path], pipeline='QLP')
+
+        self.assertEqual([d['value']['filter'] for d in datums], ['TESS(QLP)'] * 3)
+        self.assertEqual([d['value']['magnitude'] for d in datums], [11.8513, 11.84050, 11.86221])
+        self.assertAlmostEqual(datums[0]['value']['error'], 0.002171, places=6)
+
+    def test_newer_det_flux_column_and_quality_flags(self):
+        path = self._qlp_lightcurve('DET_FLUX', [1.0, 1.0, 1.0], [0.005, 0.005, 0.005], quality=[0, 4096, 0])
+
+        datums = TESSDataService()._build_photometry_datums([path], pipeline='QLP')
+
+        self.assertEqual(len(datums), 2)
+
+    def test_file_without_tic_magnitude_is_skipped(self):
+        path = self._qlp_lightcurve('KSPSAP_FLUX', [1.0, 1.0], [0.002, 0.002], tessmag=None)
+
+        self.assertEqual(TESSDataService()._build_photometry_datums([path], pipeline='QLP'), [])

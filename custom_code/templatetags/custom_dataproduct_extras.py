@@ -222,6 +222,7 @@ PHOTOMETRY_COLOR_MAP = {
     # TESS: 600-1000 nm, so a deep red. A sector is ~15000 unbinned cadences, so
     # the marker is deliberately tiny -- anything larger renders as a solid bar.
     'TESS(T)': ['#a4133c', 'circle', 1],
+    'TESS(QLP)': ['#ff758f', 'circle', 1],
     # Kepler/K2: ~4,400 cadences per quarter/campaign at 29.4 min, so also tiny markers.
     'Kepler(Kp)': ['#0f766e', 'circle', 1],
     'K2(Kp)': ['#b45309', 'circle', 1],

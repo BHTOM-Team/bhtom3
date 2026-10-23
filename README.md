@@ -236,7 +236,7 @@ service name is the one shown in BHTOM and stored as the data's source name.
 | SuperCOSMOS | Photographic B_J, R, I plate photometry, 1950s–1990s (UKST, ESO-R, POSS-I, POSS-II; ~0.3 mag) | [SuperCOSMOS Science Archive (WFAU)](http://ssa.roe.ac.uk/) |
 | SuperWASP | WASP DR1 light curves | [NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/docs/SuperWASPMission.html) |
 | SwiftUVOT | UV and optical photometry | [Swift UVOT service](http://uvot.astrodot.tech/api/start) |
-| TESS | Light curves (converted to Tmag) | [TESS at MAST](https://archive.stsci.edu/missions-and-data/tess) |
+| TESS | SPOC light curves (converted to Tmag); stars with no SPOC light curve fall back to MIT QLP full-frame light curves (filter TESS(QLP): detrended flux anchored to the TIC magnitude, so variability slower than ~1 day is removed) | [TESS at MAST](https://archive.stsci.edu/missions-and-data/tess) |
 | TNS | Transient photometry | [Transient Name Server](https://www.wis-tns.org/) |
 | unTimely | unWISE time-domain W1, W2 light curves (~16 six-monthly epochs 2010–2020, Vega) | [unWISE Time-Domain Catalog (NERSC files; IRSA)](https://irsa.ipac.caltech.edu/data/WISE/unWISE/overview.html) |
 | VIRAC2 | VVV/VVVX near-IR Z, Y, J, H, Ks light curves of the southern Galactic bulge and disc (Vega) | [ESO Science Archive, VIRAC2 catalogue](https://archive.eso.org/scienceportal/home?data_collection=VVVX) |

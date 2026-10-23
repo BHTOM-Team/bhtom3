@@ -24,7 +24,19 @@ Three things this gets right that are easy to get wrong
    yields a meaningless pile of points at T = 20.44. The column UNIT is checked,
    never the column name, with a median-flux backstop.
 
-3. ONE TIC PER QUERY. TESS pixels are 21 arcsec and photometry is heavily
+3. QLP IS A FALLBACK, ANCHORED TO THE TIC MAGNITUDE. Stars SPOC never extracted
+   (most faint or ecliptic FFI stars) often have only MIT Quick-Look Pipeline
+   light curves, whose flux is normalised to ~1. QLP is queried only when MAST
+   holds no SPOC light curve for the star, and converted as
+   T = TESSMAG - 2.5*log10(detrended flux), TESSMAG being the TIC magnitude QLP
+   records in the file header. The detrended flux (KSPSAP_FLUX, renamed DET_FLUX
+   in newer QLP releases) is used because the raw
+   SAP_FLUX carries sector-long scattered-light ramps of ~10%, so it is not used,
+   at the cost of variability slower than about a day. These points get the
+   filter 'TESS(QLP)': only their variability is TESS photometry, the mean level
+   is the catalogue's.
+
+4. ONE TIC PER QUERY. TESS pixels are 21 arcsec and photometry is heavily
    blended, so a cone search can return several stars. Only the nearest TIC's
    products are ingested; merging several would splice different stars into one
    light curve.
@@ -82,6 +94,12 @@ _MULTISECTOR_OBS_ID = re.compile(r'-s\d{4}-s\d{4}-')
 # HLSP collection and the ``TESS-SPOC`` provenance label.
 _SPOC_OBS_COLLECTIONS = ('TESS', 'HLSP')
 _SPOC_PROVENANCE_NAMES = ('SPOC', 'TESS-SPOC')
+
+# MIT Quick-Look Pipeline FFI light curves, used only for stars without SPOC ones.
+_QLP_PROVENANCE_NAMES = ('QLP',)
+QLP_FILTER = 'TESS(QLP)'
+# QLP's detrended flux column: KSPSAP_FLUX in older releases, DET_FLUX in newer ones.
+_QLP_DETRENDED_FLUX_COLUMNS = ('KSPSAP_FLUX', 'DET_FLUX')
 
 
 def _to_float(value):
@@ -209,7 +227,9 @@ class TESSDataService(DataService):
     service_notes = (
         'Query public TESS light curves from MAST by coordinates and convert e-/s to Tmag '
         '(Tmag = 20.44 - 2.5*log10(flux)). Binned in flux space; times are barycentric TDB. '
-        'TESS pixels are 21 arcsec, so photometry is blended -- check CROWDSAP on each point.'
+        'TESS pixels are 21 arcsec, so photometry is blended -- check CROWDSAP on each point. '
+        'Stars with no SPOC light curve fall back to QLP (filter TESS(QLP)): detrended, '
+        'normalised flux anchored to the TIC magnitude, so slow (>1 day) variability is removed.'
     )
 
     @classmethod
@@ -242,6 +262,7 @@ class TESSDataService(DataService):
 
         ticid = None
         products = None
+        pipeline = 'SPOC'
         try:
             from astroquery.mast import Catalogs, Observations
 
@@ -259,23 +280,35 @@ class TESSDataService(DataService):
                     ra, dec, exc,
                 )
 
-            observation_query = dict(
-                obs_collection=list(_SPOC_OBS_COLLECTIONS),
-                provenance_name=list(_SPOC_PROVENANCE_NAMES),
-                dataproduct_type='timeseries',
-            )
-            if ticid is not None:
-                observation_query['target_name'] = str(ticid)
-            else:
-                observation_query.update(
-                    coordinates=coordinates,
-                    radius=radius_arcsec * u.arcsec,
+            def query_lightcurves(collections, provenances):
+                observation_query = dict(
+                    obs_collection=list(collections),
+                    provenance_name=list(provenances),
+                    dataproduct_type='timeseries',
                 )
-            observations = Observations.query_criteria(**observation_query)
+                if ticid is not None:
+                    observation_query['target_name'] = str(ticid)
+                else:
+                    observation_query.update(
+                        coordinates=coordinates,
+                        radius=radius_arcsec * u.arcsec,
+                    )
+                return Observations.query_criteria(**observation_query)
+
+            observations = query_lightcurves(_SPOC_OBS_COLLECTIONS, _SPOC_PROVENANCE_NAMES)
+            provenances = _SPOC_PROVENANCE_NAMES
+            if len(observations) == 0:
+                # No SPOC light curve at all: try QLP. A star that has SPOC data never
+                # reaches this, so its light curve is unchanged.
+                observations = query_lightcurves(('HLSP',), _QLP_PROVENANCE_NAMES)
+                provenances = _QLP_PROVENANCE_NAMES
+                pipeline = 'QLP'
             if len(observations) == 0:
                 logger.info('TESS returned no time series for RA=%s Dec=%s TIC=%s', ra, dec, ticid)
             else:
-                selected_ticid, selected = self._select_observations(observations, ra, dec, max_sectors)
+                selected_ticid, selected = self._select_observations(
+                    observations, ra, dec, max_sectors, provenances=provenances,
+                )
                 ticid = selected_ticid or ticid
                 if selected is not None and len(selected):
                     products = self._collect_lightcurve_products(Observations, selected)
@@ -289,11 +322,12 @@ class TESSDataService(DataService):
             'ra': ra,
             'dec': dec,
             'flux_type': query_parameters.get('flux_type') or 'sap',
+            'pipeline': pipeline,
         }
         return self.query_results
 
-    def _select_observations(self, observations, ra, dec, max_sectors):
-        """Pick the nearest TIC, then its single-sector SPOC light curves.
+    def _select_observations(self, observations, ra, dec, max_sectors, provenances=_SPOC_PROVENANCE_NAMES):
+        """Pick the nearest TIC, then its single-sector light curves from `provenances`.
 
         A cone search can straddle several TICs; splicing more than one into a
         single light curve would merge different stars. Multi-sector combined
@@ -324,7 +358,7 @@ class TESSDataService(DataService):
             tic = _to_float(row['target_name'])
             if tic is None or int(tic) != best_tic:
                 continue
-            if str(row['provenance_name']).strip().upper() not in _SPOC_PROVENANCE_NAMES:
+            if str(row['provenance_name']).strip().upper() not in provenances:
                 continue
             if _MULTISECTOR_OBS_ID.search(str(row['obs_id'])):
                 continue
@@ -363,15 +397,15 @@ class TESSDataService(DataService):
         lightcurves = Observations.filter_products(
             product_list, productSubGroupDescription='LC', productType='SCIENCE'
         )
-        # TESS-SPOC HLSP products currently leave the subgroup blank
-        # (masked/``--``), although the official product filename still
-        # ends in ``_lc.fits``. Fall back to that stable naming scheme.
+        # TESS-SPOC and QLP HLSP products leave the subgroup blank (masked/``--``),
+        # although their filenames still end in ``_lc.fits`` (TESS-SPOC) or
+        # ``_llc.fits`` (QLP). Fall back to that stable naming scheme.
         if len(lightcurves) == 0:
             science_products = Observations.filter_products(
                 product_list, productType='SCIENCE'
             )
             is_lightcurve = np.array([
-                str(filename).lower().endswith('_lc.fits')
+                str(filename).lower().endswith(('_lc.fits', '_llc.fits'))
                 for filename in science_products['productFilename']
             ], dtype=bool)
             lightcurves = science_products[is_lightcurve]
@@ -431,6 +465,7 @@ class TESSDataService(DataService):
         datums = self._build_photometry_datums(
             products,
             flux_type=data.get('flux_type') or 'sap',
+            pipeline=data.get('pipeline') or 'SPOC',
         )
         if not datums:
             return []
@@ -484,11 +519,14 @@ class TESSDataService(DataService):
                 source_location=self.query_results.get('source_location') or self.info_url,
             )
 
-    def _build_photometry_datums(self, paths, flux_type='sap'):
+    def _build_photometry_datums(self, paths, flux_type='sap', pipeline='SPOC'):
         output = []
         for path in paths:
             try:
-                output.extend(self._datums_from_lightcurve(path, flux_type))
+                if pipeline == 'QLP':
+                    output.extend(self._datums_from_qlp_lightcurve(path))
+                else:
+                    output.extend(self._datums_from_lightcurve(path, flux_type))
             except Exception as exc:
                 logger.warning('TESS: failed to process %s: %s', os.path.basename(path), exc)
         return output
@@ -574,5 +612,69 @@ class TESSDataService(DataService):
         logger.debug(
             'TESS: sector %s %s -> %s points from %s good cadences (unbinned)',
             sector, column, len(output), int(good.sum()),
+        )
+        return output
+
+    def _datums_from_qlp_lightcurve(self, path):
+        """Convert one sector's QLP _llc.fits into one T datum per cadence.
+
+        QLP flux is normalised, so T = TESSMAG - 2.5*log10(detrended flux) with TESSMAG
+        the TIC magnitude from the primary header. Cadences QLP flags
+        (QUALITY != 0) or with non-finite time or flux are dropped, as for SPOC.
+        """
+        with fits.open(path, memmap=False) as hdul:
+            primary = hdul[0].header
+            data = hdul['LIGHTCURVE'].data if 'LIGHTCURVE' in hdul else hdul[1].data
+            sector = primary.get('SECTOR')
+            tic_tmag = _to_float(primary.get('TESSMAG'))
+            names = data.columns.names
+            column = next((c for c in _QLP_DETRENDED_FLUX_COLUMNS if c in names), None)
+            if tic_tmag is None or column is None:
+                logger.warning('TESS: QLP sector %s lacks TESSMAG or a detrended flux column; skipping.', sector)
+                return []
+
+            time = np.asarray(data['TIME'], float)  # BTJD
+            flux = np.asarray(data[column], float)
+            if f'{column}_ERR' in names:
+                flux_err = np.asarray(data[f'{column}_ERR'], float)
+            else:
+                flux_err = np.full_like(flux, np.nan)
+            quality = np.asarray(data['QUALITY'], int) if 'QUALITY' in names else np.zeros_like(flux, dtype=int)
+            good = np.isfinite(time) & np.isfinite(flux) & (flux > 0) & (quality == 0)
+            time, flux, flux_err = time[good], flux[good], flux_err[good]
+
+        if time.size == 0:
+            return []
+
+        median = np.nanmedian(flux)
+        if not 0.5 < median < 2.0:
+            logger.warning('TESS: QLP sector %s median flux %.4g is not normalised; skipping.', sector, median)
+            return []
+
+        tmag = tic_tmag - 2.5 * np.log10(flux)
+        tmag_err = MAG_ERR_FACTOR * flux_err / flux
+
+        output = []
+        for i in range(len(tmag)):
+            error = float(tmag_err[i]) if np.isfinite(tmag_err[i]) else 0.01
+            magnitude = round(float(tmag[i]), 5)
+            error = round(error, 6)
+            if magnitude <= 0 or error <= 0 or error > 3:
+                continue
+            output.append({
+                # Barycentric MJD, as for SPOC (see _datums_from_lightcurve).
+                'timestamp': Time(float(time[i]) + BTJD_TO_MJD, format='mjd', scale='utc').to_datetime(
+                    timezone=timezone.utc
+                ),
+                'value': {
+                    'filter': QLP_FILTER,
+                    'magnitude': magnitude,
+                    'error': error,
+                },
+            })
+
+        logger.debug(
+            'TESS: QLP sector %s -> %s points from %s good cadences (T anchored at TIC %.3f)',
+            sector, len(output), int(good.sum()), tic_tmag,
         )
         return output
