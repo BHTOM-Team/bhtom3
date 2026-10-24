@@ -15,6 +15,7 @@ from tom_dataproducts.processors.data_serializers import SpectrumSerializer
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import GaiaDR3QueryForm
+from custom_code.alias_astrometry import matched_position
 
 logger = logging.getLogger(__name__)
 
@@ -301,6 +302,20 @@ class GaiaDR3DataService(DataService):
         if source_row and not source_id:
             self._ensure_variability_type(source_row, source_origin)
 
+        if source_row:
+            # gaia_source_lite omits coordinate errors. Read the full table by ID.
+            try:
+                from custom_code.bhtom_catalogs.harvesters.gaia_dr3 import _run_gaia_query
+                matched_id = int(source_row.get('source_id', source_row.get('SOURCE_ID')))
+                rows = _run_gaia_query(
+                    'SELECT ra_error, dec_error, ra_dec_corr FROM gaiadr3.gaia_source '
+                    f'WHERE source_id = {matched_id}'
+                )
+                if rows:
+                    source_row.update(rows[0])
+            except Exception:
+                logger.debug('Gaia coordinate uncertainties unavailable.', exc_info=True)
+
         phot_rows = []
         spectra = []
         phot_origin = None
@@ -356,6 +371,12 @@ class GaiaDR3DataService(DataService):
             'parallax_error': _to_float(source.get('parallax_error')),
             'gaia_variability_type': variability_type,
             'aliases': [f'GaiaDR3_{source_id}'],
+            'matched_position': matched_position(
+                source.get('ra'), source.get('dec'),
+                (_to_float(source.get('ra_error')) / 1000 if _to_float(source.get('ra_error')) is not None else None),
+                (_to_float(source.get('dec_error')) / 1000 if _to_float(source.get('dec_error')) is not None else None),
+                source.get('ra_dec_corr'),
+            ),
             'target_updates': {
                 key: value
                 for key, value in {

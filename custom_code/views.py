@@ -3892,17 +3892,8 @@ class BhtomTargetDetailView(TargetDetailView):
                     for key, preset in Bhtom2TargetListView.OBSERVER_PRESETS.items()
                 ]
             )
-        other_names = []
-        for alias in target.aliases.all().select_related('alias_info'):
-            alias_info = getattr(alias, 'alias_info', None)
-            url = getattr(alias_info, 'url', '')
-            other_names.append({
-                'source_name': getattr(alias_info, 'source_name', '') or _guess_alias_source(alias.name, url),
-                'name': alias.name,
-                'url': url,
-            })
-        other_names.sort(key=lambda row: (row['source_name'].lower(), row['name'].lower()))
-        context['target_other_names'] = other_names
+        from custom_code.templatetags.custom_target_extras import _target_other_names
+        context['target_other_names'] = _target_other_names(target)
         if self.request.GET.get('compute_current_coords') == '1' and can_compute_current_coordinates(target):
             context['current_coords'] = compute_current_coordinates(target)
         return context

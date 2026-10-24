@@ -231,6 +231,7 @@
         {% else %}
           {{ alias.name }}
         {% endif %}
+        <span class="text-muted alias-offset" title="{{ alias.offset_description }}">{% if alias.offset_arcsec != None %}[{{ alias.offset_arcsec|floatformat:alias.offset_precision }}{% if alias.offset_error_arcsec != None %} ± {{ alias.offset_error_arcsec|floatformat:alias.offset_precision }} arcsec{% else %} arcsec; uncertainty unavailable{% endif %}]{% else %}[offset unavailable]{% endif %}</span>
       </div>
     </div>
   {% endfor %}

@@ -17,6 +17,7 @@ work and leaves the archived number untouched.
 
 import ast
 import logging
+from custom_code.alias_astrometry import matched_position
 import math
 import re
 from datetime import timezone
@@ -481,6 +482,7 @@ class SuperWASPDataService(DataService):
             'name': source_id,
             'ra': _to_float(match.get('ra')),
             'dec': _to_float(match.get('dec')),
+            'matched_position': matched_position(match.get('ra'), match.get('dec')),
             'aliases': [{
                 'name': source_id,
                 'url': source_url,

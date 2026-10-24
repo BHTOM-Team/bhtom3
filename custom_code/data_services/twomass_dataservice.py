@@ -1,4 +1,5 @@
 import logging
+from custom_code.alias_astrometry import matched_position
 from datetime import timezone
 from io import StringIO
 
@@ -117,11 +118,13 @@ class TwoMASSDataService(DataService):
             return []
 
         alias = _twomass_alias(designation)
+        matched_row = lc_data[lc_data['designation'].astype(str).str.strip() == designation].iloc[0]
         return [{
             'name': alias,
             'ra': ra,
             'dec': dec,
             'aliases': [alias],
+            'matched_position': matched_position(matched_row.get('ra'), matched_row.get('dec')),
             'reduced_datums': {'photometry': self._build_photometry_datums(lc_data)},
             'source_location': data.get('source_location'),
         }]

@@ -13,6 +13,7 @@ from tom_dataservices.dataservices import DataService
 from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import SimbadQueryForm
+from custom_code.alias_astrometry import position_from_error_ellipse
 
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,7 @@ class SimbadDataService(DataService):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.simbad = Simbad()
-        self.simbad.add_votable_fields('propermotions', 'parallax', 'ids')
+        self.simbad.add_votable_fields('propermotions', 'parallax', 'ids', 'coo_err_maj', 'coo_err_min', 'coo_err_angle')
 
     def build_query_parameters(self, parameters, **kwargs):
         from custom_code.data_services.service_utils import resolve_query_coordinates
@@ -184,6 +185,10 @@ class SimbadDataService(DataService):
             'plx_value': parallax,
             'main_id': main_id,
             'aliases': _aliases_from_row(row, main_id, ra, dec, self.name),
+            'matched_position': position_from_error_ellipse(*(
+                _clean_number(row[key]) if key in row.colnames else None
+                for key in ('ra', 'dec', 'coo_err_maj', 'coo_err_min', 'coo_err_angle')
+            )),
             'target_updates': {
                 'ra': ra,
                 'dec': dec,

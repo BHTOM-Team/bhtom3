@@ -1,4 +1,5 @@
 import logging
+from custom_code.alias_astrometry import position_from_samples
 
 from astropy.time import Time
 from datetime import timezone
@@ -115,6 +116,8 @@ class PanSTARRSDataService(DataService):
             return []
 
         alias = _ps1_alias(data.get('ps1_id'))
+        matched_rows = lc_data[lc_data['objID'] == data.get('ps1_id')] if 'objID' in lc_data else lc_data
+        position = position_from_samples(zip(matched_rows['ra'], matched_rows['dec'])) if {'ra', 'dec'} <= set(matched_rows.columns) else {}
         lc_data = lc_data[lc_data['psfFlux']>0]
         lc_data = lc_data[lc_data['psfFluxErr']>0]
         return [{
@@ -122,6 +125,7 @@ class PanSTARRSDataService(DataService):
             'ra': ra,
             'dec': dec,
             'aliases': [alias],
+            'matched_position': position,
             'reduced_datums': {'photometry': self._build_photometry_datums(lc_data)},
             'source_location': data.get('source_location'),
         }]

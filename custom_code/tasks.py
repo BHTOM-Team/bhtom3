@@ -18,6 +18,7 @@ from tom_dataproducts.models import ReducedDatum
 from tom_observations import facility
 from tom_targets.models import Target, TargetName
 from custom_code.last_photometry import refresh_target_last_photometry
+from custom_code.alias_astrometry import clean_matched_position
 from custom_code.data_services.service_utils import upsert_reduced_datums
 from custom_code.models import TargetAliasInfo, TransitEphemeris
 from custom_code.priority import refresh_target_priority
@@ -204,7 +205,8 @@ def _normalize_alias_result(alias):
         name = str(alias.get('name') or '').strip()
         url = str(alias.get('url') or '').strip()
         source_name = str(alias.get('source_name') or '').strip()
-        return {'name': name, 'url': url, 'source_name': source_name}
+        return {'name': name, 'url': url, 'source_name': source_name,
+                'matched_position': clean_matched_position(alias.get('matched_position'))}
     name = str(alias or '').strip()
     return {'name': name, 'url': '', 'source_name': ''}
 
@@ -839,9 +841,13 @@ def _run_service_for_target(target, service_name, service_class, force_all_servi
             alias_url = _resolve_alias_url(alias_data, result, service)
             source_name = alias_data['source_name'] or service_name
             if alias_url or source_name:
+                alias_defaults = {'url': alias_url, 'source_name': source_name}
+                position = alias_data.get('matched_position') or clean_matched_position(result.get('matched_position'))
+                if position:
+                    alias_defaults['matched_position'] = position
                 TargetAliasInfo.objects.update_or_create(
                     target_name=alias_obj,
-                    defaults={'url': alias_url, 'source_name': source_name},
+                    defaults=alias_defaults,
                 )
                 alias_urls_updated += 1
             if created:

@@ -153,6 +153,10 @@ class TargetAliasInfo(models.Model):
     target_name = models.OneToOneField('tom_targets.TargetName', on_delete=models.CASCADE, related_name='alias_info')
     source_name = models.CharField(max_length=100, blank=True, default='')
     url = models.URLField(max_length=500, blank=True, default='')
+    matched_position = models.JSONField(
+        blank=True, default=dict,
+        help_text='Matched RA/Dec in degrees and optional tangent-plane 1-sigma errors in arcseconds.',
+    )
     created = models.DateTimeField(auto_now_add=True)
     modified = models.DateTimeField(auto_now=True)
 

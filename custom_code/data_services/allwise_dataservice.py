@@ -13,7 +13,7 @@ from tom_targets.models import Target, TargetName
 
 from custom_code.data_services.forms import WISEQueryForm
 from custom_code.data_services.service_utils import DATA_SERVICE_HTTP_TIMEOUT
-from custom_code.data_services.wise_alias_utils import fetch_allwise_alias
+from custom_code.data_services.wise_alias_utils import fetch_allwise_match
 
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,7 @@ class AllWISEDataService(DataService):
 
         lc_data = None
         alias = None
+        match = None
         source_location = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-scan?submit=Select&projshort=WISE"
         try:
             wise_response = requests.get(
@@ -101,7 +102,8 @@ class AllWISEDataService(DataService):
                 ],
                 sep=r'\s+'
             )
-                alias = fetch_allwise_alias(ra, dec, radius_arcsec)
+                match = fetch_allwise_match(ra, dec, radius_arcsec)
+                alias = match['name'] if match else None
             else:
                 logger.debug('ALLWISE returned no data for RA=%s Dec=%s', ra, dec)
         except (IndexError, ValueError, requests.RequestException):
@@ -110,6 +112,7 @@ class AllWISEDataService(DataService):
         self.query_results = {
             'lc_data': lc_data,
             'alias': alias,
+            'matched_position': match.get('matched_position', {}) if match else {},
             'source_location': source_location,
             'ra': ra,
             'dec': dec,
@@ -132,6 +135,7 @@ class AllWISEDataService(DataService):
             'ra': ra,
             'dec': dec,
             'aliases': [{'name': alias_name, 'source_name': self.name}],
+            'matched_position': data.get('matched_position') or {},
             'reduced_datums': {'photometry': self._build_photometry_datums(lc_data)},
             'source_location': data.get('source_location'),
         }]

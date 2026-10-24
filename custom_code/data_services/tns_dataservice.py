@@ -1,6 +1,7 @@
 """TNS adapter with bounded requests and photometry import support."""
 
 import json
+from custom_code.alias_astrometry import matched_position
 import math
 import re
 import time
@@ -123,6 +124,7 @@ def _parse_tns_photometry(target_data):
             'observer': 'TNS',
             'facility': 'TNS',
             'tns_name': target_data.get('name'),
+            'matched_position': matched_position(target_data.get('ra'), target_data.get('dec')),
             'survey': survey,
             'tns_filter': raw_filter,
             'tns_observer': photo.get('observer'),

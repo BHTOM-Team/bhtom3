@@ -2,6 +2,7 @@ import csv
 import io
 import math
 import logging
+from custom_code.alias_astrometry import matched_position
 
 import requests
 from astropy.coordinates import SkyCoord
@@ -166,6 +167,7 @@ class GaiaAlertsDataService(DataService):
                 'name': alert_name,
                 'ra': ra,
                 'dec': dec,
+                'matched_position': matched_position(ra, dec),
                 'aliases': [{
                     'name': alert_name,
                     'url': _alert_page_url(alert_name),

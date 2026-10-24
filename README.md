@@ -168,6 +168,19 @@ Settings modules:
 
 ## DataServices
 
+Other Names shows each available match's spherical offset from the stored target
+coordinates, in arcseconds, followed by its propagated 1-sigma positional error.
+The target coordinates are treated as a fixed reference. Catalog coordinate errors
+(including covariance) take precedence; for services with repeated measured
+positions the error is the sample scatter, as identified in the value's tooltip.
+Missing coordinates or uncertainties are explicitly marked unavailable.
+
+Matched positions are retained in `TargetAliasInfo.matched_position`. Following the
+repository's local-migration convention, run `python manage.py makemigrations custom_code`
+and `python manage.py migrate` before starting updated web/worker processes. Existing
+aliases can use stored photometry positions immediately; refreshing a DataService
+populates match metadata for supported services whose old aliases lack it.
+
 All DataServices registered in `custom_code/apps.py`, in alphabetical order. The
 service name is the one shown in BHTOM and stored as the data's source name.
 

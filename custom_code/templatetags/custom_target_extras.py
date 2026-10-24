@@ -8,6 +8,7 @@ from urllib.parse import quote, urlencode
 from tom_dataproducts.models import ReducedDatum
 
 from custom_code.astrometry import can_compute_current_coordinates
+from custom_code.alias_astrometry import alias_offset, clean_matched_position, matched_position, position_from_samples
 from custom_code.finding_chart import SERVICE_CLASSES, fibre_overlays, survey_overlays
 from custom_code.sun_separation import get_live_target_values
 
@@ -111,7 +112,8 @@ def _data_service_other_names(target, existing_sources):
                     f'https://vsx.aavso.org/index.php?{urlencode({"view": "api.object", "ident": name})}'
                     if name else ''
                 )
-        rows.append({'source_name': service_name, 'name': name, 'url': url})
+        rows.append({'source_name': service_name, 'name': name, 'url': url,
+                     'matched_position': clean_matched_position(value.get('matched_position'))})
     return rows
 
 
@@ -131,11 +133,37 @@ def _target_other_names(target):
             'source_name': source_name,
             'name': alias.name,
             'url': url,
+            'matched_position': clean_matched_position(getattr(alias_info, 'matched_position', None)),
         })
     other_names.extend(_data_service_other_names(
         target,
         {row['source_name'] for row in other_names},
     ))
+    # Read only positional JSON keys, not the potentially large spectral arrays.
+    samples = {}
+    missing_sources = {row['source_name'] for row in other_names if not row.get('matched_position')}
+    # A source-wide centroid cannot identify which of several matched objects an
+    # alias refers to. Only use this fallback for a single alias from that source.
+    missing_sources = {
+        source for source in missing_sources
+        if sum(row['source_name'] == source for row in other_names) == 1
+    }
+    if missing_sources:
+        positions = ReducedDatum.objects.filter(
+            target=target, source_name__in=missing_sources, data_type='photometry',
+            value__has_key='origin_ra',
+        ).values_list('source_name', 'timestamp', 'value__origin_ra', 'value__origin_dec')
+        for source, timestamp, ra, dec in positions:
+            position = matched_position(ra, dec)
+            if position:
+                samples.setdefault(source, set()).add((timestamp, position['ra'], position['dec']))
+    source_positions = {
+        source: position_from_samples((ra, dec) for _timestamp, ra, dec in rows)
+        for source, rows in samples.items()
+    }
+    for row in other_names:
+        position = row.pop('matched_position', None) or source_positions.get(row['source_name'])
+        row.update(alias_offset(target.ra, target.dec, position))
     other_names.sort(key=lambda row: (row['source_name'].lower(), row['name'].lower()))
     target._bhtom_other_names = other_names
     return other_names
